@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/vmware/govmomi"
@@ -302,7 +303,7 @@ type VMMetrics struct {
 }
 
 // GetVMMetrics 获取虚拟机性能指标
-func (vc *VCenterClient) GetVMMetrics(datacenter, vmName string, startTime time.Time, endTime time.Time, cpuCount int32) (*VMMetrics, error) {
+func (vc *VCenterClient) GetVMMetrics(datacenter, vmName, vmUUID string, startTime time.Time, endTime time.Time, cpuCount int32) (*VMMetrics, error) {
 	finder := find.NewFinder(vc.client.Client, true)
 
 	// 设置数据中心
@@ -312,9 +313,9 @@ func (vc *VCenterClient) GetVMMetrics(datacenter, vmName string, startTime time.
 	}
 	finder.SetDatacenter(dc)
 
-	vm, err := finder.VirtualMachine(vc.ctx, vmName)
+	vm, resolvedVMName, err := vc.findVMByUUIDOrName(finder, vmName, vmUUID)
 	if err != nil {
-		return nil, fmt.Errorf("查找虚拟机失败: %w", err)
+		return nil, err
 	}
 
 	perfManager := performance.NewManager(vc.client.Client)
@@ -392,7 +393,7 @@ func (vc *VCenterClient) GetVMMetrics(datacenter, vmName string, startTime time.
 	}
 
 	result := &VMMetrics{
-		VMName: vmName,
+		VMName: resolvedVMName,
 	}
 
 	// 解析查询结果
@@ -467,4 +468,41 @@ func (vc *VCenterClient) GetVMMetrics(datacenter, vmName string, startTime time.
 	}
 
 	return result, nil
+}
+
+func (vc *VCenterClient) findVMByUUIDOrName(finder *find.Finder, vmName, vmUUID string) (*object.VirtualMachine, string, error) {
+	vms, err := finder.VirtualMachineList(vc.ctx, "*")
+	if err != nil {
+		return nil, "", fmt.Errorf("获取虚拟机列表失败: %w", err)
+	}
+
+	wantUUID := strings.ToLower(strings.TrimSpace(vmUUID))
+	if wantUUID != "" {
+		for _, vm := range vms {
+			var vmMo mo.VirtualMachine
+			if propErr := vm.Properties(vc.ctx, vm.Reference(), []string{"name", "summary.config.uuid"}, &vmMo); propErr != nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(vmMo.Summary.Config.Uuid), wantUUID) {
+				return vm, vmMo.Name, nil
+			}
+		}
+	}
+
+	wantName := strings.TrimSpace(vmName)
+	for _, vm := range vms {
+		var vmMo mo.VirtualMachine
+		if propErr := vm.Properties(vc.ctx, vm.Reference(), []string{"name"}, &vmMo); propErr != nil {
+			continue
+		}
+		if strings.TrimSpace(vmMo.Name) == wantName {
+			return vm, vmMo.Name, nil
+		}
+	}
+
+	if wantUUID != "" {
+		return nil, "", fmt.Errorf("查找虚拟机失败: 未找到 uuid=%s 且名称=%s 的虚拟机", vmUUID, vmName)
+	}
+
+	return nil, "", fmt.Errorf("查找虚拟机失败: 未找到名称=%s 的虚拟机", vmName)
 }

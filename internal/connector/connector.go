@@ -25,7 +25,7 @@ type Connector interface {
 	GetVMs() ([]VMInfo, error)
 
 	// GetVMMetrics 获取虚拟机性能指标
-	GetVMMetrics(datacenter, vmName string, startTime, endTime time.Time, cpuCount int32) (*VMMetrics, error)
+	GetVMMetrics(datacenter, vmName, vmUUID string, startTime, endTime time.Time, cpuCount int32) (*VMMetrics, error)
 }
 
 // NewConnector 创建连接器

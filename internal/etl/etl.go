@@ -25,16 +25,16 @@ func (p *Processor) ProcessCluster(connectionID uint, cluster connector.ClusterI
 	now := time.Now()
 
 	dbCluster := &storage.Cluster{
-		ConnectionID:  connectionID,
-		ClusterKey:    fmt.Sprintf("%s:%s", cluster.Datacenter, cluster.Name),
-		Name:          cluster.Name,
-		Datacenter:    cluster.Datacenter,
-		TotalCpu:      cluster.TotalCpu,
-		TotalMemory:   cluster.TotalMemory,
-		NumHosts:      cluster.NumHosts,
-		NumVMs:        cluster.NumVMs,
-		Status:        string(cluster.Status),
-		CollectedAt:   now,
+		ConnectionID: connectionID,
+		ClusterKey:   fmt.Sprintf("%s:%s", cluster.Datacenter, cluster.Name),
+		Name:         cluster.Name,
+		Datacenter:   cluster.Datacenter,
+		TotalCpu:     cluster.TotalCpu,
+		TotalMemory:  cluster.TotalMemory,
+		NumHosts:     cluster.NumHosts,
+		NumVMs:       cluster.NumVMs,
+		Status:       string(cluster.Status),
+		CollectedAt:  now,
 	}
 
 	return p.repos.Cluster.UpdateOrCreate(dbCluster)
@@ -45,19 +45,19 @@ func (p *Processor) ProcessHost(connectionID uint, host connector.HostInfo) erro
 	now := time.Now()
 
 	dbHost := &storage.Host{
-		ConnectionID:   connectionID,
-		HostKey:        fmt.Sprintf("%s:%s", host.Datacenter, host.Name),
-		Name:           host.Name,
-		Datacenter:     host.Datacenter,
-		IPAddress:      host.IPAddress,
-		CpuCores:       host.CpuCores,
-		CpuMhz:         host.CpuMhz,
-		Memory:         host.Memory,
-		NumVMs:         host.NumVMs,
+		ConnectionID:    connectionID,
+		HostKey:         fmt.Sprintf("%s:%s", host.Datacenter, host.Name),
+		Name:            host.Name,
+		Datacenter:      host.Datacenter,
+		IPAddress:       host.IPAddress,
+		CpuCores:        host.CpuCores,
+		CpuMhz:          host.CpuMhz,
+		Memory:          host.Memory,
+		NumVMs:          host.NumVMs,
 		ConnectionState: string(host.Connection),
-		PowerState:     string(host.PowerState),
-		OverallStatus:  string(host.OverallStatus),
-		CollectedAt:    now,
+		PowerState:      string(host.PowerState),
+		OverallStatus:   string(host.OverallStatus),
+		CollectedAt:     now,
 	}
 
 	return p.repos.Host.UpdateOrCreate(dbHost)
@@ -68,22 +68,34 @@ func (p *Processor) ProcessVM(connectionID uint, vm connector.VMInfo) error {
 	now := time.Now()
 
 	dbVM := &storage.VM{
-		ConnectionID:   connectionID,
-		VMKey:          fmt.Sprintf("%s:%s", vm.Datacenter, vm.Name),
-		UUID:           vm.UUID,
-		Name:           vm.Name,
-		Datacenter:     vm.Datacenter,
-		CpuCount:       vm.CpuCount,
-		MemoryMB:       vm.MemoryMB,
-		PowerState:     string(vm.PowerState),
-		IPAddress:      vm.IPAddress,
-		GuestOS:        vm.GuestOS,
-		HostName:       vm.HostName,
-		OverallStatus:  string(vm.OverallStatus),
-		CollectedAt:    now,
+		ConnectionID:  connectionID,
+		VMKey:         buildVMKey(vm),
+		UUID:          vm.UUID,
+		Name:          vm.Name,
+		Datacenter:    vm.Datacenter,
+		CpuCount:      vm.CpuCount,
+		MemoryMB:      vm.MemoryMB,
+		PowerState:    string(vm.PowerState),
+		IPAddress:     vm.IPAddress,
+		GuestOS:       vm.GuestOS,
+		HostName:      vm.HostName,
+		OverallStatus: string(vm.OverallStatus),
+		CollectedAt:   now,
 	}
 
 	return p.repos.VM.UpdateOrCreate(dbVM)
+}
+
+func buildVMKey(vm connector.VMInfo) string {
+	if strings.TrimSpace(vm.UUID) != "" {
+		return "uuid:" + strings.ToLower(strings.TrimSpace(vm.UUID))
+	}
+
+	if strings.TrimSpace(vm.Datacenter) != "" {
+		return fmt.Sprintf("%s:%s", strings.TrimSpace(vm.Datacenter), strings.TrimSpace(vm.Name))
+	}
+
+	return strings.TrimSpace(vm.Name)
 }
 
 // ProcessVMMetrics 处理虚拟机性能指标

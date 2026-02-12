@@ -3,6 +3,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"justfit/internal/analyzer"
@@ -84,12 +85,29 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 
 	// 如果需要采集性能指标
 	metricCount := 0
+	metricScope := ""
+	failedVMCount := 0
+	failedMetricCount := 0
+	metricReasons := []string{}
 	if containsString(dataTypes, "metrics") && metricsDays > 0 {
-		metricCount, err = e.collector.CollectMetrics(ctx, connectionID, metricsDays, password)
+		metricStats, metricErr := e.collector.CollectMetrics(ctx, connectionID, metricsDays, password)
+		if metricStats != nil {
+			metricCount = metricStats.CollectedMetricCount
+			metricScope = metricStats.Scope
+			failedVMCount = metricStats.FailedVMCount
+			failedMetricCount = metricStats.FailedMetricCount
+			metricReasons = metricStats.Reasons
+		}
+
+		err = metricErr
 		if err != nil {
 			// 性能指标采集失败不影响基础数据采集结果
 			fmt.Printf("采集性能指标失败: %v\n", err)
 		}
+	}
+
+	if snapshotErr := e.captureTaskVMSnapshots(t.ID, connectionID); snapshotErr != nil {
+		fmt.Printf("保存任务虚拟机快照失败 task=%d: %v\n", t.ID, snapshotErr)
 	}
 
 	progressCh <- 100
@@ -98,11 +116,15 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 		Success: true,
 		Message: "采集成功",
 		Data: map[string]interface{}{
-			"clusters": result.Clusters,
-			"hosts":    result.Hosts,
-			"vms":      result.VMs,
-			"metrics":  metricCount,
-			"duration": result.Duration.Milliseconds(),
+			"clusters":             result.Clusters,
+			"hosts":                result.Hosts,
+			"vms":                  result.VMs,
+			"metrics":              metricCount,
+			"metrics_scope":        metricScope,
+			"metrics_failed_vms":   failedVMCount,
+			"metrics_failed_count": failedMetricCount,
+			"metrics_reasons":      metricReasons,
+			"duration":             result.Duration.Milliseconds(),
 		},
 	}, nil
 }
@@ -186,6 +208,10 @@ func (e *AnalysisExecutor) Execute(ctx context.Context, t *task.Task, progressCh
 		}, err
 	}
 
+	if saveErr := e.saveTaskAnalysisResult(t.ID, analysisType, result); saveErr != nil {
+		fmt.Printf("保存任务分析结果失败 task=%d type=%s: %v\n", t.ID, analysisType, saveErr)
+	}
+
 	return &task.TaskResult{
 		Success: true,
 		Message: "分析成功",
@@ -194,6 +220,50 @@ func (e *AnalysisExecutor) Execute(ctx context.Context, t *task.Task, progressCh
 			"result":        result,
 		},
 	}, nil
+}
+
+func (e *CollectionExecutor) captureTaskVMSnapshots(taskID, connectionID uint) error {
+	vms, err := e.repos.VM.ListByConnectionID(connectionID)
+	if err != nil {
+		return fmt.Errorf("获取虚拟机列表失败: %w", err)
+	}
+
+	snapshots := make([]storage.TaskVMSnapshot, 0, len(vms))
+	for _, vm := range vms {
+		snapshots = append(snapshots, storage.TaskVMSnapshot{
+			TaskID:        taskID,
+			ConnectionID:  connectionID,
+			VMKey:         vm.VMKey,
+			UUID:          vm.UUID,
+			Name:          vm.Name,
+			Datacenter:    vm.Datacenter,
+			CpuCount:      vm.CpuCount,
+			MemoryMB:      vm.MemoryMB,
+			PowerState:    vm.PowerState,
+			IPAddress:     vm.IPAddress,
+			GuestOS:       vm.GuestOS,
+			HostName:      vm.HostName,
+			OverallStatus: vm.OverallStatus,
+			CollectedAt:   vm.CollectedAt,
+		})
+	}
+
+	return e.repos.TaskVMSnapshot.ReplaceByTaskID(taskID, snapshots)
+}
+
+func (e *AnalysisExecutor) saveTaskAnalysisResult(taskID uint, analysisType string, result interface{}) error {
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("序列化分析结果失败: %w", err)
+	}
+
+	record := &storage.TaskAnalysisResult{
+		TaskID:       taskID,
+		AnalysisType: analysisType,
+		Data:         string(payload),
+	}
+
+	return e.repos.TaskAnalysis.Create(record)
 }
 
 // executeZombieVMAnalysis 执行僵尸VM分析
@@ -213,16 +283,16 @@ func (e *AnalysisExecutor) executeZombieVMAnalysis(connectionID uint, config map
 	output := make([]map[string]interface{}, len(results))
 	for i, r := range results {
 		output[i] = map[string]interface{}{
-			"vm_name":       r.VMName,
-			"datacenter":    r.Datacenter,
-			"host":          r.Host,
-			"cpu_count":     r.CPUCount,
-			"memory_mb":     r.MemoryMB,
-			"cpu_usage":     r.CPUUsage,
-			"memory_usage":  r.MemoryUsage,
-			"confidence":    r.Confidence,
+			"vm_name":        r.VMName,
+			"datacenter":     r.Datacenter,
+			"host":           r.Host,
+			"cpu_count":      r.CPUCount,
+			"memory_mb":      r.MemoryMB,
+			"cpu_usage":      r.CPUUsage,
+			"memory_usage":   r.MemoryUsage,
+			"confidence":     r.Confidence,
 			"days_low_usage": r.DaysLowUsage,
-			"evidence":      r.Evidence,
+			"evidence":       r.Evidence,
 			"recommendation": r.Recommendation,
 		}
 	}

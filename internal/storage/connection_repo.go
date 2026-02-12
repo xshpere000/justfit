@@ -281,6 +281,97 @@ func (r *TaskRepository) List(limit, offset int) ([]Task, error) {
 	return tasks, err
 }
 
+// TaskVMSnapshotRepository 任务虚拟机快照仓储
+type TaskVMSnapshotRepository struct {
+	db *gorm.DB
+}
+
+// NewTaskVMSnapshotRepository 创建任务虚拟机快照仓储
+func NewTaskVMSnapshotRepository() *TaskVMSnapshotRepository {
+	return &TaskVMSnapshotRepository{db: DB}
+}
+
+// ReplaceByTaskID 替换任务快照
+func (r *TaskVMSnapshotRepository) ReplaceByTaskID(taskID uint, snapshots []TaskVMSnapshot) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("task_id = ?", taskID).Delete(&TaskVMSnapshot{}).Error; err != nil {
+			return err
+		}
+
+		if len(snapshots) == 0 {
+			return nil
+		}
+
+		return tx.CreateInBatches(snapshots, 100).Error
+	})
+}
+
+// ListByTaskID 获取任务快照列表
+func (r *TaskVMSnapshotRepository) ListByTaskID(taskID uint, limit, offset int, keyword string) ([]TaskVMSnapshot, int64, error) {
+	query := r.db.Model(&TaskVMSnapshot{}).Where("task_id = ?", taskID)
+	if keyword != "" {
+		kw := "%" + keyword + "%"
+		query = query.Where("name LIKE ? OR host_name LIKE ? OR datacenter LIKE ?", kw, kw, kw)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+
+	var snapshots []TaskVMSnapshot
+	err := query.Order("name ASC").Find(&snapshots).Error
+	return snapshots, total, err
+}
+
+// CountByTaskID 统计任务快照数量
+func (r *TaskVMSnapshotRepository) CountByTaskID(taskID uint) (int64, error) {
+	var total int64
+	err := r.db.Model(&TaskVMSnapshot{}).Where("task_id = ?", taskID).Count(&total).Error
+	return total, err
+}
+
+// TaskAnalysisResultRepository 任务分析结果仓储
+type TaskAnalysisResultRepository struct {
+	db *gorm.DB
+}
+
+// NewTaskAnalysisResultRepository 创建任务分析结果仓储
+func NewTaskAnalysisResultRepository() *TaskAnalysisResultRepository {
+	return &TaskAnalysisResultRepository{db: DB}
+}
+
+// Create 创建任务分析结果
+func (r *TaskAnalysisResultRepository) Create(result *TaskAnalysisResult) error {
+	return r.db.Create(result).Error
+}
+
+// GetByTaskAndType 根据任务和分析类型获取最新结果
+func (r *TaskAnalysisResultRepository) GetByTaskAndType(taskID uint, analysisType string) (*TaskAnalysisResult, error) {
+	var result TaskAnalysisResult
+	err := r.db.Where("task_id = ? AND analysis_type = ?", taskID, analysisType).
+		Order("created_at DESC").
+		First(&result).Error
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ListByTaskID 获取任务所有分析结果
+func (r *TaskAnalysisResultRepository) ListByTaskID(taskID uint) ([]TaskAnalysisResult, error) {
+	var results []TaskAnalysisResult
+	err := r.db.Where("task_id = ?", taskID).Order("created_at DESC").Find(&results).Error
+	return results, err
+}
+
 // ReportRepository 报告仓储
 type ReportRepository struct {
 	db *gorm.DB

@@ -1,7 +1,7 @@
 # JustFit Backend API Reference
 
 **Version**: 0.0.1
-**Last Updated**: 2026-02-09
+**Last Updated**: 2026-02-12
 **Protocol**: Wails IPC (Go Backend ↔ Frontend)
 
 ---
@@ -241,7 +241,82 @@ interface TaskInfo {
 
 获取任务详情。
 
-**方法**: `GetTask(id uint) (*TaskInfo, error)**
+**方法**: `GetTask(id uint) (*TaskInfo, error)`
+
+---
+
+### GetTaskDetail
+
+获取任务详情（任务维度扩展字段）。
+
+**方法**: `GetTaskDetail(taskID uint) (*TaskDetail, error)`
+
+**返回参数**:
+```typescript
+interface TaskDetail {
+  id: number;
+  type: string;
+  name: string;
+  status: string;
+  progress: number;
+  error?: string;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+  connection_id: number;
+  platform: string;
+  selected_vms: string[];
+  total_vms: number;
+  collected_vms: number;
+  current_step: string;
+  analysis_results: {
+    zombie: boolean;
+    rightsize: boolean;
+    tidal: boolean;
+    health: boolean;
+  };
+  result?: Record<string, any>;
+}
+```
+
+---
+
+### ListTaskVMs
+
+获取任务快照维度 VM 列表（避免使用连接当前态）。
+
+**方法**: `ListTaskVMs(taskID uint, limit int, offset int, keyword string) ([]VMListItem, int, error)`
+
+**请求参数**:
+```typescript
+interface ListTaskVMsRequest {
+  task_id: number;
+  limit?: number;
+  offset?: number;
+  keyword?: string;
+}
+```
+
+**返回参数**:
+```typescript
+type ListTaskVMsResponse = [VMListItem[], number]; // [列表, 总数]
+```
+
+---
+
+### GetTaskAnalysisResult
+
+按任务维度获取分析结果。
+
+**方法**: `GetTaskAnalysisResult(taskID uint, analysisType string) (interface{}, error)`
+
+**请求参数**:
+```typescript
+interface GetTaskAnalysisResultRequest {
+  task_id: number;
+  analysis_type?: string; // zombie_vm | right_size | tidal | health_score；为空返回全部
+}
+```
 
 ---
 
@@ -700,6 +775,24 @@ interface ExportReportRequest {
   report_id: number;
   format: string;      // "json" | "html" | "xlsx"
   output_dir?: string; // 可选，默认临时目录
+}
+```
+
+**返回参数**: 导出文件的完整路径
+
+---
+
+### ExportTaskReport
+
+按任务维度导出报告。
+
+**方法**: `ExportTaskReport(taskID uint, format string) (string, error)`
+
+**请求参数**:
+```typescript
+interface ExportTaskReportRequest {
+  task_id: number;
+  format?: string; // "json" | "html" | "xlsx"，默认 json
 }
 ```
 

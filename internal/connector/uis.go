@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vmware/govmomi/vim25/types"
 )
 
 // UISConnector H3C UIS 连接器
@@ -23,10 +25,38 @@ type UISConnector struct {
 
 // UISVMInfo UIS 虚拟机信息
 type UISVMInfo struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	CpuCount int    `json:"cpuCount,omitempty"`
-	MemoryMB int    `json:"memoryMB,omitempty"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	UUID        string `json:"uuid,omitempty"`
+	ClusterID   int    `json:"clusterId,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	HostID      int    `json:"hostId,omitempty"`
+	HostName    string `json:"hostName,omitempty"`
+	PowerState  string `json:"vmStatus,omitempty"`
+	GuestOS     string `json:"osDesc,omitempty"`
+	IPAddress   string `json:"ipAddr,omitempty"`
+	CpuCount    int    `json:"cpuCount,omitempty"`
+	MemoryMB    int    `json:"memoryMB,omitempty"`
+}
+
+type UISClusterInfo struct {
+	ID           int
+	HostPoolID   int
+	HostPoolName string
+	Name         string
+	EnableHA     int
+	EnableLB     int
+	Priority     int
+}
+
+type UISHostInfo struct {
+	HostPoolID   int
+	HostPoolName string
+	HostID       int
+	HostName     string
+	HostIP       string
+	HostStatus   int
+	HAEnable     int
 }
 
 // UISReportType UIS 报表类型
@@ -182,75 +212,187 @@ func (c *UISConnector) GetVMList() ([]UISVMInfo, error) {
 			continue
 		}
 
-		// 获取虚拟机 ID
-		var id int
-		if v, ok := vm["id"].(float64); ok {
-			id = int(v)
-		}
-
-		// 获取虚拟机名称
-		var name string
-		if v, ok := vm["name"].(string); ok {
-			name = v
-		}
-
-		// 获取 CPU 数量 (字段名: cpu)
-		cpu := 0
-		if v, ok := vm["cpu"].(float64); ok {
-			cpu = int(v)
-		}
-
-		// 获取内存大小 (字段名: memory, 单位: MB)
-		mem := 0
-		if v, ok := vm["memory"].(float64); ok {
-			mem = int(v)
+		id := toInt(vm["id"])
+		name := toString(vm["name"])
+		cpu := toInt(vm["cpu"])
+		mem := toInt(vm["memory"])
+		ipAddr := toString(vm["ipAddr"])
+		if ipAddr == "" {
+			ipAddr = firstIPv4FromAttributes(vm["ipv4Attributes"])
 		}
 
 		vms = append(vms, UISVMInfo{
-			ID:       id,
-			Name:     name,
-			CpuCount: cpu,
-			MemoryMB: mem,
+			ID:          id,
+			Name:        name,
+			UUID:        toString(vm["uuid"]),
+			ClusterID:   toInt(vm["clusterId"]),
+			ClusterName: toString(vm["clusterName"]),
+			HostID:      toInt(vm["hostId"]),
+			HostName:    toString(vm["hostName"]),
+			PowerState:  toString(vm["vmStatus"]),
+			GuestOS:     toString(vm["osDesc"]),
+			IPAddress:   ipAddr,
+			CpuCount:    cpu,
+			MemoryMB:    mem,
 		})
 	}
 
 	return vms, nil
 }
 
-// GetClusters 获取集群信息 (UIS 没有集群概念)
-func (c *UISConnector) GetClusters() ([]ClusterInfo, error) {
-	return []ClusterInfo{
-		{
-			Name:        "H3C UIS 平台",
-			Datacenter:  "default",
-			TotalCpu:    0,
-			TotalMemory: 0,
-			NumHosts:    0,
-			NumVMs:      0,
-		},
-	}, nil
+// GetClusterList 获取集群概要信息
+func (c *UISConnector) GetClusterList() ([]UISClusterInfo, error) {
+	url := fmt.Sprintf("https://%s/uis/cluster/clusterInfo/basic", c.config.Host)
+
+	resp, err := c.get(url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("获取集群概要失败: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, fmt.Errorf("解析集群概要响应失败: %w", err)
+	}
+
+	data, ok := result["data"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("无效的响应数据格式: 缺少 data")
+	}
+
+	clusters := make([]UISClusterInfo, 0, len(data))
+	for _, item := range data {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		clusters = append(clusters, UISClusterInfo{
+			ID:           toInt(m["id"]),
+			HostPoolID:   toInt(m["hostPoolId"]),
+			HostPoolName: toString(m["hostPoolName"]),
+			Name:         toString(m["name"]),
+			EnableHA:     toInt(m["enableHA"]),
+			EnableLB:     toInt(m["enableLB"]),
+			Priority:     toInt(m["priority"]),
+		})
+	}
+
+	return clusters, nil
 }
 
-// GetHosts 获取主机信息 (UIS 没有主机概念)
-func (c *UISConnector) GetHosts() ([]HostInfo, error) {
-	vms, err := c.GetVMList()
+// GetHostList 获取主机概要信息
+func (c *UISConnector) GetHostList() ([]UISHostInfo, error) {
+	url := fmt.Sprintf("https://%s/uis/host/summary", c.config.Host)
+
+	resp, err := c.get(url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("获取主机概要失败: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return nil, fmt.Errorf("解析主机概要响应失败: %w", err)
+	}
+
+	data, ok := result["data"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("无效的响应数据格式: 缺少 data")
+	}
+
+	hosts := make([]UISHostInfo, 0, len(data))
+	for _, item := range data {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		hosts = append(hosts, UISHostInfo{
+			HostPoolID:   toInt(m["hpId"]),
+			HostPoolName: toString(m["hpName"]),
+			HostID:       toInt(m["hostId"]),
+			HostName:     toString(m["hostName"]),
+			HostIP:       toString(m["hostIp"]),
+			HostStatus:   toInt(m["hostStatus"]),
+			HAEnable:     toInt(m["haEnable"]),
+		})
+	}
+
+	return hosts, nil
+}
+
+// GetClusters 获取集群信息
+func (c *UISConnector) GetClusters() ([]ClusterInfo, error) {
+	clusters, err := c.GetClusterList()
 	if err != nil {
 		return nil, err
 	}
 
-	hosts := make([]HostInfo, len(vms))
-	for i, vm := range vms {
-		hosts[i] = HostInfo{
-			Name:       vm.Name,
-			IPAddress:  "",
-			CpuCores:   0,
-			Memory:     0,
-			NumVMs:     1,
-			PowerState: "poweredOn",
+	vms, _ := c.GetVMList()
+	vmsByCluster := make(map[int]int)
+	for _, vm := range vms {
+		if vm.ClusterID > 0 {
+			vmsByCluster[vm.ClusterID]++
 		}
 	}
 
-	return hosts, nil
+	result := make([]ClusterInfo, 0, len(clusters))
+	for _, cluster := range clusters {
+		status := "green"
+		if cluster.EnableHA == 0 {
+			status = "yellow"
+		}
+
+		result = append(result, ClusterInfo{
+			Name:        cluster.Name,
+			Datacenter:  cluster.HostPoolName,
+			TotalCpu:    0,
+			TotalMemory: 0,
+			NumHosts:    0,
+			NumVMs:      vmsByCluster[cluster.ID],
+			Status:      types.ManagedEntityStatus(status),
+		})
+	}
+
+	return result, nil
+}
+
+// GetHosts 获取主机信息
+func (c *UISConnector) GetHosts() ([]HostInfo, error) {
+	hosts, err := c.GetHostList()
+	if err != nil {
+		return nil, err
+	}
+
+	vms, _ := c.GetVMList()
+	vmsByHost := make(map[int]int)
+	for _, vm := range vms {
+		if vm.HostID > 0 {
+			vmsByHost[vm.HostID]++
+		}
+	}
+
+	result := make([]HostInfo, 0, len(hosts))
+	for _, host := range hosts {
+		connection := "connected"
+		if host.HostStatus == 0 {
+			connection = "disconnected"
+		}
+
+		result = append(result, HostInfo{
+			Name:          host.HostName,
+			Datacenter:    host.HostPoolName,
+			IPAddress:     host.HostIP,
+			CpuCores:      0,
+			CpuMhz:        0,
+			Memory:        0,
+			NumVMs:        vmsByHost[host.HostID],
+			Connection:    types.HostSystemConnectionState(connection),
+			PowerState:    "poweredOn",
+			OverallStatus: types.ManagedEntityStatus(connection),
+		})
+	}
+
+	return result, nil
 }
 
 // GetVMs 获取虚拟机信息
@@ -262,11 +404,23 @@ func (c *UISConnector) GetVMs() ([]VMInfo, error) {
 
 	result := make([]VMInfo, len(vms))
 	for i, vm := range vms {
+		powerState := mapUISPowerState(vm.PowerState)
+		overallStatus := "green"
+		if powerState != "poweredOn" {
+			overallStatus = "gray"
+		}
+
 		result[i] = VMInfo{
-			Name:       vm.Name,
-			PowerState: "poweredOn",
-			CpuCount:   int32(vm.CpuCount),
-			MemoryMB:   int32(vm.MemoryMB),
+			Name:          vm.Name,
+			Datacenter:    vm.ClusterName,
+			CpuCount:      int32(vm.CpuCount),
+			MemoryMB:      int32(vm.MemoryMB),
+			PowerState:    types.VirtualMachinePowerState(powerState),
+			IPAddress:     vm.IPAddress,
+			GuestOS:       vm.GuestOS,
+			HostName:      vm.HostName,
+			OverallStatus: types.ManagedEntityStatus(overallStatus),
+			UUID:          vm.UUID,
 		}
 	}
 
@@ -274,7 +428,7 @@ func (c *UISConnector) GetVMs() ([]VMInfo, error) {
 }
 
 // GetVMMetrics 获取虚拟机性能指标
-func (c *UISConnector) GetVMMetrics(datacenter, vmName string, startTime, endTime time.Time, cpuCount int32) (*VMMetrics, error) {
+func (c *UISConnector) GetVMMetrics(datacenter, vmName, vmUUID string, startTime, endTime time.Time, cpuCount int32) (*VMMetrics, error) {
 	vms, err := c.GetVMList()
 	if err != nil {
 		return nil, err
@@ -284,7 +438,14 @@ func (c *UISConnector) GetVMMetrics(datacenter, vmName string, startTime, endTim
 	var vmCpuCount int
 	var vmMemoryMB int
 	for _, vm := range vms {
-		if vm.Name == vmName {
+		if strings.TrimSpace(vmUUID) != "" && strings.EqualFold(strings.TrimSpace(vm.UUID), strings.TrimSpace(vmUUID)) {
+			vmID = vm.ID
+			vmCpuCount = vm.CpuCount
+			vmMemoryMB = vm.MemoryMB
+			break
+		}
+
+		if strings.TrimSpace(vmUUID) == "" && vm.Name == vmName {
 			vmID = vm.ID
 			vmCpuCount = vm.CpuCount
 			vmMemoryMB = vm.MemoryMB
@@ -309,9 +470,13 @@ func (c *UISConnector) GetVMMetrics(datacenter, vmName string, startTime, endTim
 		NetRx:     []MetricSample{},
 		NetTx:     []MetricSample{},
 	}
+	metricErrs := make([]string, 0)
 
 	// 获取 CPU 数据
-	cpuData, _ := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportCPU)
+	cpuData, err := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportCPU)
+	if err != nil {
+		metricErrs = append(metricErrs, fmt.Sprintf("cpu: %v", err))
+	}
 	cpuSamples := parseMetricSamples(cpuData)
 	// 转换百分比为绝对值 (Core)
 	if vmCpuCount > 0 {
@@ -322,7 +487,10 @@ func (c *UISConnector) GetVMMetrics(datacenter, vmName string, startTime, endTim
 	metrics.CPU = cpuSamples
 
 	// 获取内存数据
-	memData, _ := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportMemory)
+	memData, err := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportMemory)
+	if err != nil {
+		metricErrs = append(metricErrs, fmt.Sprintf("memory: %v", err))
+	}
 	memSamples := parseMetricSamples(memData)
 	// 转换百分比为绝对值 (MB)
 	if vmMemoryMB > 0 {
@@ -333,20 +501,36 @@ func (c *UISConnector) GetVMMetrics(datacenter, vmName string, startTime, endTim
 	metrics.Memory = memSamples
 
 	// 获取磁盘读数据
-	diskReadData, _ := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportDiskRead)
+	diskReadData, err := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportDiskRead)
+	if err != nil {
+		metricErrs = append(metricErrs, fmt.Sprintf("disk_read: %v", err))
+	}
 	metrics.DiskRead = parseMetricSamples(diskReadData)
 
 	// 获取磁盘写数据
-	diskWriteData, _ := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportDiskWrite)
+	diskWriteData, err := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportDiskWrite)
+	if err != nil {
+		metricErrs = append(metricErrs, fmt.Sprintf("disk_write: %v", err))
+	}
 	metrics.DiskWrite = parseMetricSamples(diskWriteData)
 
 	// 获取网络入流量
-	netRxData, _ := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportNetIn)
+	netRxData, err := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportNetIn)
+	if err != nil {
+		metricErrs = append(metricErrs, fmt.Sprintf("net_in: %v", err))
+	}
 	metrics.NetRx = parseMetricSamples(netRxData)
 
 	// 获取网络出流量
-	netTxData, _ := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportNetOut)
+	netTxData, err := c.GetVMReport(vmID, startStr, endStr, cycle, UISReportNetOut)
+	if err != nil {
+		metricErrs = append(metricErrs, fmt.Sprintf("net_out: %v", err))
+	}
 	metrics.NetTx = parseMetricSamples(netTxData)
+
+	if len(metricErrs) > 0 && len(metrics.CPU) == 0 && len(metrics.Memory) == 0 && len(metrics.DiskRead) == 0 && len(metrics.DiskWrite) == 0 && len(metrics.NetRx) == 0 && len(metrics.NetTx) == 0 {
+		return nil, fmt.Errorf("采集虚拟机指标失败: %s", strings.Join(metricErrs, "; "))
+	}
 
 	return metrics, nil
 }
@@ -358,6 +542,22 @@ func parseMetricSamples(data []interface{}) []MetricSample {
 	for _, item := range data {
 		point, ok := item.(map[string]interface{})
 		if !ok {
+			continue
+		}
+
+		if listVal, ok := point["list"].([]interface{}); ok {
+			for _, raw := range listVal {
+				entry, ok := raw.(map[string]interface{})
+				if !ok {
+					continue
+				}
+
+				ts := parseMetricTime(toString(entry["name"]))
+				val := toFloat(entry["rate"])
+				if !ts.IsZero() {
+					samples = append(samples, MetricSample{Timestamp: ts, Value: val})
+				}
+			}
 			continue
 		}
 
@@ -385,6 +585,117 @@ func parseMetricSamples(data []interface{}) []MetricSample {
 	}
 
 	return samples
+}
+
+func toInt(v interface{}) int {
+	switch val := v.(type) {
+	case float64:
+		return int(val)
+	case int:
+		return val
+	case int32:
+		return int(val)
+	case int64:
+		return int(val)
+	case string:
+		i, _ := strconv.Atoi(val)
+		return i
+	default:
+		return 0
+	}
+}
+
+func toString(v interface{}) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func toFloat(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func firstIPv4FromAttributes(v interface{}) string {
+	attrs, ok := v.([]interface{})
+	if !ok {
+		return ""
+	}
+
+	for _, attr := range attrs {
+		m, ok := attr.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		ipv4s, ok := m["ipv4s"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, ip := range ipv4s {
+			ipm, ok := ip.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			addr := toString(ipm["ipAddress"])
+			if addr != "" {
+				return addr
+			}
+		}
+	}
+
+	return ""
+}
+
+func mapUISPowerState(vmStatus string) string {
+	status := strings.ToLower(vmStatus)
+	switch status {
+	case "running", "poweron", "poweredon", "started":
+		return "poweredOn"
+	case "shutoff", "poweroff", "poweredoff", "stopped":
+		return "poweredOff"
+	case "suspended", "pause", "paused":
+		return "suspended"
+	default:
+		return "poweredOff"
+	}
+}
+
+func parseMetricTime(raw string) time.Time {
+	if raw == "" {
+		return time.Time{}
+	}
+
+	formats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15",
+		"2006-01-02",
+		"2006-01",
+		"2006",
+	}
+
+	for _, layout := range formats {
+		if ts, err := time.Parse(layout, raw); err == nil {
+			return ts
+		}
+	}
+
+	return time.Time{}
 }
 
 // GetVMReport 获取虚拟机报表数据

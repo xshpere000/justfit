@@ -23,10 +23,10 @@ const (
 type TaskType string
 
 const (
-	TypeCollection  TaskType = "collection"  // 数据采集
-	TypeAnalysis    TaskType = "analysis"    // 分析任务
-	TypeReport      TaskType = "report"      // 报告生成
-	TypeSync        TaskType = "sync"        // 数据同步
+	TypeCollection TaskType = "collection" // 数据采集
+	TypeAnalysis   TaskType = "analysis"   // 分析任务
+	TypeReport     TaskType = "report"     // 报告生成
+	TypeSync       TaskType = "sync"       // 数据同步
 )
 
 // Task 任务定义
@@ -38,6 +38,7 @@ type Task struct {
 	Status      TaskStatus             `json:"status"`
 	Progress    float64                `json:"progress"`
 	Config      map[string]interface{} `json:"config"`
+	Result      map[string]interface{} `json:"result,omitempty"`
 	Error       string                 `json:"error,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	StartedAt   *time.Time             `json:"started_at,omitempty"`
@@ -204,6 +205,7 @@ func (s *Scheduler) completeTask(task *Task, result *TaskResult, err error) {
 		task.Error = err.Error()
 	} else if result.Success {
 		task.Status = StatusCompleted
+		task.Result = result.Data
 	} else {
 		task.Status = StatusFailed
 		task.Error = result.Message
@@ -461,14 +463,14 @@ func (s *Scheduler) Shutdown(timeout time.Duration) error {
 
 // Stats 获取统计信息
 type Stats struct {
-	Total     int            `json:"total"`
-	Pending   int            `json:"pending"`
-	Running   int            `json:"running"`
-	Completed int            `json:"completed"`
-	Failed    int            `json:"failed"`
-	Cancelled int            `json:"cancelled"`
-	Workers   int            `json:"workers"`
-	QueueSize int            `json:"queue_size"`
+	Total     int `json:"total"`
+	Pending   int `json:"pending"`
+	Running   int `json:"running"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	Cancelled int `json:"cancelled"`
+	Workers   int `json:"workers"`
+	QueueSize int `json:"queue_size"`
 }
 
 // GetStats 获取统计信息

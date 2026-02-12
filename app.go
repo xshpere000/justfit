@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"gorm.io/gorm"
 
 	"justfit/internal/analyzer"
 	"justfit/internal/connector"
@@ -172,7 +175,6 @@ func (a *App) GetDashboardStats() (*DashboardStats, error) {
 		TotalVMs:     totalVMs,
 	}, nil
 }
-
 
 // ========== 连接管理服务 ==========
 
@@ -445,10 +447,13 @@ func (a *App) CollectData(config CollectionConfig) (*CollectionResult, error) {
 	metricCount := 0
 	if contains(config.DataTypes, "metrics") && config.MetricsDays > 0 {
 		// 采集性能指标
-		metricCount, err = a.collector.CollectMetrics(a.ctx, config.ConnectionID, config.MetricsDays, password)
-		if err != nil {
+		metricStats, metricErr := a.collector.CollectMetrics(a.ctx, config.ConnectionID, config.MetricsDays, password)
+		if metricStats != nil {
+			metricCount = metricStats.CollectedMetricCount
+		}
+		if metricErr != nil {
 			// 性能指标采集失败不影响基础数据采集结果
-			fmt.Printf("采集性能指标失败: %v\n", err)
+			fmt.Printf("采集性能指标失败: %v\n", metricErr)
 		}
 	}
 
@@ -486,6 +491,19 @@ type TaskInfo struct {
 	CreatedAt   string  `json:"created_at"`
 	StartedAt   *string `json:"started_at,omitempty"`
 	CompletedAt *string `json:"completed_at,omitempty"`
+}
+
+// TaskDetail 任务详情（任务维度）
+type TaskDetail struct {
+	TaskInfo
+	ConnectionID    uint                   `json:"connection_id"`
+	Platform        string                 `json:"platform"`
+	SelectedVMs     []string               `json:"selected_vms"`
+	TotalVMs        int                    `json:"total_vms"`
+	CollectedVMs    int                    `json:"collected_vms"`
+	CurrentStep     string                 `json:"current_step"`
+	AnalysisResults map[string]bool        `json:"analysis_results"`
+	Result          map[string]interface{} `json:"result,omitempty"`
 }
 
 // CreateCollectTask 创建采集任务
@@ -583,6 +601,226 @@ func (a *App) GetTask(id uint) (*TaskInfo, error) {
 	}
 
 	return result, nil
+}
+
+// GetTaskDetail 获取任务详情扩展字段
+func (a *App) GetTaskDetail(taskID uint) (*TaskDetail, error) {
+	t, err := a.taskScheduler.Get(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	base, err := a.GetTask(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	connectionID := configUint(t.Config, "connection_id")
+	selectedVMs := configStringSlice(t.Config, "selected_vms")
+	platform := ""
+	if connectionID > 0 {
+		if conn, connErr := a.repos.Connection.GetByID(connectionID); connErr == nil {
+			platform = conn.Platform
+		}
+	}
+
+	totalVMs := configInt(t.Config, "total_vms")
+	if totalVMs == 0 {
+		if v, ok := t.Result["vms"].(int); ok {
+			totalVMs = v
+		} else if v, ok := t.Result["vms"].(float64); ok {
+			totalVMs = int(v)
+		}
+	}
+
+	snapshotCount, snapshotErr := a.repos.TaskVMSnapshot.CountByTaskID(taskID)
+	if snapshotErr == nil && totalVMs == 0 {
+		totalVMs = int(snapshotCount)
+	}
+
+	collectedVMs := totalVMs
+	if t.Status == task.StatusPending {
+		collectedVMs = 0
+	}
+
+	analysisFlags := map[string]bool{
+		"zombie":    false,
+		"rightsize": false,
+		"tidal":     false,
+		"health":    false,
+	}
+	if analysisRows, analysisErr := a.repos.TaskAnalysis.ListByTaskID(taskID); analysisErr == nil {
+		for _, row := range analysisRows {
+			switch row.AnalysisType {
+			case "zombie_vm":
+				analysisFlags["zombie"] = true
+			case "right_size":
+				analysisFlags["rightsize"] = true
+			case "tidal":
+				analysisFlags["tidal"] = true
+			case "health_score":
+				analysisFlags["health"] = true
+			}
+		}
+	}
+
+	currentStep := ""
+	if t.Status == task.StatusRunning {
+		currentStep = "任务执行中"
+	} else if t.Status == task.StatusCompleted {
+		currentStep = "任务执行完成"
+	} else if t.Status == task.StatusFailed {
+		currentStep = "任务执行失败"
+	}
+
+	return &TaskDetail{
+		TaskInfo:        *base,
+		ConnectionID:    connectionID,
+		Platform:        platform,
+		SelectedVMs:     selectedVMs,
+		TotalVMs:        totalVMs,
+		CollectedVMs:    collectedVMs,
+		CurrentStep:     currentStep,
+		AnalysisResults: analysisFlags,
+		Result:          t.Result,
+	}, nil
+}
+
+// ListTaskVMs 获取任务快照维度虚拟机列表
+func (a *App) ListTaskVMs(taskID uint, limit, offset int, keyword string) ([]VMListItem, int, error) {
+	snapshots, total, err := a.repos.TaskVMSnapshot.ListByTaskID(taskID, limit, offset, keyword)
+	if err != nil {
+		return nil, 0, fmt.Errorf("获取任务快照虚拟机失败: %w", err)
+	}
+
+	items := make([]VMListItem, len(snapshots))
+	for i, row := range snapshots {
+		items[i] = VMListItem{
+			ID:            row.ID,
+			Name:          row.Name,
+			Datacenter:    row.Datacenter,
+			UUID:          row.UUID,
+			CPUCount:      row.CpuCount,
+			MemoryGB:      float64(row.MemoryMB) / 1024,
+			PowerState:    row.PowerState,
+			IPAddress:     row.IPAddress,
+			GuestOS:       row.GuestOS,
+			HostName:      row.HostName,
+			OverallStatus: row.OverallStatus,
+			CollectedAt:   row.CollectedAt.Format("2006-01-02 15:04:05"),
+		}
+	}
+
+	return items, int(total), nil
+}
+
+// GetTaskAnalysisResult 获取任务分析结果
+func (a *App) GetTaskAnalysisResult(taskID uint, analysisType string) (interface{}, error) {
+	if strings.TrimSpace(analysisType) != "" {
+		row, err := a.repos.TaskAnalysis.GetByTaskAndType(taskID, analysisType)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return map[string]interface{}{}, nil
+			}
+			return nil, fmt.Errorf("获取任务分析结果失败: %w", err)
+		}
+
+		var data interface{}
+		if err := json.Unmarshal([]byte(row.Data), &data); err != nil {
+			return nil, fmt.Errorf("解析任务分析结果失败: %w", err)
+		}
+		return data, nil
+	}
+
+	rows, err := a.repos.TaskAnalysis.ListByTaskID(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("获取任务分析结果失败: %w", err)
+	}
+
+	result := make(map[string]interface{})
+	for _, row := range rows {
+		if _, exists := result[row.AnalysisType]; exists {
+			continue
+		}
+		var data interface{}
+		if err := json.Unmarshal([]byte(row.Data), &data); err == nil {
+			result[row.AnalysisType] = data
+		}
+	}
+
+	return result, nil
+}
+
+// ExportTaskReport 按任务导出报告
+func (a *App) ExportTaskReport(taskID uint, format string) (string, error) {
+	taskDetail, err := a.GetTaskDetail(taskID)
+	if err != nil {
+		return "", err
+	}
+
+	var reportType report.ReportType
+	switch format {
+	case "", "json":
+		reportType = report.ReportTypeJSON
+	case "html":
+		reportType = report.ReportTypeHTML
+	case "xlsx":
+		reportType = report.ReportTypeExcel
+	default:
+		return "", fmt.Errorf("不支持的导出格式: %s", format)
+	}
+
+	vms, _, _ := a.ListTaskVMs(taskID, 0, 0, "")
+	analysisData, _ := a.GetTaskAnalysisResult(taskID, "")
+
+	reportData := &report.ReportData{
+		Title:        fmt.Sprintf("任务报告-%d", taskID),
+		ConnectionID: taskDetail.ConnectionID,
+		Metadata: map[string]interface{}{
+			"task_id":      taskID,
+			"task_name":    taskDetail.Name,
+			"task_type":    taskDetail.Type,
+			"task_status":  taskDetail.Status,
+			"platform":     taskDetail.Platform,
+			"created_at":   taskDetail.CreatedAt,
+			"completed_at": taskDetail.CompletedAt,
+			"selected_vms": taskDetail.SelectedVMs,
+		},
+		Sections: []report.ReportSection{
+			{
+				Title: "任务概览",
+				Type:  "summary",
+				Data: map[string]interface{}{
+					"task_id":       taskID,
+					"total_vms":     taskDetail.TotalVMs,
+					"collected_vms": taskDetail.CollectedVMs,
+					"progress":      taskDetail.Progress,
+				},
+			},
+			{
+				Title: "虚拟机快照",
+				Type:  "table",
+				Data:  vms,
+			},
+			{
+				Title: "分析结果",
+				Type:  "table",
+				Data:  analysisData,
+			},
+		},
+	}
+
+	generator := report.NewGenerator(&report.ReportConfig{
+		Type:      reportType,
+		OutputDir: os.TempDir(),
+	})
+
+	filepath, genErr := generator.Generate(reportData)
+	if genErr != nil {
+		return "", fmt.Errorf("生成任务报告失败: %w", genErr)
+	}
+
+	return filepath, nil
 }
 
 // StopTask 停止任务
@@ -1515,6 +1753,75 @@ func parseTidalConfigFromMap(config map[string]interface{}) TidalConfig {
 	return result
 }
 
+func configUint(config map[string]interface{}, key string) uint {
+	v, ok := config[key]
+	if !ok {
+		return 0
+	}
+
+	switch val := v.(type) {
+	case uint:
+		return val
+	case int:
+		if val > 0 {
+			return uint(val)
+		}
+	case int64:
+		if val > 0 {
+			return uint(val)
+		}
+	case float64:
+		if val > 0 {
+			return uint(val)
+		}
+	}
+
+	return 0
+}
+
+func configInt(config map[string]interface{}, key string) int {
+	v, ok := config[key]
+	if !ok {
+		return 0
+	}
+
+	switch val := v.(type) {
+	case int:
+		return val
+	case int32:
+		return int(val)
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	default:
+		return 0
+	}
+}
+
+func configStringSlice(config map[string]interface{}, key string) []string {
+	v, ok := config[key]
+	if !ok {
+		return []string{}
+	}
+
+	if direct, ok := v.([]string); ok {
+		return direct
+	}
+
+	if rawList, ok := v.([]interface{}); ok {
+		result := make([]string, 0, len(rawList))
+		for _, item := range rawList {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+
+	return []string{}
+}
+
 // GetAnalysisResult 获取分析结果
 func (a *App) GetAnalysisResult(resultID uint) (map[string]interface{}, error) {
 	var analysisResult storage.AnalysisResult
@@ -1545,15 +1852,15 @@ func (a *App) GetAnalysisResult(resultID uint) (map[string]interface{}, error) {
 
 // AnalysisSummary 分析汇总
 type AnalysisSummary struct {
-	ConnectionID     uint            `json:"connection_id"`
-	TotalVMs         int64           `json:"total_vms"`
-	ZombieVMs        int             `json:"zombie_vms"`
-	RightSizeVMs     int             `json:"right_size_vms"`
-	TidalVMs         int             `json:"tidal_vms"`
-	HealthScore      float64         `json:"health_score"`
-	TotalSavings     string          `json:"total_savings"`
-	LastAnalyzed     string          `json:"last_analyzed"`
-	RiskDistribution map[string]int  `json:"risk_distribution"`
+	ConnectionID     uint           `json:"connection_id"`
+	TotalVMs         int64          `json:"total_vms"`
+	ZombieVMs        int            `json:"zombie_vms"`
+	RightSizeVMs     int            `json:"right_size_vms"`
+	TidalVMs         int            `json:"tidal_vms"`
+	HealthScore      float64        `json:"health_score"`
+	TotalSavings     string         `json:"total_savings"`
+	LastAnalyzed     string         `json:"last_analyzed"`
+	RiskDistribution map[string]int `json:"risk_distribution"`
 }
 
 // GetAnalysisSummary 获取分析汇总
@@ -1593,14 +1900,14 @@ func (a *App) GetAnalysisSummary(connectionID uint) (*AnalysisSummary, error) {
 	totalSavings := fmt.Sprintf("约 %.0f 元/月", float64(zombieCount)*180)
 
 	return &AnalysisSummary{
-		ConnectionID:     connectionID,
-		TotalVMs:         totalVMs,
-		ZombieVMs:        int(zombieCount),
-		RightSizeVMs:     int(rightSizeCount),
-		TidalVMs:         int(tidalCount),
-		HealthScore:      healthScore,
-		TotalSavings:     totalSavings,
-		LastAnalyzed:     latestHealth.CreatedAt.Format("2006-01-02 15:04:05"),
+		ConnectionID: connectionID,
+		TotalVMs:     totalVMs,
+		ZombieVMs:    int(zombieCount),
+		RightSizeVMs: int(rightSizeCount),
+		TidalVMs:     int(tidalCount),
+		HealthScore:  healthScore,
+		TotalSavings: totalSavings,
+		LastAnalyzed: latestHealth.CreatedAt.Format("2006-01-02 15:04:05"),
 		RiskDistribution: map[string]int{
 			"high":   int(zombieCount),
 			"medium": int(rightSizeCount),
@@ -1698,7 +2005,7 @@ func (a *App) GetReport(id uint) (*ReportDetail, error) {
 // ExportReportRequest 导出报告请求
 type ExportReportRequest struct {
 	ReportID  uint   `json:"report_id"`
-	Format    string `json:"format"`    // json, html, xlsx
+	Format    string `json:"format"`     // json, html, xlsx
 	OutputDir string `json:"output_dir"` // 可选，默认使用系统临时目录
 }
 
@@ -1791,7 +2098,7 @@ func (a *App) buildReportDataFromDB(connectionID uint) report.ReportData {
 	}
 
 	return report.ReportData{
-		Title:       fmt.Sprintf("JustFit 分析报告 - 连接ID: %d", connectionID),
+		Title:        fmt.Sprintf("JustFit 分析报告 - 连接ID: %d", connectionID),
 		ConnectionID: connectionID,
 		Sections:     sections,
 	}
@@ -1808,8 +2115,8 @@ type SystemSettings struct {
 	DefaultBufferRatio     float64 `json:"default_buffer_ratio"`
 
 	// 采集配置
-	DefaultMetricsDays    int    `json:"default_metrics_days"`
-	CollectionConcurrency int    `json:"collection_concurrency"`
+	DefaultMetricsDays    int `json:"default_metrics_days"`
+	CollectionConcurrency int `json:"collection_concurrency"`
 
 	// 报告配置
 	DefaultReportFormat string `json:"default_report_format"`
@@ -1981,8 +2288,8 @@ func (a *App) ListAlerts(acknowledged *bool, limit, offset int) ([]AlertListItem
 
 // MarkAlertRequest 标记告警请求
 type MarkAlertRequest struct {
-	ID           uint  `json:"id"`
-	Acknowledged bool  `json:"acknowledged"`
+	ID           uint `json:"id"`
+	Acknowledged bool `json:"acknowledged"`
 }
 
 // MarkAlert 标记告警
@@ -1995,15 +2302,15 @@ func (a *App) MarkAlert(req MarkAlertRequest) error {
 	return storage.DB.Model(&storage.Alert{}).
 		Where("id = ?", req.ID).
 		Updates(map[string]interface{}{
-			"acknowledged":     false,
-			"acknowledged_at":  nil,
+			"acknowledged":    false,
+			"acknowledged_at": nil,
 		}).Error
 }
 
 // AlertStats 告警统计
 type AlertStats struct {
-	Total          int64           `json:"total"`
-	Unacknowledged int64           `json:"unacknowledged"`
+	Total          int64            `json:"total"`
+	Unacknowledged int64            `json:"unacknowledged"`
 	BySeverity     map[string]int64 `json:"by_severity"`
 	ByType         map[string]int64 `json:"by_type"`
 }

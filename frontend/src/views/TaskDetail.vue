@@ -181,11 +181,25 @@
 
         <el-tab-pane label="僵尸VM" name="zombie">
           <div class="analysis-content" v-if="task.analysisResults?.zombie">
-            <ZombieResult :task-id="task.id" />
+            <el-table :data="analysisData.zombie" stripe v-loading="analysisLoading.zombie">
+              <el-table-column prop="vm_name" label="虚拟机" min-width="180" />
+              <el-table-column prop="datacenter" label="数据中心" min-width="140" />
+              <el-table-column prop="cpu_usage" label="CPU使用率" width="120">
+                <template #default="{ row }">{{ row.cpu_usage }}%</template>
+              </el-table-column>
+              <el-table-column prop="memory_usage" label="内存使用率" width="120">
+                <template #default="{ row }">{{ row.memory_usage }}%</template>
+              </el-table-column>
+              <el-table-column prop="confidence" label="置信度" width="100">
+                <template #default="{ row }">{{ row.confidence }}%</template>
+              </el-table-column>
+              <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
+            </el-table>
+            <el-empty v-if="!analysisLoading.zombie && analysisData.zombie.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
-              <el-button type="primary" @click="runAnalysis('zombie')">
+              <el-button type="primary" :loading="analysisLoading.zombie" @click="runAnalysis('zombie')">
                 开始分析
               </el-button>
             </el-empty>
@@ -194,11 +208,24 @@
 
         <el-tab-pane label="Right Size" name="rightsize">
           <div class="analysis-content" v-if="task.analysisResults?.rightsize">
-            <RightSizeResult :task-id="task.id" />
+            <el-table :data="analysisData.rightsize" stripe v-loading="analysisLoading.rightsize">
+              <el-table-column prop="vm_name" label="虚拟机" min-width="180" />
+              <el-table-column prop="datacenter" label="数据中心" min-width="140" />
+              <el-table-column prop="current_cpu" label="当前CPU" width="110" />
+              <el-table-column prop="recommended_cpu" label="建议CPU" width="110" />
+              <el-table-column prop="current_memory_mb" label="当前内存" width="130">
+                <template #default="{ row }">{{ formatMemory(row.current_memory_mb) }}</template>
+              </el-table-column>
+              <el-table-column prop="recommended_memory_mb" label="建议内存" width="130">
+                <template #default="{ row }">{{ formatMemory(row.recommended_memory_mb) }}</template>
+              </el-table-column>
+              <el-table-column prop="estimated_saving" label="预计节省" min-width="120" />
+            </el-table>
+            <el-empty v-if="!analysisLoading.rightsize && analysisData.rightsize.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
-              <el-button type="primary" @click="runAnalysis('rightsize')">
+              <el-button type="primary" :loading="analysisLoading.rightsize" @click="runAnalysis('rightsize')">
                 开始分析
               </el-button>
             </el-empty>
@@ -207,11 +234,23 @@
 
         <el-tab-pane label="潮汐检测" name="tidal">
           <div class="analysis-content" v-if="task.analysisResults?.tidal">
-            <TidalResult :task-id="task.id" />
+            <el-table :data="analysisData.tidal" stripe v-loading="analysisLoading.tidal">
+              <el-table-column prop="vm_name" label="虚拟机" min-width="180" />
+              <el-table-column prop="pattern" label="模式" width="120" />
+              <el-table-column prop="stability_score" label="稳定性" width="100" />
+              <el-table-column label="高峰时段" min-width="160">
+                <template #default="{ row }">{{ (row.peak_hours || []).join(', ') || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="高峰日期" min-width="160">
+                <template #default="{ row }">{{ (row.peak_days || []).join(', ') || '-' }}</template>
+              </el-table-column>
+              <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
+            </el-table>
+            <el-empty v-if="!analysisLoading.tidal && analysisData.tidal.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
-              <el-button type="primary" @click="runAnalysis('tidal')">
+              <el-button type="primary" :loading="analysisLoading.tidal" @click="runAnalysis('tidal')">
                 开始分析
               </el-button>
             </el-empty>
@@ -220,14 +259,40 @@
 
         <el-tab-pane label="健康评分" name="health">
           <div class="analysis-content" v-if="task.analysisResults?.health">
-            <HealthResult :task-id="task.id" />
+            <el-card v-loading="analysisLoading.health">
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="综合评分">{{ analysisData.health?.overall_score ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="健康等级">{{ analysisData.health?.health_level ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="资源均衡">{{ analysisData.health?.resource_balance ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="超配风险">{{ analysisData.health?.overcommit_risk ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="热点集中">{{ analysisData.health?.hotspot_concentration ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="虚机数量">{{ analysisData.health?.total_vms ?? '-' }}</el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+            <el-empty v-if="!analysisLoading.health && !analysisData.health" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
-              <el-button type="primary" @click="runAnalysis('health')">
+              <el-button type="primary" :loading="analysisLoading.health" @click="runAnalysis('health')">
                 开始分析
               </el-button>
             </el-empty>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="执行日志" name="logs">
+          <div class="analysis-content">
+            <div style="margin-bottom: 12px; display: flex; justify-content: flex-end;">
+              <el-button size="small" :disabled="!task?.backendTaskId" @click="loadTaskLogs">
+                刷新日志
+              </el-button>
+            </div>
+            <el-empty v-if="!task?.backendTaskId" description="该任务没有后端任务ID，无法查询执行日志" />
+            <el-table v-else :data="taskLogs" stripe v-loading="logsLoading">
+              <el-table-column prop="timestamp" label="时间" width="180" />
+              <el-table-column prop="level" label="级别" width="100" />
+              <el-table-column prop="message" label="内容" min-width="300" show-overflow-tooltip />
+            </el-table>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -235,18 +300,22 @@
 
     <!-- 任务失败状态 -->
     <div v-else-if="task?.status === 'failed'" class="failed-state">
-      <el-result icon="error" title="任务执行失败" :sub-title="task.error" />
+      <el-result icon="error" title="任务执行失败" :sub-title="task.error">
+        <template #extra>
+          <el-button type="primary" :disabled="!task?.backendTaskId" @click="handleRetry">重试任务</el-button>
+        </template>
+      </el-result>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as ConnectionAPI from '@/api/connection'
-import type { VMListItem } from '@/api/connection'
+import { exportTaskReport } from '@/api/report'
 import {
   Download,
   MoreFilled,
@@ -255,10 +324,7 @@ import {
   Check,
   TrendCharts,
   VideoPause,
-  VideoPlay,
   CloseBold,
-  Search,
-  Warning,
   Coin,
   DataAnalysis,
   CircleCheck,
@@ -268,55 +334,51 @@ import {
 const router = useRouter()
 const route = useRoute()
 const taskStore = useTaskStore()
+const taskId = route.params.id as string
 
 const activeTab = ref('overview')
 const vmSearch = ref('')
-const vmList = ref<VMListItem[]>([])
+const vmList = ref<any[]>([])
 const vmListLoading = ref(false)
+const taskLogs = ref<any[]>([])
+const logsLoading = ref(false)
+const pollTimer = ref<number | null>(null)
+const pollTimeout = ref<number | null>(null)
 
-// 获取任务
-const task = computed(() => taskStore.getTask(route.params.id as string))
+const analysisLoading = reactive({
+  zombie: false,
+  rightsize: false,
+  tidal: false,
+  health: false
+})
 
-// 分析功能配置
+const analysisData = reactive<{
+  zombie: any[]
+  rightsize: any[]
+  tidal: any[]
+  health: any | null
+}>({
+  zombie: [],
+  rightsize: [],
+  tidal: [],
+  health: null
+})
+
+const task = computed(() => taskStore.getTask(taskId))
+
 const analyses = [
-  {
-    key: 'zombie',
-    title: '僵尸 VM 检测',
-    description: '识别长期低负载的虚拟机',
-    icon: 'Monitor',
-    color: 'orange'
-  },
-  {
-    key: 'rightsize',
-    title: 'Right Sizing',
-    description: '资源配置优化建议',
-    icon: 'TrendCharts',
-    color: 'blue'
-  },
-  {
-    key: 'tidal',
-    title: '潮汐模式',
-    description: '发现周期性规律',
-    icon: 'Coin',
-    color: 'green'
-  },
-  {
-    key: 'health',
-    title: '健康评分',
-    description: '平台健康度评估',
-    icon: 'DataAnalysis',
-    color: 'purple'
-  }
+  { key: 'zombie', title: '僵尸 VM 检测', description: '识别长期低负载的虚拟机', icon: 'Monitor', color: 'orange' },
+  { key: 'rightsize', title: 'Right Sizing', description: '资源配置优化建议', icon: 'TrendCharts', color: 'blue' },
+  { key: 'tidal', title: '潮汐模式', description: '发现周期性规律', icon: 'Coin', color: 'green' },
+  { key: 'health', title: '健康评分', description: '平台健康度评估', icon: 'DataAnalysis', color: 'purple' }
 ]
 
-// 完成的分析数量
 const completedAnalyses = computed(() => {
   const results = task.value?.analysisResults
   if (!results) return 0
   return Object.values(results).filter(v => v).length
 })
 
-// 过滤后的虚拟机列表
 const filteredVMList = computed(() => {
   if (!vmSearch.value) return vmList.value
   const keyword = vmSearch.value.toLowerCase()
@@ -330,33 +392,47 @@ onMounted(async () => {
     return
   }
 
-  // 加载虚拟机列表数据
   if (task.value.connectionId) {
     await loadVMList(task.value.connectionId)
   }
 
-  // 如果任务有后端任务ID，轮询状态
   if (task.value.backendTaskId) {
+    await loadTaskLogs()
+    await loadAnalysisResultFromBackend(task.value.backendTaskId)
     pollTaskStatus(task.value.backendTaskId)
   }
 })
 
-// 加载虚拟机列表
+onUnmounted(() => {
+  stopPolling()
+})
+
 async function loadVMList(connectionId: number) {
   vmListLoading.value = true
   try {
     vmList.value = await ConnectionAPI.listVMs(connectionId)
   } catch (error: any) {
-    console.error('Failed to load VM list:', error)
     ElMessage.error('加载虚拟机列表失败: ' + (error.message || '未知错误'))
   } finally {
     vmListLoading.value = false
   }
 }
 
-// 轮询后端任务状态
+function stopPolling() {
+  if (pollTimer.value !== null) {
+    clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+  if (pollTimeout.value !== null) {
+    clearTimeout(pollTimeout.value)
+    pollTimeout.value = null
+  }
+}
+
 function pollTaskStatus(backendTaskId: number) {
-  const pollInterval = setInterval(async () => {
+  stopPolling()
+
+  pollTimer.value = window.setInterval(async () => {
     try {
       const taskInfo = await ConnectionAPI.getTask(backendTaskId)
 
@@ -364,86 +440,186 @@ function pollTaskStatus(backendTaskId: number) {
         task.value.status = taskInfo.status as any
         task.value.progress = taskInfo.progress
         task.value.error = taskInfo.error
+        taskStore.saveTasksToStorage()
 
         if (taskInfo.status === 'completed') {
-          clearInterval(pollInterval)
-          // 加载最新的 VM 列表
+          stopPolling()
           if (task.value.connectionId) {
             await loadVMList(task.value.connectionId)
           }
+          await loadTaskLogs()
+          await loadAnalysisResultFromBackend(backendTaskId)
         } else if (taskInfo.status === 'failed') {
-          clearInterval(pollInterval)
+          stopPolling()
+          await loadTaskLogs()
           ElMessage.error('任务执行失败: ' + (taskInfo.error || '未知错误'))
         }
       }
-    } catch (e) {
-      console.error('Failed to poll task status:', e)
+    } catch (error) {
+      console.error('Failed to poll task status:', error)
     }
   }, 2000)
 
-  // 5分钟后停止轮询
-  setTimeout(() => {
-    clearInterval(pollInterval)
+  pollTimeout.value = window.setTimeout(() => {
+    stopPolling()
   }, 5 * 60 * 1000)
-}
-
-function simulateProgress() {
-  if (!task.value || task.value.status !== 'running') return
-
-  const interval = setInterval(() => {
-    if (!task.value || task.value.status !== 'running') {
-      clearInterval(interval)
-      return
-    }
-
-    const currentProgress = task.value.progress || 0
-    if (currentProgress < 100) {
-      // 模拟进度增长
-      const increment = Math.floor(Math.random() * 5) + 1
-      const newProgress = Math.min(currentProgress + increment, 100)
-
-      const collected = Math.floor((newProgress / 100) * (task.value.totalVMs || 0))
-
-      taskStore.updateTaskStatus(taskId, 'running', newProgress)
-
-      // 更新已采集数量
-      if (task.value) {
-        task.value.collectedVMs = collected
-      }
-      taskStore.saveTasksToStorage()
-    } else {
-      taskStore.updateTaskStatus(taskId, 'completed', 100)
-      taskStore.saveTasksToStorage()
-      ElMessage.success('数据采集完成')
-      clearInterval(interval)
-    }
-  }, 1000)
-}
-
-function goBack() {
-  router.push('/')
 }
 
 async function handleCancel() {
   try {
-    await ElMessageBox.confirm('确定要取消此任务吗？', '确认取消', {
-      type: 'warning'
-    })
+    await ElMessageBox.confirm('确定要取消此任务吗？', '确认取消', { type: 'warning' })
+
+    if (task.value?.backendTaskId) {
+      await ConnectionAPI.stopTask(task.value.backendTaskId)
+    }
+
     taskStore.cancelTask(taskId)
     taskStore.saveTasksToStorage()
     ElMessage.success('任务已取消')
     router.push('/')
-  } catch {
-    // 用户取消
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '取消任务失败')
+    }
   }
+}
+
+async function handleRetry() {
+  if (!task.value?.backendTaskId) {
+    ElMessage.warning('该任务没有后端任务ID，无法重试')
+    return
+  }
+
+  try {
+    const newBackendTaskId = await ConnectionAPI.retryTask(task.value.backendTaskId)
+    task.value.backendTaskId = newBackendTaskId
+    task.value.status = 'pending'
+    task.value.progress = 0
+    task.value.error = ''
+    taskStore.saveTasksToStorage()
+    pollTaskStatus(newBackendTaskId)
+    ElMessage.success('任务已提交重试')
+  } catch (error: any) {
+    ElMessage.error(error.message || '重试失败')
+  }
+}
+
+async function loadTaskLogs() {
+  if (!task.value?.backendTaskId) return
+
+  logsLoading.value = true
+  try {
+    taskLogs.value = await ConnectionAPI.getTaskLogs(task.value.backendTaskId, 200)
+  } catch (error: any) {
+    ElMessage.error(error.message || '获取任务日志失败')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+async function loadAnalysisResultFromBackend(backendTaskId: number) {
+  try {
+    const result = await ConnectionAPI.getAnalysisResult(backendTaskId)
+    if (!result) return
+
+    if (Array.isArray(result.zombie)) {
+      analysisData.zombie = result.zombie
+      taskStore.updateAnalysisResult(taskId, 'zombie', true)
+    }
+    if (Array.isArray(result.rightsize)) {
+      analysisData.rightsize = result.rightsize
+      taskStore.updateAnalysisResult(taskId, 'rightsize', true)
+    }
+    if (Array.isArray(result.tidal)) {
+      analysisData.tidal = result.tidal
+      taskStore.updateAnalysisResult(taskId, 'tidal', true)
+    }
+    if (result.health) {
+      analysisData.health = result.health
+      taskStore.updateAnalysisResult(taskId, 'health', true)
+    }
+
+    taskStore.saveTasksToStorage()
+  } catch (error) {
+    console.error('Failed to load analysis result from backend:', error)
+  }
+}
+
+function getDefaultAnalysisConfig(type: string) {
+  if (type === 'zombie') {
+    return {
+      analysis_days: 30,
+      cpu_threshold: 5,
+      memory_threshold: 10,
+      min_confidence: 60
+    }
+  }
+  if (type === 'rightsize') {
+    return {
+      analysis_days: 30,
+      buffer_ratio: 0.2
+    }
+  }
+  if (type === 'tidal') {
+    return {
+      analysis_days: 30,
+      min_stability: 0.6
+    }
+  }
+  return {}
+}
+
+async function runAnalysis(type: string) {
+  if (!task.value?.connectionId) {
+    ElMessage.warning('缺少连接信息，无法执行分析')
+    return
+  }
+
+  const analysisType = type as 'zombie' | 'rightsize' | 'tidal' | 'health'
+  analysisLoading[analysisType] = true
+
+  try {
+    if (type === 'zombie') {
+      analysisData.zombie = await ConnectionAPI.detectZombieVMs(task.value.connectionId, getDefaultAnalysisConfig('zombie'))
+    } else if (type === 'rightsize') {
+      analysisData.rightsize = await ConnectionAPI.analyzeRightSize(task.value.connectionId, getDefaultAnalysisConfig('rightsize'))
+    } else if (type === 'tidal') {
+      analysisData.tidal = await ConnectionAPI.detectTidalPattern(task.value.connectionId, getDefaultAnalysisConfig('tidal'))
+    } else if (type === 'health') {
+      analysisData.health = await ConnectionAPI.analyzeHealthScore(task.value.connectionId)
+    }
+
+    taskStore.updateAnalysisResult(taskId, analysisType, true)
+    taskStore.saveTasksToStorage()
+    ElMessage.success('分析完成')
+  } catch (error: any) {
+    ElMessage.error(error.message || '分析执行失败')
+  } finally {
+    analysisLoading[analysisType] = false
+  }
+}
+
+function buildReportTypes() {
+  const result: string[] = []
+  const flags = task.value?.analysisResults || {}
+
+  if (flags.zombie) result.push('zombie')
+  if (flags.rightsize) result.push('rightsize')
+  if (flags.tidal) result.push('tidal')
+  if (flags.health) result.push('health')
+
+  if (result.length === 0) {
+    result.push('zombie', 'rightsize', 'tidal', 'health')
+  }
+
+  return result
 }
 
 async function handleCommand(cmd: string) {
   if (cmd === 'delete') {
     try {
-      await ElMessageBox.confirm('确定要删除此任务吗？', '确认删除', {
-        type: 'warning'
-      })
+      await ElMessageBox.confirm('确定要删除此任务吗？', '确认删除', { type: 'warning' })
+      stopPolling()
       taskStore.deleteTask(taskId)
       taskStore.saveTasksToStorage()
       ElMessage.success('任务已删除')
@@ -454,22 +630,20 @@ async function handleCommand(cmd: string) {
   }
 }
 
-function runAnalysis(type: string) {
-  ElMessage.info('正在运行 ' + type + ' 分析...')
-  // 模拟分析完成
-  setTimeout(() => {
-    taskStore.updateAnalysisResult(taskId, type as any, true)
-    taskStore.saveTasksToStorage()
-    ElMessage.success(type + ' 分析完成！')
-  }, 2000)
-}
-
 async function exportReport() {
-  if (!task.value) return
+  if (!task.value?.connectionId) {
+    ElMessage.warning('缺少连接信息，无法导出报告')
+    return
+  }
 
   try {
-    ElMessage.info('正在生成 Excel 报告...')
-    const filepath = await exportTaskReport(taskId)
+    ElMessage.info('正在生成后端报告...')
+    const filepath = await exportTaskReport({
+      taskId,
+      connectionId: task.value.connectionId,
+      reportTypes: buildReportTypes(),
+      title: task.value.name
+    })
     ElMessage.success('报告已导出: ' + filepath)
   } catch (error: any) {
     ElMessage.error('导出失败: ' + (error.message || '未知错误'))
@@ -477,7 +651,7 @@ async function exportReport() {
 }
 
 function getStatusType(status: string | undefined) {
-  const typeMap: Record<string, any> = {
+  const typeMap: Record<string, string> = {
     pending: 'info',
     running: 'primary',
     paused: 'warning',
@@ -497,7 +671,7 @@ function getStatusText(status: string | undefined) {
     failed: '失败',
     cancelled: '已取消'
   }
-  return textMap[status || ''] || status
+  return textMap[status || ''] || (status || '')
 }
 
 function formatMemory(mb: number): string {
@@ -507,10 +681,10 @@ function formatMemory(mb: number): string {
   return mb + ' MB'
 }
 
-function formatDuration(task: Task | undefined): string {
-  if (!task?.started_at || !task.ended_at) return '-'
-  const start = new Date(task.started_at).getTime()
-  const end = new Date(task.ended_at).getTime()
+function formatDuration(taskData: Task | undefined): string {
+  if (!taskData?.started_at || !taskData.ended_at) return '-'
+  const start = new Date(taskData.started_at).getTime()
+  const end = new Date(taskData.ended_at).getTime()
   const duration = end - start
   const minutes = Math.floor(duration / 60000)
   if (minutes < 60) return minutes + '分钟'
@@ -535,12 +709,6 @@ function getPowerStateText(state: string) {
   }
   return textMap[state] || state
 }
-
-// 占位组件
-const ZombieResult = { template: '<div class="placeholder"><p>僵尸VM 分析结果将在此显示</p></div>' }
-const RightSizeResult = { template: '<div class="placeholder"><p>Right Size 分析结果将在此显示</p></div>' }
-const TidalResult = { template: '<div class="placeholder"><p>潮汐模式分析结果将在此显示</p></div>' }
-const HealthResult = { template: '<div class="placeholder"><p>健康评分结果将在此显示</p></div>' }
 </script>
 
 <style scoped lang="scss">

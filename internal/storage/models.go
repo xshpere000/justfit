@@ -107,6 +107,33 @@ type TaskLog struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// TaskVMSnapshot 任务虚拟机快照
+type TaskVMSnapshot struct {
+	gorm.Model
+	TaskID        uint      `gorm:"index:idx_task_vm_snapshot_task" json:"task_id"`
+	ConnectionID  uint      `gorm:"index:idx_task_vm_snapshot_conn" json:"connection_id"`
+	VMKey         string    `gorm:"size:120;index:idx_task_vm_snapshot_vmkey" json:"vm_key"`
+	UUID          string    `gorm:"size:100;index" json:"uuid"`
+	Name          string    `gorm:"size:200;index" json:"name"`
+	Datacenter    string    `gorm:"size:100;index" json:"datacenter"`
+	CpuCount      int32     `json:"cpu_count"`
+	MemoryMB      int32     `json:"memory_mb"`
+	PowerState    string    `gorm:"size:50" json:"power_state"`
+	IPAddress     string    `gorm:"size:50" json:"ip_address"`
+	GuestOS       string    `gorm:"size:100" json:"guest_os"`
+	HostName      string    `gorm:"size:200" json:"host_name"`
+	OverallStatus string    `gorm:"size:50" json:"overall_status"`
+	CollectedAt   time.Time `json:"collected_at"`
+}
+
+// TaskAnalysisResult 任务分析结果
+type TaskAnalysisResult struct {
+	gorm.Model
+	TaskID       uint   `gorm:"index:idx_task_analysis_result_task" json:"task_id"`
+	AnalysisType string `gorm:"size:50;index:idx_task_analysis_result_type" json:"analysis_type"`
+	Data         string `gorm:"type:text" json:"data"`
+}
+
 // Report 报告
 type Report struct {
 	gorm.Model

@@ -61,6 +61,10 @@ export async function getTaskLogs(id: number, limit: number = 100): Promise<main
   return await App.GetTaskLogs(id, limit)
 }
 
+export async function getAnalysisResult(taskId: number): Promise<Record<string, any>> {
+  return await App.GetAnalysisResult(taskId)
+}
+
 // =============== 采集 API ===============
 
 export async function collectData(config: any): Promise<main.CollectionResult> {
@@ -139,7 +143,8 @@ const TaskApi = {
   createCollectTask: createCollectTask,
   stop: stopTask,
   retry: retryTask,
-  getLogs: getTaskLogs
+  getLogs: getTaskLogs,
+  getAnalysisResult: getAnalysisResult
 }
 
 const CollectionApi = {

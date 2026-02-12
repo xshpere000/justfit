@@ -4,6 +4,7 @@ package etl
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,19 @@ type CollectionResult struct {
 	VMs      int
 	Metrics  int
 	Duration time.Duration
+}
+
+// MetricsCollectionStats 指标采集统计
+type MetricsCollectionStats struct {
+	TotalVMs             int      `json:"total_vms"`
+	ScopedVMs            int      `json:"scoped_vms"`
+	SkippedPoweredOff    int      `json:"skipped_powered_off"`
+	CollectedVMs         int      `json:"collected_vms"`
+	FailedVMCount        int      `json:"failed_vm_count"`
+	CollectedMetricCount int      `json:"collected_metric_count"`
+	FailedMetricCount    int      `json:"failed_metric_count"`
+	Scope                string   `json:"scope"`
+	Reasons              []string `json:"reasons"`
 }
 
 // Collect 执行数据采集
@@ -203,10 +217,13 @@ func (c *Collector) Collect(ctx context.Context, config *CollectionConfig) (*Col
 }
 
 // CollectMetrics 采集性能指标
-func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days int, passwordOverride string) (int, error) {
+func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days int, passwordOverride string) (*MetricsCollectionStats, error) {
+	stats := &MetricsCollectionStats{Scope: "poweredOn only"}
+	reasonCounts := make(map[string]int)
+
 	conn, err := c.repos.Connection.GetByID(connectionID)
 	if err != nil {
-		return 0, fmt.Errorf("获取连接失败: %w", err)
+		return stats, fmt.Errorf("获取连接失败: %w", err)
 	}
 
 	if passwordOverride != "" {
@@ -226,17 +243,17 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 
 	client, err := c.connMgr.Get(connConfig)
 	if err != nil {
-		return 0, fmt.Errorf("创建连接器失败: %w", err)
+		return stats, fmt.Errorf("创建连接器失败: %w", err)
 	}
 
 	// 这里为了稳定，我们还是使用 client.GetVMs() 以确保 vCenter 侧的准确性（如 PowerState）
 	// 但必须并行化！
 	vms, err := client.GetVMs()
 	if err != nil {
-		return 0, fmt.Errorf("获取虚拟机列表失败: %w", err)
+		return stats, fmt.Errorf("获取虚拟机列表失败: %w", err)
 	}
+	stats.TotalVMs = len(vms)
 
-	totalMetrics := 0
 	endTime := time.Now()
 	startTime := endTime.AddDate(0, 0, -days)
 
@@ -248,8 +265,10 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 
 	for _, vm := range vms {
 		if vm.PowerState != "poweredOn" {
+			stats.SkippedPoweredOff++
 			continue
 		}
+		stats.ScopedVMs++
 
 		wg.Add(1)
 		semaphore <- struct{}{} // 获取信号量
@@ -258,26 +277,92 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 			defer wg.Done()
 			defer func() { <-semaphore }() // 释放信号量
 
-			vmKey := fmt.Sprintf("%s:%s", targetVM.Datacenter, targetVM.Name)
-			metrics, err := client.GetVMMetrics(targetVM.Datacenter, targetVM.Name, startTime, endTime, targetVM.CpuCount)
+			vmKey := buildVMKey(targetVM)
+			metrics, err := client.GetVMMetrics(targetVM.Datacenter, targetVM.Name, targetVM.UUID, startTime, endTime, targetVM.CpuCount)
 			if err != nil {
-				// 获取指标失败，忽略
+				mu.Lock()
+				stats.FailedVMCount++
+				stats.FailedMetricCount += 6
+				addMetricReason(reasonCounts, fmt.Sprintf("%s: 获取指标失败: %v", vmKey, err))
+				mu.Unlock()
 				return
 			}
 
 			if err := c.processor.ProcessVMMetrics(vmKey, metrics); err != nil {
+				mu.Lock()
+				stats.FailedVMCount++
+				stats.FailedMetricCount += 6
+				addMetricReason(reasonCounts, fmt.Sprintf("%s: 写入指标失败: %v", vmKey, err))
+				mu.Unlock()
 				return
 			}
 
 			count := countMetrics(metrics)
 			mu.Lock()
-			totalMetrics += count
+			if count == 0 {
+				stats.FailedVMCount++
+				stats.FailedMetricCount += 6
+				addMetricReason(reasonCounts, fmt.Sprintf("%s: 指标为空", vmKey))
+			} else {
+				stats.CollectedVMs++
+				stats.CollectedMetricCount += count
+			}
 			mu.Unlock()
 		}(vm)
 	}
 
 	wg.Wait()
-	return totalMetrics, nil
+	stats.Reasons = renderMetricReasons(reasonCounts)
+
+	if stats.CollectedVMs == 0 && stats.ScopedVMs > 0 {
+		return stats, fmt.Errorf("性能指标采集失败：已筛选 %d 台开机虚拟机，但全部采集失败", stats.ScopedVMs)
+	}
+
+	return stats, nil
+}
+
+func addMetricReason(counts map[string]int, reason string) {
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return
+	}
+	if len(trimmed) > 240 {
+		trimmed = trimmed[:240]
+	}
+	counts[trimmed]++
+}
+
+func renderMetricReasons(counts map[string]int) []string {
+	if len(counts) == 0 {
+		return []string{}
+	}
+
+	type pair struct {
+		reason string
+		count  int
+	}
+	pairs := make([]pair, 0, len(counts))
+	for reason, count := range counts {
+		pairs = append(pairs, pair{reason: reason, count: count})
+	}
+
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].count == pairs[j].count {
+			return pairs[i].reason < pairs[j].reason
+		}
+		return pairs[i].count > pairs[j].count
+	})
+
+	limit := len(pairs)
+	if limit > 20 {
+		limit = 20
+	}
+	result := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		result = append(result, fmt.Sprintf("%s (x%d)", pairs[i].reason, pairs[i].count))
+	}
+
+	return result
 }
 
 // contains 检查字符串切片是否包含指定元素

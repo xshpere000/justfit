@@ -1,5 +1,6 @@
 import type { ReportData } from './types'
 import { utils, write } from 'xlsx'
+import * as App from '../../wailsjs/go/main/App'
 
 export type ReportFormat = 'json' | 'html' | 'xlsx'
 
@@ -45,10 +46,26 @@ function downloadBlob(blob: Blob, filename: string) {
     URL.revokeObjectURL(url)
 }
 
-// 导出任务报告
-export async function exportTaskReport(taskId: string): Promise<string> {
-    // 获取任务详情数据，然后导出
-    // 暂时 unimplemented
-    console.log('Export task report:', taskId)
-    return ''
+// 导出任务报告（后端生成）
+export async function exportTaskReport(params: {
+  taskId: string
+  connectionId: number
+  reportTypes: string[]
+  title?: string
+}): Promise<string> {
+  const response = await App.GenerateReport({
+    title: params.title || ('任务报告-' + params.taskId),
+    connection_id: params.connectionId,
+    report_types: params.reportTypes
+  })
+
+  if (!response.success) {
+    throw new Error(response.message || '报告生成失败')
+  }
+
+  if (response.files && response.files.length > 0) {
+    return response.files[0]
+  }
+
+  return response.message || '报告已生成'
 }

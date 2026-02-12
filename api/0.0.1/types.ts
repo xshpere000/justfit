@@ -8,8 +8,8 @@
 
 export type EntityType = 'cluster' | 'host' | 'vm';
 export type PlatformType = 'vcenter' | 'h3c-uis';
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
-export type TaskType = 'collection' | 'analysis' | 'report';
+export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+export type TaskType = 'collection' | 'analysis' | 'report' | 'sync';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export type AlertType = 'zombie_vm' | 'overprovisioned' | 'underprovisioned' | 'health_risk';
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
@@ -106,6 +106,47 @@ export interface TaskInfo {
   CreatedAt: string;
   StartedAt?: string;
   CompletedAt?: string;
+}
+
+export interface TaskAnalysisFlags {
+  zombie: boolean;
+  rightsize: boolean;
+  tidal: boolean;
+  health: boolean;
+}
+
+export interface TaskDetail {
+  ID: number;
+  Type: TaskType;
+  Name: string;
+  Status: TaskStatus;
+  Progress: number;
+  Error?: string;
+  CreatedAt: string;
+  StartedAt?: string;
+  CompletedAt?: string;
+  ConnectionID: number;
+  Platform: PlatformType | string;
+  SelectedVMs: string[];
+  TotalVMs: number;
+  CollectedVMs: number;
+  CurrentStep: string;
+  AnalysisResults: TaskAnalysisFlags;
+  Result?: Record<string, any>;
+}
+
+export interface ListTaskVMsRequest {
+  task_id: number;
+  limit?: number;
+  offset?: number;
+  keyword?: string;
+}
+
+export type ListTaskVMsResponse = [VMListItem[], number];
+
+export interface GetTaskAnalysisResultRequest {
+  task_id: number;
+  analysis_type?: 'zombie_vm' | 'right_size' | 'tidal' | 'health_score';
 }
 
 export interface TaskLogEntry {
@@ -323,6 +364,11 @@ export interface ExportReportRequest {
   report_id: number;
   format: string;
   output_dir?: string;
+}
+
+export interface ExportTaskReportRequest {
+  task_id: number;
+  format?: 'json' | 'html' | 'xlsx';
 }
 
 // ==================== 系统配置 ====================

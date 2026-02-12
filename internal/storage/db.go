@@ -65,6 +65,8 @@ func autoMigrate() error {
 		&Metric{},
 		&Task{},
 		&TaskLog{},
+		&TaskVMSnapshot{},
+		&TaskAnalysisResult{},
 		&Report{},
 		&AnalysisResult{},
 		&Alert{},
@@ -92,6 +94,8 @@ type Repositories struct {
 	VM             *VMRepository
 	Metric         *MetricRepository
 	Task           *TaskRepository
+	TaskVMSnapshot *TaskVMSnapshotRepository
+	TaskAnalysis   *TaskAnalysisResultRepository
 	Report         *ReportRepository
 	AnalysisResult *AnalysisResultRepository
 	Alert          *AlertRepository
@@ -107,6 +111,8 @@ func NewRepositories() *Repositories {
 		VM:             NewVMRepository(),
 		Metric:         NewMetricRepository(),
 		Task:           NewTaskRepository(),
+		TaskVMSnapshot: NewTaskVMSnapshotRepository(),
+		TaskAnalysis:   NewTaskAnalysisResultRepository(),
 		Report:         NewReportRepository(),
 		AnalysisResult: NewAnalysisResultRepository(),
 		Alert:          NewAlertRepository(),
