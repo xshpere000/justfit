@@ -20,7 +20,7 @@
       <div v-show="currentStep === 0" class="step-panel">
         <h2 class="section-title">请选择目标云平台</h2>
         <div class="platform-list">
-           <div class="platform-item" 
+           <div class="platform-item"
                 :class="{ active: formData.platform === 'vcenter' }"
                 @click="selectPlatform('vcenter')">
               <div class="item-icon"><el-icon><Monitor /></el-icon></div>
@@ -30,28 +30,17 @@
               </div>
               <div class="item-check" v-if="formData.platform === 'vcenter'"><el-icon><Check /></el-icon></div>
            </div>
-           
-           <div class="platform-item" 
-                :class="{ active: formData.platform === 'h3c' }"
-                @click="selectPlatform('h3c')">
+
+           <div class="platform-item"
+                :class="{ active: formData.platform === 'h3c-uis' }"
+                @click="selectPlatform('h3c-uis')">
               <div class="item-icon"><el-icon><Connection /></el-icon></div>
               <div class="item-info">
                   <h3>H3C UIS</h3>
                   <p>适用于 H3C UIS 超融合 7.0 及以上版本</p>
               </div>
-              <div class="item-check" v-if="formData.platform === 'h3c'"><el-icon><Check /></el-icon></div>
+              <div class="item-check" v-if="formData.platform === 'h3c-uis'"><el-icon><Check /></el-icon></div>
            </div>
-
-           <!-- 预留更多平台的展示位置 -->
-           <!--
-           <div class="platform-item disabled">
-              <div class="item-icon"><el-icon><Platform /></el-icon></div>
-              <div class="item-info">
-                  <h3>OpenStack</h3>
-                  <p>即将支持</p>
-              </div>
-           </div>
-           -->
         </div>
       </div>
 
@@ -94,21 +83,25 @@
                 <el-checkbox v-model="isAllSelected" @change="handleSelectAll" label="选择本页所有" border size="small" />
              </div>
           </div>
-          
+
           <div class="vm-list-container">
              <el-scrollbar v-loading="vmLoading">
                  <div v-if="vmListLoaded && filteredVMs.length === 0" class="empty-list">
                     <el-empty description="未找到匹配的虚拟机" :image-size="80" />
                  </div>
                  <div class="vm-grid" v-else>
-                    <div v-for="vm in filteredVMs" :key="vm.uuid || vm.ID" 
-                         class="vm-item" 
+                    <div v-for="vm in filteredVMs" :key="vm.uuid || vm.id"
+                         class="vm-item"
                          :class="{ selected: selectedVMs.has(vm.name) }"
                          @click="toggleVM(vm.name)">
                        <div class="vm-status-dot" :class="vm.power_state === 'poweredOn' ? 'on' : 'off'"></div>
                        <div class="vm-info">
                           <div class="vm-name" :title="vm.name">{{ vm.name }}</div>
-                          <div class="vm-spec">{{ vm.cpu_count }} vCPU / {{ formatMemory(vm.memory_mb) }}</div>
+                          <div class="vm-spec">
+                            {{ vm.cpu_count > 0 ? vm.cpu_count + ' vCPU' : 'CPU: -' }}
+                            /
+                            {{ vm.memory_mb > 0 ? formatMemory(vm.memory_mb) : '内存: 未获取' }}
+                          </div>
                        </div>
                        <div class="vm-check">
                           <el-icon v-if="selectedVMs.has(vm.name)"><Check /></el-icon>
@@ -117,14 +110,14 @@
                  </div>
              </el-scrollbar>
           </div>
-          
+
           <div class="panel-pagination">
-             <el-pagination 
-                v-model:current-page="pagination.page" 
-                v-model:page-size="pagination.pageSize" 
-                :total="vmList.length" 
+             <el-pagination
+                v-model:current-page="pagination.page"
+                v-model:page-size="pagination.pageSize"
+                :total="vmList.length"
                 :page-sizes="[50, 100, 200]"
-                layout="total, sizes, prev, pager, next" 
+                layout="total, sizes, prev, pager, next"
                 background />
           </div>
        </div>
@@ -157,7 +150,7 @@
        <el-button v-if="currentStep > 0" @click="prevStep" size="large">上一步</el-button>
        <div class="footer-right">
           <el-button @click="handleCancel" size="large">取消</el-button>
-          
+
           <el-button v-if="currentStep === 1" type="primary" size="large" :loading="testLoading" @click="testConnection">
              测试并继续
           </el-button>
@@ -175,15 +168,14 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useTaskStore } from '@/stores/task'
+import { useTaskStore, type CreateTaskParams } from '@/stores/task'
+import * as ConnectionAPI from '@/api/connection'
+import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
+import { Monitor, Connection, Search, Check, Flag, ArrowLeft } from '@element-plus/icons-vue'
 
 defineOptions({
   name: 'Wizard'
 })
-
-import { ConnectionApi } from '@/api/connection'
-import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
-import { Monitor, Connection, Search, Check, Flag, ArrowLeft } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const taskStore = useTaskStore()
@@ -193,11 +185,11 @@ const currentStep = ref(0)
 const submitLoading = ref(false)
 const testLoading = ref(false)
 const vmLoading = ref(false)
-const vmListLoaded = ref(false) // 标记是否已加载过 VM 列表
+const vmListLoaded = ref(false)
 const createdConnectionId = ref<number>(0)
 
 const formData = reactive({
-  platform: 'vcenter', // vcenter or h3c
+  platform: 'vcenter',
 })
 
 const connectionFormRef = ref<FormInstance>()
@@ -229,12 +221,12 @@ const pagination = reactive({
 // Computeds
 const filteredVMs = computed(() => {
   let list = vmList.value
-  
+
   if (vmSearchQuery.value) {
     const q = vmSearchQuery.value.toLowerCase()
     list = list.filter(vm => vm.name.toLowerCase().includes(q))
   }
-  
+
   const start = (pagination.page - 1) * pagination.pageSize
   const end = start + pagination.pageSize
   return list.slice(start, end)
@@ -246,17 +238,16 @@ function selectPlatform(type: string) {
   if (type === 'vcenter') {
     connectionForm.port = 443
   } else {
-    connectionForm.port = 443 // UIS default is also 443 usually
+    connectionForm.port = 443
   }
   nextStep()
 }
 
 function nextStep() {
   if (currentStep.value === 1) {
-    // 必须测试连接
     if (!vmListLoaded.value) {
         ElMessage.warning('请先点击"测试并继续"以验证连接')
-        return 
+        return
     }
   }
   if (currentStep.value === 2) {
@@ -265,7 +256,7 @@ function nextStep() {
         return
     }
   }
-  
+
   if (currentStep.value < 3) currentStep.value++
 }
 
@@ -275,56 +266,53 @@ function prevStep() {
 
 async function testConnection() {
   if (!connectionFormRef.value) return
-  
-  await connectionFormRef.value.validate(async (valid) => {
-    if (valid) {
-      testLoading.value = true
-      try {
-        const payload = {
-            ...connectionForm,
-            platform: formData.platform
-        }
-        
-        // 1. 创建/测试连接
-        const connId = await ConnectionApi.test(payload)
-        
-        // 2. 只有连接成功才采集基础数据（必须调用，否则后端没数据）
-        // 注意：这里需要传入真实的 ID (connId 是 string 或 number，后端返回的是 ID)
-        // 假设 test 返回 ID
-        
-         if (connId) {
-            createdConnectionId.value = Number(connId)
-            ElMessage.success('连接成功，正在获取资源列表...')
-            // 调用 Collector.CollectData
-            await ConnectionApi.collectData(Number(connId))
-             // 获取虚拟机
-            await fetchVMList(Number(connId))
-            currentStep.value++ // 自动下一步
-         }
-      } catch (e: any) {
-        ElMessage.error(e.message || '连接失败')
-      } finally {
-        testLoading.value = false
-      }
-    }
-  })
+
+  try {
+    await connectionFormRef.value.validate()
+  } catch {
+    return
+  }
+
+  testLoading.value = true
+  try {
+    // 1. 创建连接
+    const connId = await ConnectionAPI.ConnectionApi.create({
+      name: connectionForm.name,
+      platform: formData.platform,
+      host: connectionForm.host,
+      port: connectionForm.port,
+      username: connectionForm.username,
+      password: connectionForm.password,
+      insecure: false
+    })
+
+    createdConnectionId.value = connId
+    ElMessage.success('连接成功，正在获取资源列表...')
+
+    // 2. 采集数据
+    await ConnectionAPI.CollectionApi.collect({
+      connection_id: connId,
+      data_types: ['clusters', 'hosts', 'vms'],
+      metrics_days: 30
+    })
+
+    // 3. 获取虚拟机列表
+    await fetchVMList(connId)
+
+    currentStep.value++
+  } catch (e: any) {
+    ElMessage.error(e.message || '连接失败')
+  } finally {
+    testLoading.value = false
+  }
 }
 
 async function fetchVMList(connId: number) {
     vmLoading.value = true
     try {
-        const res = await ConnectionApi.getVMList(connId)
-        const data = JSON.parse(res)
-        // 兼容不同的返回结构
-        if (Array.isArray(data)) {
-            vmList.value = data
-        } else if (data.data && Array.isArray(data.data)) {
-            vmList.value = data.data
-        } else {
-            vmList.value = []
-        }
+        const result = await ConnectionAPI.ResourceApi.getVMList(connId)
+        vmList.value = result.vms
         vmListLoaded.value = true
-        // 默认全选前50个？或者不选
     } catch(e) {
         console.error(e)
         vmList.value = []
@@ -350,18 +338,20 @@ function toggleVM(name: string) {
     }
 }
 
-function formatMemory(mb: number) {
-    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB'
-    return mb + ' MB'
+function formatMemory(value: number | undefined) {
+    if (!value) return '-'
+    // 后端 GetVMList 返回的 memory_mb 字段，单位是 MB
+    // 转换为 GB 显示
+    if (value >= 1024) return (value / 1024).toFixed(1) + ' GB'
+    return value + ' MB'
 }
 
 async function submitTask() {
   submitLoading.value = true
   try {
-     // 构建任务数据并保存
      const task = taskStore.createTask({
-        type: 'collection', // 默认为采集任务
-        name: `评估任务-${connectionForm.name}`,
+        type: 'collection',
+        name: '评估任务-' + connectionForm.name,
         platform: formData.platform,
         connectionId: createdConnectionId.value,
         connectionName: connectionForm.name,
@@ -369,8 +359,6 @@ async function submitTask() {
         totalVMs: selectedVMs.value.size
      })
 
-     // 关键修复：不再假装完成，而是通过 store 触发后台采集
-     // 异步执行，不等待结果直接跳转
      taskStore.startCollectionTask(task.id, createdConnectionId.value, 30)
 
      ElMessage.success('任务已创建，后台正在采集中...')
@@ -391,8 +379,7 @@ function handleCancel() {
 
 <style scoped lang="scss">
 .wizard-page {
-  /* 修改 height: 100vh 为 100%，适应父容器高度，避免双滚动条 */
-  height: 100%; 
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: white;
@@ -431,16 +418,15 @@ function handleCancel() {
   flex: 1;
   padding: 40px;
   overflow-y: auto;
-  background: white; /* 改为白色 */
+  background: white;
 
   .step-panel {
     max-width: 1200px;
     margin: 0 auto;
     background: white;
-    /* 移除了 padding, shadow, border-radius */
-    
+
     .section-title {
-        font-size: 24px; /* 加大标题 */
+        font-size: 24px;
         text-align: center;
         margin-bottom: 60px;
         color: #303133;
@@ -450,13 +436,13 @@ function handleCancel() {
     &.flex-panel {
         display: flex;
         flex-direction: column;
-        height: 100%; // Fill space
-        max-height: 100%; // Remove limit
+        height: 100%;
+        max-height: 100%;
     }
   }
 }
 
-/* Platform List Styles (New) */
+/* Platform List Styles */
 .platform-list {
     display: flex;
     flex-direction: column;
@@ -468,7 +454,7 @@ function handleCancel() {
         display: flex;
         align-items: center;
         padding: 24px;
-        border: 1px solid #e4e7ed;
+        border:1px solid #e4e7ed;
         border-radius: 12px;
         background: white;
         cursor: pointer;
@@ -483,9 +469,8 @@ function handleCancel() {
 
         &.active {
             border-color: #409eff;
-            background-color: #f0f9eb; /* Very light active bg */
-            /* 移除双重边框效果 */
-            
+            background-color: #f0f9eb;
+
             .item-icon { color: #409eff; background: #ecf5ff; }
         }
 
@@ -514,12 +499,6 @@ function handleCancel() {
             font-size: 24px;
             font-weight: bold;
         }
-
-        &.disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            &:hover { border-color: #e4e7ed; box-shadow: none; }
-        }
     }
 }
 
@@ -534,11 +513,11 @@ function handleCancel() {
 
 .vm-list-container {
     flex: 1;
-    border: 1px solid #e4e7ed;
+    border:1px solid #e4e7ed;
     border-radius: 4px;
     background: #fff;
-    overflow: hidden; // Important for inner scroll
-    
+    overflow: hidden;
+
     .vm-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -547,7 +526,7 @@ function handleCancel() {
     }
 
     .vm-item {
-        border: 1px solid #ebeef5;
+        border:1px solid #ebeef5;
         border-radius: 6px;
         padding: 12px;
         display: flex;
@@ -557,10 +536,10 @@ function handleCancel() {
         position: relative;
 
         &:hover { border-color: #c6e2ff; background: #fdfdfd; }
-        &.selected { 
-            border-color: #409eff; 
-            background: #ecf5ff; 
-            .vm-check { opacity: 1; } 
+        &.selected {
+            border-color: #409eff;
+            background: #ecf5ff;
+            .vm-check { opacity: 1; }
         }
 
         .vm-status-dot {
@@ -575,7 +554,7 @@ function handleCancel() {
         .vm-info {
             flex: 1;
             overflow: hidden;
-            
+
             .vm-name { font-size: 14px; font-weight: 500; color: #303133; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .vm-spec { font-size: 12px; color: #909399; }
         }
@@ -586,7 +565,7 @@ function handleCancel() {
             transition: opacity 0.2s;
         }
     }
-    
+
     .empty-list {
         padding: 40px;
         text-align: center;

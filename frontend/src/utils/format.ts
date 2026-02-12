@@ -35,26 +35,26 @@ export function formatBytes(bytes: number): string {
 
 // 格式化内存 (MB)
 export function formatMemory(mb: number): string {
-  if (mb < 1024) return `${mb} MB`
-  return `${(mb / 1024).toFixed(2)} GB`
+  if (mb < 1024) return mb + ' MB'
+  return (mb / 1024).toFixed(2) + ' GB'
 }
 
 // 格式化 CPU
 export function formatCPU(cores: number): string {
-  return `${cores} 核`
+  return cores + ' 核'
 }
 
 // 格式化百分比
 export function formatPercent(value: number, decimals: number = 2): string {
-  return `${value.toFixed(decimals)}%`
+  return value.toFixed(decimals) + '%'
 }
 
 // 格式化时长 (毫秒)
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
-  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`
-  return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`
+  if (ms < 1000) return ms + 'ms'
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's'
+  if (ms < 3600000) return Math.floor(ms / 60000) + 'm ' + Math.floor((ms % 60000) / 1000) + 's'
+  return Math.floor(ms / 3600000) + 'h ' + Math.floor((ms % 3600000) / 60000) + 'm'
 }
 
 // 格式化数字

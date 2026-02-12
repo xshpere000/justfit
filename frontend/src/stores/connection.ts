@@ -1,11 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { ConnectionInfo, CreateConnectionRequest } from '@/api/types'
 import * as ConnectionAPI from '@/api/connection'
 
 export const useConnectionStore = defineStore('connection', () => {
   // 状态
-  const connections = ref<ConnectionInfo[]>([])
+  const connections = ref<main.ConnectionInfo[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -44,7 +43,7 @@ export const useConnectionStore = defineStore('connection', () => {
     }
   }
 
-  async function createConnection(data: CreateConnectionRequest) {
+  async function createConnection(data: any) {
     loading.value = true
     error.value = null
     try {

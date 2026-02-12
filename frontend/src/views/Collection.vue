@@ -182,9 +182,8 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useConnectionStore } from '@/stores/connection'
-import { collectData, getClusterList, getHostList, getVMList } from '@/api/connection'
-import type { CollectionConfig, CollectionResult } from '@/api/types'
-import type { ClusterInfo, HostInfo, VMInfo } from '@/api/types'
+import { collectData, getClusterListRaw, getHostListRaw, getVMList } from '@/api/connection'
+import type { CollectionConfig, CollectionResult, ClusterListItem, HostListItem, VMListItem } from '@/api/connection'
 import {
   formatDuration,
   formatNumber,
@@ -230,7 +229,7 @@ const progressText = computed(() => {
   if (result.value) {
     return result.value.message
   }
-  return collecting.value ? `采集中... ${progress.value}%` : ''
+  return collecting.value ? '采集中... ' + progress.value + '%' : ''
 })
 
 const previewColumns = computed(() => {
@@ -239,9 +238,9 @@ const previewColumns = computed(() => {
       { prop: 'name', label: '名称', width: 150 },
       { prop: 'datacenter', label: '数据中心', width: 150 },
       { prop: 'total_cpu', label: 'CPU总量(MHz)', width: 120 },
-      { prop: 'total_memory_mb', label: '内存(MB)', width: 120 },
-      { prop: 'num_hosts', label: '主机数', width: 80 },
-      { prop: 'num_vms', label: '虚拟机数', width: 100 },
+      { prop: 'total_memory_gb', label: '内存(GB)', width: 120 },
+      { prop: 'total_hosts', label: '主机数', width: 80 },
+      { prop: 'total_vms', label: '虚拟机数', width: 100 },
       { prop: 'status', label: '状态', width: 100 }
     ],
     hosts: [
@@ -249,8 +248,8 @@ const previewColumns = computed(() => {
       { prop: 'datacenter', label: '数据中心', width: 150 },
       { prop: 'ip_address', label: 'IP地址', width: 120 },
       { prop: 'cpu_cores', label: 'CPU核数', width: 100 },
-      { prop: 'memory_mb', label: '内存(MB)', width: 120 },
-      { prop: 'num_vms', label: '虚拟机数', width: 100 },
+      { prop: 'memory_gb', label: '内存(GB)', width: 120 },
+      { prop: 'vm_count', label: '虚拟机数', width: 100 },
       { prop: 'power_state', label: '电源状态', width: 100 }
     ],
     vms: [
@@ -258,7 +257,7 @@ const previewColumns = computed(() => {
       { prop: 'datacenter', label: '数据中心', width: 150 },
       { prop: 'host_name', label: '主机', width: 150 },
       { prop: 'cpu_count', label: 'CPU核数', width: 100 },
-      { prop: 'memory_mb', label: '内存(MB)', width: 120 },
+      { prop: 'memory_gb', label: '内存(GB)', width: 120 },
       { prop: 'ip_address', label: 'IP地址', width: 120 },
       { prop: 'power_state', label: '电源状态', width: 100 }
     ]
@@ -298,7 +297,7 @@ async function handleStart() {
     progress.value = 100
 
     if (res.success) {
-      ElMessage.success(`采集完成！获取 ${res.vms} 个虚拟机数据`)
+      ElMessage.success('采集完成！获取 ' + res.vms + ' 个虚拟机数据')
       // 自动加载预览数据
       loadPreviewData()
     } else {
@@ -334,35 +333,26 @@ async function loadPreviewData() {
     let dataStr = ''
     switch (previewTab.value) {
       case 'clusters':
-        dataStr = await getClusterList(config.connection_id)
+        dataStr = await getClusterListRaw(config.connection_id)
         break
       case 'hosts':
-        dataStr = await getHostList(config.connection_id)
+        dataStr = await getHostListRaw(config.connection_id)
         break
       case 'vms':
-        dataStr = await getVMList(config.connection_id)
-        break
+        const vmResult = await getVMList(config.connection_id)
+        previewData.value = vmResult.vms
+        return
     }
 
     if (dataStr) {
       const parsedData = JSON.parse(dataStr)
-      // 处理单位转换，将Bytes转换为MB
       if (Array.isArray(parsedData)) {
-        previewData.value = parsedData.map((item: any) => {
-          if (previewTab.value === 'clusters') {
-            if (item.total_memory && !item.total_memory_mb) {
-              item.total_memory_mb = Math.round(item.total_memory / 1024 / 1024)
-            }
-          } else if (previewTab.value === 'hosts') {
-            if (item.memory && !item.memory_mb) {
-              item.memory_mb = Math.round(item.memory / 1024 / 1024)
-            }
-          }
-          return item
-        })
+        previewData.value = parsedData
       } else {
         previewData.value = []
       }
+    } else {
+      previewData.value = []
     }
   } catch (error: any) {
     console.error('Failed to load preview data:', error)
@@ -377,33 +367,33 @@ async function loadPreviewData() {
 .collection-page {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: var(--spacing-lg);
 
   .form-tip {
-    font-size: $font-size-small;
-    color: $text-color-secondary;
-    margin-left: $spacing-sm;
+    font-size: var(--font-size-small);
+    color: var(--text-color-secondary);
+    margin-left: var(--spacing-sm);
   }
 
   .control-card {
     .control-buttons {
       display: flex;
-      gap: $spacing-md;
-      margin-bottom: $spacing-lg;
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-lg);
     }
 
     .progress-section {
       .progress-text {
-        margin-left: $spacing-sm;
+        margin-left: var(--spacing-sm);
       }
     }
-  }
 
-  .preview-card {
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .preview-card {
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
     }
   }
 }

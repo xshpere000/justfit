@@ -8,6 +8,7 @@
 *.dll
 *.so
 *.dylib
+justfit
 
 # Test binary, built with `go test -c`
 *.test
@@ -171,6 +172,9 @@ dist
 # IDE / Editor
 # -------------------------------------------------------------------------------
 
+# claude
+.claude
+
 # VSCode
 .vscode/
 !.vscode/extensions.json
@@ -257,6 +261,12 @@ $RECYCLE.BIN/
 test/
 *.test
 *.out
+
+# Temp files and directories
+tmp/
+temp/
+*.tmp
+*.temp
 
 # some keep files and directories
 !assets/**

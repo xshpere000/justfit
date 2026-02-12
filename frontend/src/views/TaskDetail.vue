@@ -54,14 +54,6 @@
           </div>
           <div class="progress-actions">
             <el-button-group>
-              <el-button v-if="task.status === 'running' || task.status === 'pending'" @click="handlePause">
-                <el-icon><VideoPause /></el-icon>
-                暂停
-              </el-button>
-              <el-button v-else @click="handleResume">
-                <el-icon><VideoPlay /></el-icon>
-                继续
-              </el-button>
               <el-button @click="handleCancel">
                 <el-icon><CloseBold /></el-icon>
                 取消任务
@@ -128,7 +120,7 @@
                     :class="{ completed: task.analysisResults?.[analysis.key] }"
                     @click="runAnalysis(analysis.key)"
                   >
-                    <div class="analysis-icon" :class="`analysis-icon--${analysis.color}`">
+                    <div class="analysis-icon" :class="'analysis-icon--' + analysis.color">
                       <el-icon :size="28">
                         <component :is="analysis.icon" />
                       </el-icon>
@@ -162,21 +154,27 @@
                 style="width: 300px"
               />
             </div>
-            <el-table :data="vmList" stripe>
-              <el-table-column prop="name" label="虚拟机名称" />
-              <el-table-column prop="cpuCount" label="CPU" width="100" />
-              <el-table-column prop="memoryMB" label="内存" width="120">
+            <el-table :data="filteredVMList" stripe :loading="vmListLoading" :default-expand-all="false">
+              <el-table-column prop="name" label="虚拟机名称" min-width="180" />
+              <el-table-column prop="cpu_count" label="CPU" width="100">
                 <template #default="{ row }">
-                  {{ formatMemory(row.memoryMB) }}
+                  {{ row.cpu_count > 0 ? row.cpu_count + ' 核' : '-' }}
                 </template>
               </el-table-column>
-              <el-table-column prop="powerState" label="状态" width="100">
+              <el-table-column prop="memory_gb" label="内存" width="120">
                 <template #default="{ row }">
-                  <el-tag :type="getPowerStateType(row.powerState)" size="small">
-                    {{ getPowerStateText(row.powerState) }}
+                  {{ row.memory_gb > 0 ? row.memory_gb + ' GB' : '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="power_state" label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="getPowerStateType(row.power_state)" size="small">
+                    {{ getPowerStateText(row.power_state) }}
                   </el-tag>
                 </template>
               </el-table-column>
+              <el-table-column prop="datacenter" label="数据中心" width="150" />
+              <el-table-column prop="host_name" label="主机" width="150" />
             </el-table>
           </div>
         </el-tab-pane>
@@ -247,7 +245,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { exportTaskReport } from '@/api/report'
+import * as ConnectionAPI from '@/api/connection'
+import type { VMListItem } from '@/api/connection'
 import {
   Download,
   MoreFilled,
@@ -272,6 +271,8 @@ const taskStore = useTaskStore()
 
 const activeTab = ref('overview')
 const vmSearch = ref('')
+const vmList = ref<VMListItem[]>([])
+const vmListLoading = ref(false)
 
 // 获取任务
 const task = computed(() => taskStore.getTask(route.params.id as string))
@@ -315,40 +316,76 @@ const completedAnalyses = computed(() => {
   return Object.values(results).filter(v => v).length
 })
 
-// 模拟虚拟机列表
-const vmList = computed(() => {
-  if (!task.value?.selectedVMs) return []
-  const vms = task.value.selectedVMs.map((name, i) => ({
-    name,
-    cpuCount: Math.floor(Math.random() * 8 + 1) * 2,
-    memoryMB: Math.floor(Math.random() * 16 + 2) * 1024,
-    powerState: ['poweredOn', 'poweredOn', 'poweredOn', 'poweredOff'][Math.floor(Math.random() * 4)]
-  }))
-
-  if (vmSearch.value) {
-    const keyword = vmSearch.value.toLowerCase()
-    return vms.filter(vm => vm.name.toLowerCase().includes(keyword))
-  }
-
-  return vms
+// 过滤后的虚拟机列表
+const filteredVMList = computed(() => {
+  if (!vmSearch.value) return vmList.value
+  const keyword = vmSearch.value.toLowerCase()
+  return vmList.value.filter(vm => vm.name.toLowerCase().includes(keyword))
 })
 
-onMounted(() => {
+onMounted(async () => {
   if (!task.value) {
     ElMessage.error('任务不存在')
     router.push('/')
     return
   }
-  
-  // 如果任务是 pending 状态，自动开始运行
-  if (task.value.status === 'pending') {
-    taskStore.updateTaskStatus(taskId, 'running', 0)
-    simulateProgress()
-  } else if (task.value.status === 'running') {
-    // 恢复进度模拟
-    simulateProgress()
+
+  // 加载虚拟机列表数据
+  if (task.value.connectionId) {
+    await loadVMList(task.value.connectionId)
+  }
+
+  // 如果任务有后端任务ID，轮询状态
+  if (task.value.backendTaskId) {
+    pollTaskStatus(task.value.backendTaskId)
   }
 })
+
+// 加载虚拟机列表
+async function loadVMList(connectionId: number) {
+  vmListLoading.value = true
+  try {
+    vmList.value = await ConnectionAPI.listVMs(connectionId)
+  } catch (error: any) {
+    console.error('Failed to load VM list:', error)
+    ElMessage.error('加载虚拟机列表失败: ' + (error.message || '未知错误'))
+  } finally {
+    vmListLoading.value = false
+  }
+}
+
+// 轮询后端任务状态
+function pollTaskStatus(backendTaskId: number) {
+  const pollInterval = setInterval(async () => {
+    try {
+      const taskInfo = await ConnectionAPI.getTask(backendTaskId)
+
+      if (task.value) {
+        task.value.status = taskInfo.status as any
+        task.value.progress = taskInfo.progress
+        task.value.error = taskInfo.error
+
+        if (taskInfo.status === 'completed') {
+          clearInterval(pollInterval)
+          // 加载最新的 VM 列表
+          if (task.value.connectionId) {
+            await loadVMList(task.value.connectionId)
+          }
+        } else if (taskInfo.status === 'failed') {
+          clearInterval(pollInterval)
+          ElMessage.error('任务执行失败: ' + (taskInfo.error || '未知错误'))
+        }
+      }
+    } catch (e) {
+      console.error('Failed to poll task status:', e)
+    }
+  }, 2000)
+
+  // 5分钟后停止轮询
+  setTimeout(() => {
+    clearInterval(pollInterval)
+  }, 5 * 60 * 1000)
+}
 
 function simulateProgress() {
   if (!task.value || task.value.status !== 'running') return
@@ -364,11 +401,11 @@ function simulateProgress() {
       // 模拟进度增长
       const increment = Math.floor(Math.random() * 5) + 1
       const newProgress = Math.min(currentProgress + increment, 100)
-      
+
       const collected = Math.floor((newProgress / 100) * (task.value.totalVMs || 0))
-      
+
       taskStore.updateTaskStatus(taskId, 'running', newProgress)
-      
+
       // 更新已采集数量
       if (task.value) {
         task.value.collectedVMs = collected
@@ -385,18 +422,6 @@ function simulateProgress() {
 
 function goBack() {
   router.push('/')
-}
-
-function handlePause() {
-  taskStore.pauseTask(taskId)
-  taskStore.saveTasksToStorage()
-  ElMessage.info('任务已暂停')
-}
-
-function handleResume() {
-  taskStore.resumeTask(taskId)
-  taskStore.saveTasksToStorage()
-  ElMessage.info('任务已继续')
 }
 
 async function handleCancel() {
@@ -430,12 +455,12 @@ async function handleCommand(cmd: string) {
 }
 
 function runAnalysis(type: string) {
-  ElMessage.info(`正在运行 ${type} 分析...`)
+  ElMessage.info('正在运行 ' + type + ' 分析...')
   // 模拟分析完成
   setTimeout(() => {
     taskStore.updateAnalysisResult(taskId, type as any, true)
     taskStore.saveTasksToStorage()
-    ElMessage.success(`${type} 分析完成！`)
+    ElMessage.success(type + ' 分析完成！')
   }, 2000)
 }
 
@@ -445,9 +470,9 @@ async function exportReport() {
   try {
     ElMessage.info('正在生成 Excel 报告...')
     const filepath = await exportTaskReport(taskId)
-    ElMessage.success(`报告已导出: ${filepath}`)
+    ElMessage.success('报告已导出: ' + filepath)
   } catch (error: any) {
-    ElMessage.error(`导出失败: ${error.message || '未知错误'}`)
+    ElMessage.error('导出失败: ' + (error.message || '未知错误'))
   }
 }
 
@@ -477,9 +502,9 @@ function getStatusText(status: string | undefined) {
 
 function formatMemory(mb: number): string {
   if (mb >= 1024) {
-    return `${(mb / 1024).toFixed(1)} GB`
+    return (mb / 1024).toFixed(1) + ' GB'
   }
-  return `${mb} MB`
+  return mb + ' MB'
 }
 
 function formatDuration(task: Task | undefined): string {
@@ -488,9 +513,9 @@ function formatDuration(task: Task | undefined): string {
   const end = new Date(task.ended_at).getTime()
   const duration = end - start
   const minutes = Math.floor(duration / 60000)
-  if (minutes < 60) return `${minutes}分钟`
+  if (minutes < 60) return minutes + '分钟'
   const hours = Math.floor(minutes / 60)
-  return `${hours}小时${minutes % 60}分钟`
+  return hours + '小时' + (minutes % 60) + '分钟'
 }
 
 function getPowerStateType(state: string) {

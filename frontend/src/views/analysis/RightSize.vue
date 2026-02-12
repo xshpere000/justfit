@@ -173,13 +173,14 @@ import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CircleCheck } from '@element-plus/icons-vue'
 import { useConnectionStore } from '@/stores/connection'
-import { analyzeRightSize } from '@/api/analysis'
-import type { RightSizeConfig, RightSizeResult } from '@/api/types'
+import * as AnalysisAPI from '@/api/connection'
+import type { RightSizeConfig, RightSizeResult } from '@/api/connection'
 import { getRiskLevelType } from '@/utils/format'
 
 const connectionStore = useConnectionStore()
 
 const config = reactive<RightSizeConfig>({
+  connection_id: undefined,
   analysis_days: 30,
   buffer_ratio: 1.2
 })
@@ -222,12 +223,12 @@ async function handleAnalyze() {
   results.value = []
 
   try {
-    const data = await analyzeRightSize(config.connection_id, config)
+    const data = await AnalysisAPI.analyzeRightSize(config.connection_id, config)
     results.value = data
     analyzed.value = true
 
     if (data.length > 0) {
-      ElMessage.success(`分析完成，发现 ${data.length} 个需要调整的虚拟机`)
+      ElMessage.success('分析完成，发现 ' + data.length + ' 个需要调整的虚拟机')
     } else {
       ElMessage.info('未发现需要调整的虚拟机')
     }
@@ -245,12 +246,9 @@ function getAdjustmentType(type: string): string {
 }
 
 function getAdjustmentText(type: string): string {
-  const typeMap: Record<string, string> = {
-    downsize: '缩小配置',
-    upsize: '扩大配置',
-    optimal: '配置合理'
-  }
-  return typeMap[type] || type
+  if (type === 'downsize') return '缩小配置'
+  if (type === 'upsize') return '扩大配置'
+  return '配置合理'
 }
 
 function handleExport() {
@@ -259,7 +257,7 @@ function handleExport() {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `rightsize-analysis-${Date.now()}.json`
+  link.download = 'rightsize-analysis-' + Date.now() + '.json'
   link.click()
   URL.revokeObjectURL(url)
   ElMessage.success('导出成功')
@@ -270,12 +268,12 @@ function handleExport() {
 .rightsize-analysis-page {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: var(--spacing-lg);
 
   .form-tip {
-    font-size: $font-size-small;
-    color: $text-color-secondary;
-    margin-left: $spacing-sm;
+    font-size: var(--font-size-small);
+    color: var(--text-color-secondary);
+    margin-left: var(--spacing-sm);
   }
 
   .card-header {
@@ -291,26 +289,26 @@ function handleExport() {
   }
 
   .progress-text {
-    font-size: $font-size-small;
-    margin-left: $spacing-sm;
+    font-size: var(--font-size-small);
+    margin-left: var(--spacing-sm);
   }
 
   .recommended {
     .cpu-value {
-      color: $success-color;
+      color: var(--success-color);
       font-weight: 600;
     }
 
     .mem-value {
-      color: $primary-color;
+      color: var(--primary-color);
       font-weight: 600;
     }
   }
 
   .empty-card {
     .empty-tip {
-      margin-top: $spacing-lg;
-      color: $text-color-secondary;
+      margin-top: var(--spacing-lg);
+      color: var(--text-color-secondary);
     }
   }
 }

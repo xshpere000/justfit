@@ -4,7 +4,7 @@
     <div class="banner-section">
       <el-carousel :interval="5000" trigger="click" height="180px" arrow="always">
         <el-carousel-item v-for="feature in features" :key="feature.title">
-          <div class="banner-item" :class="`banner--${feature.color}`">
+          <div class="banner-item" :class="'banner--' + feature.color">
             <div class="banner-content">
               <div class="banner-text">
                 <div class="banner-tag">核心功能</div>
@@ -53,7 +53,7 @@
               v-for="task in filteredTasks"
               :key="task.id"
               class="task-card"
-              :class="`status--${task.status}`"
+              :class="'status--' + task.status"
               @click="openTask(task)"
             >
               <div class="card-header">
@@ -209,8 +209,8 @@ const filteredTasks = computed(() => {
   // 2. 搜索筛选
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
-    result = result.filter(t => 
-      t.name.toLowerCase().includes(q) || 
+    result = result.filter(t =>
+      t.name.toLowerCase().includes(q) ||
       (t.connectionName && t.connectionName.toLowerCase().includes(q))
     )
   }
@@ -222,7 +222,7 @@ const filteredTasks = computed(() => {
 function formatTime(isoString: string | undefined): string {
   if (!isoString) return '-'
   const date = new Date(isoString)
-  return `${date.getMonth() + 1}-${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+  return (date.getMonth() + 1) + '-' + date.getDate() + ' ' + date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0')
 }
 
 function getStatusText(status: string) {
@@ -256,7 +256,7 @@ function startNewTask() {
 
 function openTask(task: Task) {
   // 如果是 completed / running / pending / paused 都可以进详情
-  router.push(`/task/${task.id}`)
+  router.push('/task/' + task.id)
 }
 
 function handleTaskCommand(cmd: string, task: Task) {
@@ -294,11 +294,11 @@ function handleTaskCommand(cmd: string, task: Task) {
 /* 顶部 Banner 区域 */
 .banner-section {
   flex: 0 0 auto;
-  
+
   :deep(.el-carousel__indicators) {
     bottom: 20px;
   }
-  
+
   :deep(.el-carousel__button) {
     width: 6px;
     height: 6px;
@@ -311,7 +311,7 @@ function handleTaskCommand(cmd: string, task: Task) {
     overflow: hidden;
     background-size: cover;
     background-position: center;
-    
+
     // 不同主题色背景
     &.banner--orange { background: linear-gradient(120deg, #1c2438 0%, #3e2820 100%); }
     &.banner--blue   { background: linear-gradient(120deg, #1c2438 0%, #1e3a5f 100%); }
@@ -428,10 +428,10 @@ function handleTaskCommand(cmd: string, task: Task) {
   .task-grid-container {
     flex: 1;
     min-height: 0; // 确保 Grid 在 Flex 中正确滚动
-    
+
     :deep(.el-scrollbar) {
       height: 100%;
-      
+
       .el-scrollbar__view {
         min-height: 100%;
       }
@@ -526,8 +526,11 @@ function handleTaskCommand(cmd: string, task: Task) {
                 font-size: 12px;
                 margin-bottom: 6px;
                 color: #606266;
+            }
 
-                .progress-val { font-weight: bold; color: #409eff; }
+            .progress-val {
+                font-weight: bold;
+                color: #409eff;
             }
         }
 
@@ -540,7 +543,7 @@ function handleTaskCommand(cmd: string, task: Task) {
                 display: flex;
                 align-items: center;
                 gap: 12px;
-                
+
                 .stat-item {
                     display: flex;
                     flex-direction: column;

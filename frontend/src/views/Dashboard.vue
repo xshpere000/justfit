@@ -1,192 +1,320 @@
 <template>
   <div class="dashboard-page">
-    <!-- KPI 卡片 -->
-    <el-row :gutter="20" class="kpi-row">
+    <!-- 顶部统计卡片 -->
+    <el-row :gutter="20" class="stats-row">
       <el-col :span="6">
-        <el-card class="kpi-card kpi-card--health">
-          <div class="kpi-icon">
-            <el-icon :size="32"><TrendCharts /></el-icon>
-          </div>
-          <div class="kpi-content">
-            <div class="kpi-value">{{ healthScore }}</div>
-            <div class="kpi-label">健康评分</div>
+        <el-card class="stat-card health-card">
+          <div class="stat-content">
+            <div class="stat-icon">
+              <el-icon :size="32" color="#67C23A">
+                <CircleCheck />
+              </el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.health_score }}</div>
+              <div class="stat-label">平台健康评分</div>
+            </div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card class="kpi-card kpi-card--warning">
-          <div class="kpi-icon">
-            <el-icon :size="32"><Monitor /></el-icon>
-          </div>
-          <div class="kpi-content">
-            <div class="kpi-value">{{ zombieCount }}</div>
-            <div class="kpi-label">僵尸 VM</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="kpi-card kpi-card--success">
-          <div class="kpi-icon">
-            <el-icon :size="32"><Coin /></el-icon>
-          </div>
-          <div class="kpi-content">
-            <div class="kpi-value">{{ savings }}%</div>
-            <div class="kpi-label">可节省资源</div>
+        <el-card class="stat-card zombie-card">
+          <div class="stat-content">
+            <div class="stat-icon">
+              <el-icon :size="32" color="#F56C6C">
+                <Warning />
+              </el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.zombie_count }}</div>
+              <div class="stat-label">僵尸 VM 数量</div>
+            </div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card class="kpi-card kpi-card--info">
-          <div class="kpi-icon">
-            <el-icon :size="32"><DataAnalysis /></el-icon>
+        <el-card class="stat-card savings-card">
+          <div class="stat-content">
+            <div class="stat-icon">
+              <el-icon :size="32" color="#409EFF">
+                <Coin />
+              </el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.total_savings }}</div>
+              <div class="stat-label">预计节省</div>
+            </div>
           </div>
-          <div class="kpi-content">
-            <div class="kpi-value">{{ totalVMs }}</div>
-            <div class="kpi-label">虚拟机总数</div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card class="stat-card vms-card">
+          <div class="stat-content">
+            <div class="stat-icon">
+              <el-icon :size="32" color="#E6A23C">
+                <Monitor />
+              </el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.total_vms }}</div>
+              <div class="stat-label">虚拟机总数</div>
+            </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
 
-    <!-- 连接状态 -->
-    <el-card class="section-card">
-      <template #header>
-        <div class="card-header">
-          <span>平台连接</span>
-          <el-button type="primary" link @click="goToConnections">
-            管理连接
-          </el-button>
-        </div>
-      </template>
-
-      <el-table :data="connectionStore.connections" size="small" stripe>
-        <el-table-column prop="name" label="名称" />
-        <el-table-column prop="platform" label="类型" width="120">
-          <template #default="{ row }">
-            <el-tag size="small">
-              {{ PLATFORM_LABELS[row.platform] || row.platform }}
-            </el-tag>
+    <!-- 内容区域 -->
+    <el-row :gutter="20" class="content-row">
+      <!-- 左侧：连接状态 -->
+      <el-col :span="12">
+        <el-card class="content-card">
+          <template #header>
+            <div class="card-header">
+              <span>连接状态</span>
+              <el-button link type="primary" @click="refreshConnections">
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+            </div>
           </template>
-        </el-table-column>
-        <el-table-column prop="host" label="主机地址" min-width="150" />
-        <el-table-column prop="status" label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag
-              :type="getConnectionStatusType(row.status)"
-              size="small"
+          <div class="connection-list">
+            <div
+              v-for="conn in connectionStore.connections"
+              :key="conn.id"
+              class="connection-item"
             >
-              {{ getConnectionStatusText(row.status) }}
-            </el-tag>
+              <div class="conn-info">
+                <el-icon
+                  :size="20"
+                  :color="getConnectionStatusColor(conn.status)"
+                >
+                  <Connection />
+                </el-icon>
+                <div class="conn-details">
+                  <div class="conn-name">{{ conn.name }}</div>
+                  <div class="conn-platform">
+                    {{ conn.platform === 'vcenter' ? 'VMware vCenter' : 'H3C UIS' }}
+                  </div>
+                </div>
+              </div>
+              <el-tag :type="getConnectionStatusType(conn.status)" size="small">
+                {{ getConnectionStatusText(conn.status) }}
+              </el-tag>
+            </div>
+            <el-empty
+              v-if="connectionStore.connections.length === 0"
+              description="暂无连接"
+              :image-size="60"
+            />
+          </div>
+        </el-card>
+      </el-col>
+
+      <!-- 右侧：最近活动 -->
+      <el-col :span="12">
+        <el-card class="content-card">
+          <template #header>
+            <div class="card-header">
+              <span>最近任务</span>
+              <el-button link type="primary" @click="$router.push('/tasks')">
+                查看全部
+              </el-button>
+            </div>
           </template>
-        </el-table-column>
-        <el-table-column prop="last_sync" label="最后连接" width="160">
-          <template #default="{ row }">
-            {{ row.last_sync ? formatDateTime(row.last_sync) : '-' }}
+          <div class="task-list">
+            <div
+              v-for="task in recentTasks"
+              :key="task.id"
+              class="task-item"
+            >
+              <div class="task-info">
+                <el-icon :size="20" :color="getTaskStatusColor(task.status)">
+                  <component :is="getTaskIcon(task.status)" />
+                </el-icon>
+                <div class="task-details">
+                  <div class="task-name">{{ task.name }}</div>
+                  <div class="task-time">{{ formatDate(task.created_at) }}</div>
+                </div>
+              </div>
+              <el-tag :type="getTaskStatusType(task.status)" size="small">
+                {{ getTaskStatusText(task.status) }}
+              </el-tag>
+            </div>
+            <el-empty
+              v-if="recentTasks.length === 0"
+              description="暂无最近任务"
+              :image-size="60"
+            />
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 快速操作 -->
+    <el-row :gutter="20" class="quick-actions-row">
+      <el-col :span="24">
+        <el-card class="quick-actions-card">
+          <template #header>
+            <span>快速操作</span>
           </template>
-        </el-table-column>
-      </el-table>
-
-      <el-empty
-        v-if="connectionStore.connections.length === 0"
-        description="暂无连接"
-        :image-size="80"
-      />
-    </el-card>
-
-    <!-- 快捷操作 -->
-    <el-card class="section-card">
-      <template #header>
-        <span>快捷操作</span>
-      </template>
-
-      <el-row :gutter="16">
-        <el-col :span="6">
-          <div class="action-card" @click="goToConnections">
-            <el-icon class="action-icon"><Connection /></el-icon>
-            <span class="action-label">添加连接</span>
+          <div class="quick-actions">
+            <el-button type="primary" :icon="'Plus'" @click="$router.push('/connections')">
+              添加连接
+            </el-button>
+            <el-button type="success" :icon="'Search'" @click="$router.push('/analysis/zombie')">
+              僵尸 VM 检测
+            </el-button>
+            <el-button type="warning" :icon="'Crop'" @click="$router.push('/analysis/rightsize')">
+              Right Size 评估
+            </el-button>
+            <el-button type="info" :icon="'DataAnalysis'" @click="$router.push('/analysis/health')">
+              平台健康分析
+            </el-button>
           </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="action-card" @click="goToCollection">
-            <el-icon class="action-icon"><Download /></el-icon>
-            <span class="action-label">数据采集</span>
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="action-card" @click="goToAnalysis('zombie')">
-            <el-icon class="action-icon"><Monitor /></el-icon>
-            <span class="action-label">僵尸 VM 检测</span>
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="action-card" @click="goToAnalysis('health')">
-            <el-icon class="action-icon"><DataAnalysis /></el-icon>
-            <span class="action-label">健康评分</span>
-          </div>
-        </el-col>
-      </el-row>
-    </el-card>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useConnectionStore } from '@/stores/connection'
-import { PLATFORM_LABELS } from '@/utils/constants'
 import {
-  formatDateTime,
-  getConnectionStatusType,
-  getConnectionStatusText
-} from '@/utils/format'
-import {
-  TrendCharts,
-  Monitor,
+  CircleCheck,
+  Warning,
   Coin,
-  DataAnalysis,
+  Monitor,
   Connection,
-  Download
+  Refresh,
+  SuccessFilled,
+  Loading,
+  CircleClose
 } from '@element-plus/icons-vue'
-
-// @ts-ignore
-import { GetDashboardStats } from '../../wailsjs/go/main/App'
+import { useConnectionStore } from '@/stores/connection'
+import { useTaskStore } from '@/stores/task'
+import * as DashboardAPI from '@/api/connection'
 
 const router = useRouter()
 const connectionStore = useConnectionStore()
+const taskStore = useTaskStore()
 
-// KPI 数据
-const healthScore = ref(0)
-const zombieCount = ref(0)
-const savings = ref('¥0')
-const totalVMs = ref(0)
-
-onMounted(async () => {
-  await connectionStore.fetchConnections()
-  loadStats()
+const stats = ref({
+  health_score: 0,
+  zombie_count: 0,
+  total_savings: '¥0',
+  total_vms: 0
 })
 
-async function loadStats() {
-    try {
-        const stats = await GetDashboardStats()
-        healthScore.value = stats.health_score || 0
-        zombieCount.value = stats.zombie_count || 0
-        savings.value = stats.total_savings || '¥0'
-        totalVMs.value = stats.total_vms || 0
-    } catch (e) {
-        console.error("Failed to load dashboard stats", e)
-    }
+const recentTasks = computed(() => {
+  return taskStore.tasks.slice(0, 5)
+})
+
+onMounted(async () => {
+  await Promise.all([
+    connectionStore.fetchConnections(),
+    taskStore.loadTasksFromStorage(),
+    loadDashboardStats()
+  ])
+})
+
+async function loadDashboardStats() {
+  try {
+    const data = await DashboardAPI.getStats()
+    stats.value = data
+  } catch (e) {
+    console.error('Failed to load dashboard stats:', e)
+  }
 }
 
-function goToConnections() {
-  router.push('/connections')
+function refreshConnections() {
+  connectionStore.fetchConnections()
 }
 
-function goToCollection() {
-  router.push('/collection')
+function formatDate(dateStr: string) {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const minutes = Math.floor(diff / 60000)
+  const hours = Math.floor(minutes / 60)
+  const days = Math.floor(hours / 24)
+
+  if (days > 0) return days + '天前'
+  if (hours > 0) return hours + '小时前'
+  if (minutes > 0) return minutes + '分钟前'
+  return '刚刚'
 }
 
-function goToAnalysis(type: string) {
-  router.push(`/analysis/${type}`)
+function getConnectionStatusColor(status: string): string {
+  const colorMap: Record<string, string> = {
+    connected: '#67C23A',
+    disconnected: '#909399',
+    error: '#F56C6C',
+    connecting: '#E6A23C'
+  }
+  return colorMap[status] || '#909399'
+}
+
+function getConnectionStatusType(status: string): string {
+  const typeMap: Record<string, string> = {
+    connected: 'success',
+    disconnected: 'info',
+    error: 'danger',
+    connecting: 'warning'
+  }
+  return typeMap[status] || 'info'
+}
+
+function getConnectionStatusText(status: string): string {
+  const textMap: Record<string, string> = {
+    connected: '已连接',
+    disconnected: '未连接',
+    error: '连接失败',
+    connecting: '连接中'
+  }
+  return textMap[status] || status
+}
+
+function getTaskStatusColor(status: string): string {
+  const colorMap: Record<string, string> = {
+    completed: '#67C23A',
+    running: '#409EFF',
+    failed: '#F56C6C',
+    pending: '#E6A23C'
+  }
+  return colorMap[status] || '#909399'
+}
+
+function getTaskStatusType(status: string): string {
+  const typeMap: Record<string, string> = {
+    completed: 'success',
+    running: 'primary',
+    failed: 'danger',
+    pending: 'warning',
+    cancelled: 'info'
+  }
+  return typeMap[status] || 'info'
+}
+
+function getTaskStatusText(status: string): string {
+  const textMap: Record<string, string> = {
+    completed: '已完成',
+    running: '进行中',
+    failed: '失败',
+    pending: '等待中',
+    cancelled: '已取消'
+  }
+  return textMap[status] || status
+}
+
+function getTaskIcon(status: string) {
+  const iconMap: Record<string, any> = {
+    completed: SuccessFilled,
+    running: Loading,
+    failed: CircleClose
+  }
+  return iconMap[status] || SuccessFilled
 }
 </script>
 
@@ -194,102 +322,108 @@ function goToAnalysis(type: string) {
 .dashboard-page {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-lg);
 
-  .kpi-row {
-    .kpi-card {
-      display: flex;
-      align-items: center;
-      gap: $spacing-md;
-      padding: $spacing-lg;
-
-      .kpi-icon {
+  .stats-row {
+    .stat-card {
+      .stat-content {
         display: flex;
         align-items: center;
-        justify-content: center;
-        width: 60px;
-        height: 60px;
-        border-radius: $border-radius-large;
-        background: rgba(64, 158, 255, 0.1);
-        color: $primary-color;
-      }
+        gap: var(--spacing-md);
 
-      .kpi-card--health .kpi-icon {
-        background: rgba($success-color, 0.1);
-        color: $success-color;
-      }
-
-      .kpi-card--warning .kpi-icon {
-        background: rgba($warning-color, 0.1);
-        color: $warning-color;
-      }
-
-      .kpi-card--success .kpi-icon {
-        background: rgba($primary-color, 0.1);
-        color: $primary-color;
-      }
-
-      .kpi-card--info .kpi-icon {
-        background: rgba($info-color, 0.1);
-        color: $info-color;
-      }
-
-      .kpi-content {
-        flex: 1;
-
-        .kpi-value {
-          font-size: 28px;
-          font-weight: 600;
-          line-height: 1.2;
+        .stat-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 56px;
+          height: 56px;
+          border-radius: var(--border-radius-base);
+          background: var(--background-color-light);
         }
 
-        .kpi-label {
-          font-size: $font-size-small;
-          color: $text-color-secondary;
+        .stat-info {
+          flex: 1;
+
+          .stat-value {
+            font-size: 28px;
+            font-weight: 600;
+            line-height: 1.2;
+          }
+
+          .stat-label {
+            font-size: var(--font-size-small);
+            color: var(--text-color-secondary);
+            margin-top: var(--spacing-xs);
+          }
         }
       }
     }
   }
 
-  .section-card {
-    .card-header {
+  .content-row {
+    .content-card {
+      height: 100%;
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .connection-list,
+      .task-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md);
+        max-height: 300px;
+        overflow-y: auto;
+
+        .connection-item,
+        .task-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: var(--spacing-md);
+          background: var(--background-color-base);
+          border-radius: var(--border-radius-base);
+          transition: background var(--transition-base);
+
+          &:hover {
+            background: var(--background-color-light);
+          }
+
+          .conn-info,
+          .task-info {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-md);
+
+            .conn-details,
+            .task-details {
+              .conn-name,
+              .task-name {
+                font-weight: 500;
+                margin-bottom: 2px;
+              }
+
+              .conn-platform,
+              .task-time {
+                font-size: var(--font-size-small);
+                color: var(--text-color-secondary);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  .quick-actions-card {
+    .quick-actions {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-  }
-
-  .action-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: $spacing-sm;
-    padding: $spacing-lg;
-    background: #fff;
-    border: 1px solid $border-color-light;
-    border-radius: $border-radius-base;
-    cursor: pointer;
-    transition: all 0.3s;
-
-    &:hover {
-      border-color: $primary-color;
-      box-shadow: 0 2px 12px rgba(64, 158, 255, 0.2);
-      transform: translateY(-2px);
-
-      .action-icon {
-        color: $primary-color;
-      }
-    }
-
-    .action-icon {
-      font-size: 32px;
-      color: $text-color-secondary;
-      transition: color 0.3s;
-    }
-
-    .action-label {
-      font-size: $font-size-base;
-      color: $text-color-regular;
+      gap: var(--spacing-md);
+      flex-wrap: wrap;
     }
   }
 }

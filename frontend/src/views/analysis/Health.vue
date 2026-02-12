@@ -165,8 +165,8 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Warning, CircleCheck } from '@element-plus/icons-vue'
 import { useConnectionStore } from '@/stores/connection'
-import { analyzeHealthScore } from '@/api/analysis'
-import type { HealthScoreResult } from '@/api/types'
+import * as AnalysisAPI from '@/api/connection'
+import type { HealthScoreResult } from '@/api/connection'
 
 const connectionStore = useConnectionStore()
 const selectedConnectionId = ref<number>(0)
@@ -187,7 +187,7 @@ async function handleAnalyze() {
   result.value = null
 
   try {
-    const data = await analyzeHealthScore(selectedConnectionId.value)
+    const data = await AnalysisAPI.analyzeHealthScore(selectedConnectionId.value)
     result.value = data
     ElMessage.success('健康度分析完成')
   } catch (error: any) {
@@ -237,7 +237,7 @@ function getHotspotColor(hotspot: number): string {
 .health-analysis-page {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: var(--spacing-lg);
 
   .card-header {
     display: flex;
@@ -253,17 +253,17 @@ function getHotspotColor(hotspot: number): string {
         .score-circle {
           display: flex;
           justify-content: center;
-          margin-bottom: $spacing-lg;
+          margin-bottom: var(--spacing-lg);
 
           .score-value {
             font-size: 42px;
             font-weight: 600;
-            color: $text-color-primary;
+            color: var(--text-color-primary);
           }
 
           .score-label {
-            font-size: $font-size-base;
-            color: $text-color-secondary;
+            font-size: var(--font-size-base);
+            color: var(--text-color-secondary);
           }
         }
 
@@ -275,22 +275,22 @@ function getHotspotColor(hotspot: number): string {
           }
         }
       }
+    }
 
-      .metrics-card {
-        .metric-item {
-          margin-bottom: $spacing-lg;
+    .metrics-card {
+      .metric-item {
+        margin-bottom: var(--spacing-lg);
 
-          .metric-label {
-            display: block;
-            margin-bottom: $spacing-sm;
-            font-size: $font-size-small;
-            color: $text-color-secondary;
-          }
+        .metric-label {
+          display: block;
+          margin-bottom: var(--spacing-sm);
+          font-size: var(--font-size-small);
+          color: var(--text-color-secondary);
+        }
 
-          .metric-value {
-            float: right;
-            font-weight: 600;
-          }
+        .metric-value {
+          float: right;
+          font-weight: 600;
         }
       }
     }
@@ -303,24 +303,24 @@ function getHotspotColor(hotspot: number): string {
         .card-title-suggestion {
           display: flex;
           align-items: center;
-          gap: $spacing-sm;
+          gap: var(--spacing-sm);
           font-weight: 600;
         }
 
         .card-title-risk {
-          color: $warning-color;
+          color: var(--warning-color);
         }
 
         .card-title-suggestion {
-          color: $success-color;
+          color: var(--success-color);
         }
 
         .suggestion-list {
           margin: 0;
-          padding-left: $spacing-lg;
+          padding-left: var(--spacing-lg);
 
           li {
-            margin-bottom: $spacing-md;
+            margin-bottom: var(--spacing-md);
             line-height: 1.6;
 
             &:last-child {

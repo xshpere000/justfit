@@ -143,62 +143,75 @@ func (c *UISConnector) login() error {
 }
 
 // GetVMList 获取虚拟机列表
+// 使用 H3C UIS 的虚拟机概要信息批量接口: /uis/vm/list/summary
+// 该接口返回的数据包含 cpu 和 memory 字段（单位为 MB）
 func (c *UISConnector) GetVMList() ([]UISVMInfo, error) {
-	params := map[string]interface{}{
-		"offset": 0,
-		"limit":  1000,
-	}
+	url := fmt.Sprintf("https://%s/uis/vm/list/summary", c.config.Host)
 
-	url := fmt.Sprintf("https://%s/uis/uis/btnSeries/resourceDetail", c.config.Host)
-
-	resp, err := c.get(url, params)
+	resp, err := c.get(url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("获取虚拟机列表失败: %w", err)
 	}
 
+	// H3C UIS 返回格式: {"statusType": "OK", "entity": {"data": [...], ...}}
 	var result map[string]interface{}
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 
-	if result["success"] == false {
-		return nil, fmt.Errorf("获取虚拟机列表失败: %v", result["failureMessage"])
+	// 检查响应状态
+	if statusType, ok := result["statusType"].(string); !ok || statusType != "OK" {
+		return nil, fmt.Errorf("获取虚拟机列表失败: %v", result)
 	}
 
-	data, ok := result["data"].([]interface{})
+	// 获取 entity.data 数组
+	entity, ok := result["entity"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("无效的响应数据格式")
+		return nil, fmt.Errorf("无效的响应数据格式: 缺少 entity")
 	}
 
-	vms := make([]UISVMInfo, len(data))
-	for i, item := range data {
+	data, ok := entity["data"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("无效的响应数据格式: 缺少 data")
+	}
+
+	vms := make([]UISVMInfo, 0, len(data))
+	for _, item := range data {
 		vm, ok := item.(map[string]interface{})
 		if !ok {
 			continue
 		}
 
+		// 获取虚拟机 ID
+		var id int
+		if v, ok := vm["id"].(float64); ok {
+			id = int(v)
+		}
+
+		// 获取虚拟机名称
+		var name string
+		if v, ok := vm["name"].(string); ok {
+			name = v
+		}
+
+		// 获取 CPU 数量 (字段名: cpu)
 		cpu := 0
-		if v, ok := vm["vcpus"].(float64); ok {
-			cpu = int(v)
-		} else if v, ok := vm["cpu"].(float64); ok {
+		if v, ok := vm["cpu"].(float64); ok {
 			cpu = int(v)
 		}
 
+		// 获取内存大小 (字段名: memory, 单位: MB)
 		mem := 0
 		if v, ok := vm["memory"].(float64); ok {
 			mem = int(v)
-		} else if v, ok := vm["memSize"].(float64); ok {
-			mem = int(v)
-		} else if v, ok := vm["memorySize"].(float64); ok {
-			mem = int(v)
 		}
 
-		vms[i] = UISVMInfo{
-			ID:       int(vm["id"].(float64)),
-			Name:     vm["name"].(string),
+		vms = append(vms, UISVMInfo{
+			ID:       id,
+			Name:     name,
 			CpuCount: cpu,
 			MemoryMB: mem,
-		}
+		})
 	}
 
 	return vms, nil

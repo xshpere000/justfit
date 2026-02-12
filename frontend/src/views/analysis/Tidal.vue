@@ -170,12 +170,13 @@ import { ref, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CircleCheck } from '@element-plus/icons-vue'
 import { useConnectionStore } from '@/stores/connection'
-import { detectTidalPattern } from '@/api/analysis'
-import type { TidalConfig, TidalResult } from '@/api/types'
+import * as AnalysisAPI from '@/api/connection'
+import type { TidalConfig, TidalResult } from '@/api/connection'
 
 const connectionStore = useConnectionStore()
 
 const config = reactive<TidalConfig>({
+  connection_id: undefined,
   analysis_days: 30,
   min_stability: 0.7
 })
@@ -215,12 +216,12 @@ async function handleAnalyze() {
   results.value = []
 
   try {
-    const data = await detectTidalPattern(config.connection_id, config)
+    const data = await AnalysisAPI.detectTidalPattern(config.connection_id, config)
     results.value = data
     analyzed.value = true
 
     if (data.length > 0) {
-      ElMessage.success(`检测完成，发现 ${data.length} 个潮汐模式虚拟机`)
+      ElMessage.success('检测完成，发现 ' + data.length + ' 个潮汐模式虚拟机')
     } else {
       ElMessage.info('未检测到潮汐模式')
     }
@@ -242,12 +243,12 @@ function getStabilityColor(score: number): string {
 .tidal-analysis-page {
   display: flex;
   flex-direction: column;
-  gap: $spacing-lg;
+  gap: var(--spacing-lg);
 
   .form-tip {
-    font-size: $font-size-small;
-    color: $text-color-secondary;
-    margin-left: $spacing-sm;
+    font-size: var(--font-size-small);
+    color: var(--text-color-secondary);
+    margin-left: var(--spacing-sm);
   }
 
   .card-header {
@@ -263,14 +264,14 @@ function getStabilityColor(score: number): string {
   }
 
   .progress-text {
-    font-size: $font-size-small;
-    margin-left: $spacing-sm;
+    font-size: var(--font-size-small);
+    margin-left: var(--spacing-sm);
   }
 
   .empty-card {
     .empty-tip {
-      margin-top: $spacing-lg;
-      color: $text-color-secondary;
+      margin-top: var(--spacing-lg);
+      color: var(--text-color-secondary);
     }
   }
 }

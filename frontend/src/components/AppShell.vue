@@ -13,7 +13,7 @@
           <!-- 返回按钮 -->
           <el-button
             v-if="showBackButton"
-            :icon="ArrowLeft"
+            :icon="'ArrowLeft'"
             text
             @click="goBack"
           >
@@ -27,16 +27,6 @@
         </div>
 
         <div class="header-right">
-          <!-- 暂时移除连接状态和设置按钮，等待后续规划
-          <div class="connection-status" v-if="connectionStore.connectedCount > 0">
-            <el-tag type="success" size="small">
-              已连接: {{ connectionStore.connectedCount }}
-            </el-tag>
-          </div>
-
-          <el-button :icon="'Setting'" circle text @click="goToSettings" />
-          -->
-          
           <!-- 窗口控制按钮 - macOS 风格 -->
           <div class="window-controls">
             <button class="window-control-btn window-control-btn--close" @click="closeWindow" title="关闭">
@@ -69,7 +59,7 @@
           v-for="notification in appStore.notifications"
           :key="notification.id"
           class="notification-item"
-          :class="`notification-item--${notification.type}`"
+          :class="'notification-item--' + notification.type"
         >
           <el-icon class="notification-icon">
             <component
@@ -106,7 +96,7 @@ import {
   CopyDocument,
   Close
 } from '@element-plus/icons-vue'
-import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime'
+import * as Runtime from '../../wailsjs/runtime/runtime.js'
 
 const router = useRouter()
 const isMaximized = ref(false)
@@ -140,16 +130,16 @@ function goToSettings() {
 }
 // 窗口控制函数
 function minimizeWindow() {
-  WindowMinimise()
+  Runtime.WindowMinimise()
 }
 
 function toggleMaximize() {
-  WindowToggleMaximise()
+  Runtime.WindowToggleMaximise()
   isMaximized.value = !isMaximized.value
 }
 
 function closeWindow() {
-  Quit()
+  Runtime.Quit()
 }
 
 
@@ -247,12 +237,6 @@ onMounted(async () => {
     min-width: 200px;
     justify-content: flex-end;
 
-    .connection-status {
-      display: flex;
-      align-items: center;
-      gap: $spacing-sm;
-    }
-
     /* 右侧按钮不拖动 */
     .el-button {
       --wails-draggable: no-drag;
@@ -333,11 +317,11 @@ onMounted(async () => {
 
 .app-content {
   flex: 1;
-  /* 
+  /*
     修改为 hidden，防止外层出现滚动条。
     页面内容（如 Home, Wizard）应该自己管理滚动区域。
-  */
-  overflow: hidden; 
+    */
+  overflow: hidden;
   padding: 0;
   display: flex; /* 确保子元素能撑开高度 */
   flex-direction: column;

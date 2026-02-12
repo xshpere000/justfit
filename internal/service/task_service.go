@@ -28,14 +28,19 @@ func NewCollectionExecutor(collector *etl.Collector, repos *storage.Repositories
 // Execute 执行采集任务
 func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progressCh chan<- float64) (*task.TaskResult, error) {
 	// 从配置中提取参数
-	connectionIDFloat, ok := t.Config["connection_id"].(float64)
-	if !ok {
+	// 支持 float64 (JSON 解码) 和 uint (直接传值) 两种类型
+	var connectionID uint
+	switch v := t.Config["connection_id"].(type) {
+	case float64:
+		connectionID = uint(v)
+	case uint:
+		connectionID = v
+	default:
 		return &task.TaskResult{
 			Success: false,
 			Message: "无效的 connection_id 配置",
-		}, fmt.Errorf("无效的 connection_id 配置")
+		}, fmt.Errorf("无效的 connection_id 配置，期望 float64 或 uint 类型，实际得到 %T", t.Config["connection_id"])
 	}
-	connectionID := uint(connectionIDFloat)
 
 	// 获取数据类型配置
 	dataTypes, _ := t.Config["data_types"].([]string)
@@ -137,14 +142,19 @@ func (e *AnalysisExecutor) Execute(ctx context.Context, t *task.Task, progressCh
 		}, fmt.Errorf("无效的 analysis_type 配置")
 	}
 
-	connectionIDFloat, ok := t.Config["connection_id"].(float64)
-	if !ok {
+	// 支持 float64 (JSON 解码) 和 uint (直接传值) 两种类型
+	var connectionID uint
+	switch v := t.Config["connection_id"].(type) {
+	case float64:
+		connectionID = uint(v)
+	case uint:
+		connectionID = v
+	default:
 		return &task.TaskResult{
 			Success: false,
 			Message: "无效的 connection_id 配置",
-		}, fmt.Errorf("无效的 connection_id 配置")
+		}, fmt.Errorf("无效的 connection_id 配置，期望 float64 或 uint 类型，实际得到 %T", t.Config["connection_id"])
 	}
-	connectionID := uint(connectionIDFloat)
 
 	progressCh <- 10
 

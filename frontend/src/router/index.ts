@@ -96,7 +96,7 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   // 设置页面标题
   if (to.meta?.title) {
-    document.title = `${to.meta.title} - JustFit`
+    document.title = to.meta.title + ' - JustFit'
   }
 
   // 检查是否有正在运行的任务，如果有任务正在运行且用户试图离开

@@ -22,12 +22,12 @@
                    </div>
                 </div>
                 <div class="task-meta">
-                   <span class="meta-item"><el-icon><Monitor /></el-icon> {{ task.platform === 'h3c' ? 'H3C UIS' : 'vCenter' }}</span>
-                   <span class="meta-item"><el-icon><Connection /></el-icon> {{ task.connectionName }}</span>
+                   <span class="meta-item"><el-icon><Monitor /></el-icon> {{ task.platform || '未知' }}</span>
+                   <span class="meta-item"><el-icon><Connection /></el-icon> {{ task.connectionName || '-' }}</span>
                    <span class="meta-item"><el-icon><Clock /></el-icon> {{ formatDate(task.created_at) }}</span>
                 </div>
                 <div class="task-progress" v-if="task.status === 'running'">
-                   <div class="progress-label">采集进度 ({{ task.collectedVMs || 0 }} / {{ task.totalVMs || 0 }} VMs)</div>
+                   <div class="progress-label">进度 {{ task.progress }}%</div>
                    <el-progress :percentage="task.progress" :status="task.status === 'failed' ? 'exception' : ''" :stroke-width="8" striped striped-flow />
                 </div>
                 <div class="error-msg" v-if="task.error">
@@ -49,13 +49,16 @@ import { Monitor, Connection, Clock, Delete } from '@element-plus/icons-vue'
 
 const taskStore = useTaskStore()
 
+// 初始化加载任务
+taskStore.loadTasksFromStorage()
+
 function refreshList() {
-  taskStore.loadTasksFromStorage()
+  taskStore.syncTasksFromBackend()
 }
 
 function formatDate(dateStr?: string) {
   if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString()
+  return new Date(dateStr).toLocaleString('zh-CN')
 }
 
 function getStatusType(status: string) {
@@ -93,16 +96,16 @@ function getStatusLabel(status: string) {
     display: flex;
     flex-direction: column;
     border: none;
-    
+
     .el-card__header {
         padding: 16px 20px;
         border-bottom: 1px solid #f0f2f5;
     }
     .el-card__body {
-        padding: 0; // Reset default padding
+        padding: 0;
     }
   }
-  
+
   .header-row {
       display: flex;
       justify-content: space-between;
@@ -112,7 +115,7 @@ function getStatusLabel(status: string) {
 
   .task-list-container {
     flex: 1;
-    overflow: hidden; 
+    overflow: hidden;
     height: 100%;
     background: #f5f7fa;
     padding: 20px;
@@ -146,12 +149,12 @@ function getStatusLabel(status: string) {
       align-items: flex-start;
       margin-bottom: 12px;
   }
-  
+
   .task-title-row {
       display: flex;
       align-items: center;
       gap: 12px;
-      
+
       .task-name {
           font-weight: 600;
           font-size: 16px;
@@ -166,14 +169,14 @@ function getStatusLabel(status: string) {
       margin-bottom: 16px;
       padding-bottom: 16px;
       border-bottom: 1px dashed #ebeef5;
-      
+
       .meta-item {
           display: flex;
           align-items: center;
           gap: 6px;
           color: #606266;
           font-size: 13px;
-          
+
           .el-icon { font-size: 14px; color: #909399; }
       }
   }
@@ -182,7 +185,7 @@ function getStatusLabel(status: string) {
       background: #f9fafc;
       padding: 12px;
       border-radius: 4px;
-      
+
       .progress-label {
           font-size: 12px;
           color: #606266;
@@ -191,7 +194,7 @@ function getStatusLabel(status: string) {
           justify-content: space-between;
       }
   }
-  
+
   .error-msg {
       margin-top: 12px;
   }
