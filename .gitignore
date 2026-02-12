@@ -253,6 +253,11 @@ $RECYCLE.BIN/
 .Trash-*
 .nfs*
 
+# Test files and directories
+test/
+*.test
+*.out
+
 # some keep files and directories
 !assets/**
 !docs/**

@@ -68,6 +68,7 @@ func autoMigrate() error {
 		&Report{},
 		&AnalysisResult{},
 		&Alert{},
+		&Settings{},
 	)
 }
 
@@ -94,6 +95,7 @@ type Repositories struct {
 	Report         *ReportRepository
 	AnalysisResult *AnalysisResultRepository
 	Alert          *AlertRepository
+	Settings       *SettingsRepository
 }
 
 // NewRepositories 创建数据仓储
@@ -108,5 +110,6 @@ func NewRepositories() *Repositories {
 		Report:         NewReportRepository(),
 		AnalysisResult: NewAnalysisResultRepository(),
 		Alert:          NewAlertRepository(),
+		Settings:       NewSettingsRepository(),
 	}
 }

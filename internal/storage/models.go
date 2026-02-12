@@ -149,3 +149,11 @@ type Alert struct {
 	AcknowledgedAt *time.Time `json:"acknowledged_at"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
+
+// Settings 系统配置
+type Settings struct {
+	gorm.Model
+	Key   string `gorm:"size:100;uniqueIndex;not null" json:"key"`
+	Value string `gorm:"type:text" json:"value"`
+	Type  string `gorm:"size:20;default:string" json:"type"` // string, int, float, bool, json
+}

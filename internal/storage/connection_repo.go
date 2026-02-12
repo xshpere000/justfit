@@ -192,6 +192,16 @@ func (r *VMRepository) GetByKey(key string) (*VM, error) {
 	return &vm, nil
 }
 
+// GetByID 根据ID获取虚拟机
+func (r *VMRepository) GetByID(id uint) (*VM, error) {
+	var vm VM
+	err := r.db.First(&vm, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &vm, nil
+}
+
 // MetricRepository 性能指标仓储
 type MetricRepository struct {
 	db *gorm.DB
