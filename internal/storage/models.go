@@ -59,20 +59,21 @@ type Host struct {
 // VM 虚拟机信息
 type VM struct {
 	gorm.Model
-	ConnectionID  uint        `gorm:"index:idx_vm_connection" json:"connection_id"`
-	Connection    *Connection `gorm:"constraint:OnDelete:CASCADE" json:"-"`
-	VMKey         string      `gorm:"size:100;index" json:"vm_key"` // 唯一标识
-	UUID          string      `gorm:"size:100;index" json:"uuid"`
-	Name          string      `gorm:"size:200;not null;index" json:"name"`
-	Datacenter    string      `gorm:"size:100" json:"datacenter"`
-	CpuCount      int32       `json:"cpu_count"`
-	MemoryMB      int32       `json:"memory_mb"`
-	PowerState    string      `gorm:"size:50;index" json:"power_state"`
-	IPAddress     string      `gorm:"size:50" json:"ip_address"`
-	GuestOS       string      `gorm:"size:100" json:"guest_os"`
-	HostName      string      `gorm:"size:200" json:"host_name"`
-	OverallStatus string      `gorm:"size:50" json:"overall_status"`
-	CollectedAt   time.Time   `json:"collected_at"`
+	ConnectionID    uint        `gorm:"index:idx_vm_connection" json:"connection_id"`
+	Connection      *Connection `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	VMKey           string      `gorm:"size:100;index" json:"vm_key"` // 唯一标识
+	UUID            string      `gorm:"size:100;index" json:"uuid"`
+	Name            string      `gorm:"size:200;not null;index" json:"name"`
+	Datacenter      string      `gorm:"size:100" json:"datacenter"`
+	CpuCount        int32       `json:"cpu_count"`
+	MemoryMB        int32       `json:"memory_mb"`
+	PowerState      string      `gorm:"size:50;index" json:"power_state"`
+	ConnectionState string      `gorm:"size:50" json:"connection_state"` // 连接状态: connected, disconnected, orphaned, notResponding
+	IPAddress       string      `gorm:"size:50" json:"ip_address"`
+	GuestOS         string      `gorm:"size:100" json:"guest_os"`
+	HostName        string      `gorm:"size:200" json:"host_name"`
+	OverallStatus   string      `gorm:"size:50" json:"overall_status"`
+	CollectedAt     time.Time   `json:"collected_at"`
 }
 
 // Metric 性能指标
@@ -95,6 +96,13 @@ type Task struct {
 	Result      string     `gorm:"type:text" json:"result"` // JSON 格式的结果
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`
+	// 任务关联信息
+	ConnectionID   uint   `gorm:"index" json:"connection_id"`      // 关联的连接ID
+	ConnectionName string `gorm:"size:200" json:"connection_name"` // 连接名称
+	Platform       string `gorm:"size:20" json:"platform"`         // 平台类型: vcenter, h3c-uis
+	// VM选择信息
+	TotalVMs    int32  `gorm:"default:0" json:"total_vms"`    // 虚拟机总数
+	SelectedVMs string `gorm:"type:text" json:"selected_vms"` // 选中的VM列表(JSON数组)
 }
 
 // TaskLog 任务日志

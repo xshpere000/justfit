@@ -87,7 +87,7 @@ func (a *App) startup(ctx context.Context) {
 	a.taskLogger = taskLogger
 
 	// 创建任务调度器
-	a.taskScheduler = task.NewScheduler(3) // 3个worker
+	a.taskScheduler = task.NewScheduler(3, a.repos) // 3个worker
 
 	// 注册任务执行器
 	collectionExecutor := service.NewCollectionExecutor(a.collector, a.repos)
@@ -402,9 +402,13 @@ func (a *App) UpdateConnection(req UpdateConnectionRequest) error {
 
 // CollectionConfig 采集配置
 type CollectionConfig struct {
-	ConnectionID uint     `json:"connection_id"`
-	DataTypes    []string `json:"data_types"` // clusters, hosts, vms, metrics
-	MetricsDays  int      `json:"metrics_days"`
+	ConnectionID   uint     `json:"connection_id"`
+	ConnectionName string   `json:"connection_name"` // 连接名称
+	Platform       string   `json:"platform"`        // 平台类型: vcenter, h3c-uis
+	DataTypes      []string `json:"data_types"`      // clusters, hosts, vms, metrics
+	MetricsDays    int      `json:"metrics_days"`
+	TotalVMs       int      `json:"total_vms"`    // 虚拟机总数
+	SelectedVMs    []string `json:"selected_vms"` // 用户选择的虚拟机列表（vmKey 格式）
 }
 
 // CollectionResult 采集结果
@@ -446,8 +450,8 @@ func (a *App) CollectData(config CollectionConfig) (*CollectionResult, error) {
 	// 如果需要采集性能指标
 	metricCount := 0
 	if contains(config.DataTypes, "metrics") && config.MetricsDays > 0 {
-		// 采集性能指标
-		metricStats, metricErr := a.collector.CollectMetrics(a.ctx, config.ConnectionID, config.MetricsDays, password)
+		// 采集性能指标（CollectData 不支持 selectedVMs，传空切片）
+		metricStats, metricErr := a.collector.CollectMetrics(a.ctx, config.ConnectionID, config.MetricsDays, password, nil)
 		if metricStats != nil {
 			metricCount = metricStats.CollectedMetricCount
 		}
@@ -519,10 +523,14 @@ func (a *App) CreateCollectTask(config CollectionConfig) (uint, error) {
 	}
 
 	taskConfig := map[string]interface{}{
-		"connection_id": config.ConnectionID,
-		"data_types":    config.DataTypes,
-		"metrics_days":  config.MetricsDays,
-		"password":      password,
+		"connection_id":   config.ConnectionID,
+		"connection_name": config.ConnectionName,
+		"platform":        config.Platform,
+		"data_types":      config.DataTypes,
+		"metrics_days":    config.MetricsDays,
+		"password":        password,
+		"total_vms":       config.TotalVMs,
+		"selected_vms":    config.SelectedVMs, // 传递用户选择的虚拟机列表
 	}
 
 	taskName := fmt.Sprintf("采集任务 - 连接ID: %d", config.ConnectionID)
@@ -539,8 +547,60 @@ func (a *App) CreateCollectTask(config CollectionConfig) (uint, error) {
 	return t.ID, nil
 }
 
+// CreateAnalysisTask 创建分析任务
+func (a *App) CreateAnalysisTask(analysisType string, connectionID uint, config map[string]interface{}) (uint, error) {
+	fmt.Printf("[CreateAnalysisTask] 收到请求: analysisType=%s, connectionID=%d, config=%+v\n", analysisType, connectionID, config)
+
+	// 前端使用: zombie, rightsize, tidal, health
+	// 后端使用: zombie_vm, right_size, tidal, health_score
+	var backendAnalysisType string
+	switch analysisType {
+	case "zombie":
+		backendAnalysisType = "zombie_vm"
+	case "rightsize":
+		backendAnalysisType = "right_size"
+	case "health":
+		backendAnalysisType = "health_score"
+	default:
+		backendAnalysisType = analysisType
+	}
+	fmt.Printf("[CreateAnalysisTask] 类型转换: 前端=%s -> 后端=%s\n", analysisType, backendAnalysisType)
+
+	taskConfig := map[string]interface{}{
+		"analysis_type": backendAnalysisType,
+		"connection_id": connectionID,
+	}
+	// 合并用户配置
+	for k, v := range config {
+		taskConfig[k] = v
+	}
+
+	taskName := fmt.Sprintf("分析任务 - %s", backendAnalysisType)
+	fmt.Printf("[CreateAnalysisTask] 创建任务: name=%s, config=%+v\n", taskName, taskConfig)
+
+	t, err := a.taskScheduler.Create(task.TypeAnalysis, taskName, taskConfig)
+	if err != nil {
+		fmt.Printf("[CreateAnalysisTask] 创建任务失败: %v\n", err)
+		return 0, fmt.Errorf("创建分析任务失败: %w", err)
+	}
+	fmt.Printf("[CreateAnalysisTask] 任务创建成功: taskID=%d\n", t.ID)
+
+	// 提交执行
+	go func() {
+		fmt.Printf("[CreateAnalysisTask] 开始提交任务: taskID=%d\n", t.ID)
+		if err := a.taskScheduler.Submit(a.ctx, t.ID); err != nil {
+			fmt.Printf("[CreateAnalysisTask] 提交任务失败: taskID=%d, error=%v\n", t.ID, err)
+		} else {
+			fmt.Printf("[CreateAnalysisTask] 任务提交成功: taskID=%d\n", t.ID)
+		}
+	}()
+
+	return t.ID, nil
+}
+
 // ListTasks 获取任务列表
 func (a *App) ListTasks(status string, limit, offset int) ([]TaskInfo, error) {
+	fmt.Printf("[ListTasks] 查询任务列表, status=%s, limit=%d, offset=%d\n", status, limit, offset)
 	var taskStatus task.TaskStatus
 	if status != "" {
 		taskStatus = task.TaskStatus(status)
@@ -548,8 +608,10 @@ func (a *App) ListTasks(status string, limit, offset int) ([]TaskInfo, error) {
 
 	tasks, err := a.taskScheduler.List(taskStatus, limit, offset)
 	if err != nil {
+		fmt.Printf("[ListTasks] 查询失败: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("[ListTasks] 查询成功, 任务数量=%d\n", len(tasks))
 
 	result := make([]TaskInfo, len(tasks))
 	for i, t := range tasks {
@@ -570,6 +632,7 @@ func (a *App) ListTasks(status string, limit, offset int) ([]TaskInfo, error) {
 			c := t.CompletedAt.Format("2006-01-02 15:04:05")
 			result[i].CompletedAt = &c
 		}
+		fmt.Printf("[ListTasks] 任务[%d]: %s, 状态=%s\n", t.ID, t.Name, t.Status)
 	}
 
 	return result, nil
@@ -687,11 +750,14 @@ func (a *App) GetTaskDetail(taskID uint) (*TaskDetail, error) {
 }
 
 // ListTaskVMs 获取任务快照维度虚拟机列表
-func (a *App) ListTaskVMs(taskID uint, limit, offset int, keyword string) ([]VMListItem, int, error) {
+func (a *App) ListTaskVMs(taskID uint, limit, offset int, keyword string) (*TaskVMListResponse, error) {
+	fmt.Printf("[ListTaskVMs] 查询任务快照, taskID=%d, limit=%d, offset=%d, keyword=%s\n", taskID, limit, offset, keyword)
 	snapshots, total, err := a.repos.TaskVMSnapshot.ListByTaskID(taskID, limit, offset, keyword)
 	if err != nil {
-		return nil, 0, fmt.Errorf("获取任务快照虚拟机失败: %w", err)
+		fmt.Printf("[ListTaskVMs] 查询失败: %v\n", err)
+		return nil, fmt.Errorf("获取任务快照虚拟机失败: %w", err)
 	}
+	fmt.Printf("[ListTaskVMs] 查询成功, 快照数量=%d, total=%d\n", len(snapshots), total)
 
 	items := make([]VMListItem, len(snapshots))
 	for i, row := range snapshots {
@@ -711,30 +777,45 @@ func (a *App) ListTaskVMs(taskID uint, limit, offset int, keyword string) ([]VML
 		}
 	}
 
-	return items, int(total), nil
+	return &TaskVMListResponse{
+		VMs:   items,
+		Total: total,
+	}, nil
 }
 
 // GetTaskAnalysisResult 获取任务分析结果
 func (a *App) GetTaskAnalysisResult(taskID uint, analysisType string) (interface{}, error) {
+	fmt.Printf("[GetTaskAnalysisResult] 查询任务分析结果: taskID=%d, analysisType=%q\n", taskID, analysisType)
+
 	if strings.TrimSpace(analysisType) != "" {
 		row, err := a.repos.TaskAnalysis.GetByTaskAndType(taskID, analysisType)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				fmt.Printf("[GetTaskAnalysisResult] 未找到分析结果: taskID=%d, analysisType=%q\n", taskID, analysisType)
 				return map[string]interface{}{}, nil
 			}
+			fmt.Printf("[GetTaskAnalysisResult] 查询失败: %v\n", err)
 			return nil, fmt.Errorf("获取任务分析结果失败: %w", err)
 		}
 
 		var data interface{}
 		if err := json.Unmarshal([]byte(row.Data), &data); err != nil {
+			fmt.Printf("[GetTaskAnalysisResult] 解析结果失败: %v\n", err)
 			return nil, fmt.Errorf("解析任务分析结果失败: %w", err)
 		}
+		fmt.Printf("[GetTaskAnalysisResult] 返回单个分析结果: analysisType=%q\n", analysisType)
 		return data, nil
 	}
 
 	rows, err := a.repos.TaskAnalysis.ListByTaskID(taskID)
 	if err != nil {
+		fmt.Printf("[GetTaskAnalysisResult] 查询列表失败: %v\n", err)
 		return nil, fmt.Errorf("获取任务分析结果失败: %w", err)
+	}
+
+	fmt.Printf("[GetTaskAnalysisResult] 查询到 %d 条分析结果\n", len(rows))
+	for _, row := range rows {
+		fmt.Printf("[GetTaskAnalysisResult]   - analysisType=%s, createdAt=%s\n", row.AnalysisType, row.CreatedAt)
 	}
 
 	result := make(map[string]interface{})
@@ -745,9 +826,13 @@ func (a *App) GetTaskAnalysisResult(taskID uint, analysisType string) (interface
 		var data interface{}
 		if err := json.Unmarshal([]byte(row.Data), &data); err == nil {
 			result[row.AnalysisType] = data
+			fmt.Printf("[GetTaskAnalysisResult] 解析成功: analysisType=%s\n", row.AnalysisType)
+		} else {
+			fmt.Printf("[GetTaskAnalysisResult] 解析失败: analysisType=%s, error=%v\n", row.AnalysisType, err)
 		}
 	}
 
+	fmt.Printf("[GetTaskAnalysisResult] 最终返回: %d 个类型的分析结果\n", len(result))
 	return result, nil
 }
 
@@ -770,7 +855,8 @@ func (a *App) ExportTaskReport(taskID uint, format string) (string, error) {
 		return "", fmt.Errorf("不支持的导出格式: %s", format)
 	}
 
-	vms, _, _ := a.ListTaskVMs(taskID, 0, 0, "")
+	vmsResp, _ := a.ListTaskVMs(taskID, 0, 0, "")
+	vms := vmsResp.VMs
 	analysisData, _ := a.GetTaskAnalysisResult(taskID, "")
 
 	reportData := &report.ReportData{
@@ -1387,6 +1473,12 @@ type VMListItem struct {
 	CollectedAt   string  `json:"collected_at"`
 }
 
+// TaskVMListResponse 任务虚拟机列表响应（包含分页信息）
+type TaskVMListResponse struct {
+	VMs   []VMListItem `json:"vms"`
+	Total int64        `json:"total"`
+}
+
 // ListVMs 获取虚拟机列表（标准化）
 func (a *App) ListVMs(connectionID uint) ([]VMListItem, error) {
 	vms, err := a.repos.VM.ListByConnectionID(connectionID)
@@ -1820,34 +1912,6 @@ func configStringSlice(config map[string]interface{}, key string) []string {
 	}
 
 	return []string{}
-}
-
-// GetAnalysisResult 获取分析结果
-func (a *App) GetAnalysisResult(resultID uint) (map[string]interface{}, error) {
-	var analysisResult storage.AnalysisResult
-	err := storage.DB.First(&analysisResult, resultID).Error
-	if err != nil {
-		return nil, fmt.Errorf("获取分析结果失败: %w", err)
-	}
-
-	var data map[string]interface{}
-	if analysisResult.Data != "" {
-		if err := json.Unmarshal([]byte(analysisResult.Data), &data); err != nil {
-			return nil, fmt.Errorf("解析结果数据失败: %w", err)
-		}
-	}
-
-	return map[string]interface{}{
-		"id":             analysisResult.ID,
-		"analysis_type":  analysisResult.AnalysisType,
-		"target_type":    analysisResult.TargetType,
-		"target_key":     analysisResult.TargetKey,
-		"target_name":    analysisResult.TargetName,
-		"data":           data,
-		"recommendation": analysisResult.Recommendation,
-		"saved_amount":   analysisResult.SavedAmount,
-		"created_at":     analysisResult.CreatedAt.Format("2006-01-02 15:04:05"),
-	}, nil
 }
 
 // AnalysisSummary 分析汇总

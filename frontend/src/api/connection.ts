@@ -49,6 +49,17 @@ export async function createCollectTask(config: any): Promise<number> {
   return await App.CreateCollectTask(config)
 }
 
+/**
+ * 创建分析任务
+ * @param analysisType 分析类型: zombie, rightsize, tidal, health
+ * @param connectionId 连接ID
+ * @param config 分析配置
+ * @returns 任务ID
+ */
+export async function createAnalysisTask(analysisType: string, connectionId: number, config: any): Promise<number> {
+  return await App.CreateAnalysisTask(analysisType, connectionId, config)
+}
+
 export async function stopTask(id: number): Promise<void> {
   await App.StopTask(id)
 }
@@ -61,8 +72,17 @@ export async function getTaskLogs(id: number, limit: number = 100): Promise<main
   return await App.GetTaskLogs(id, limit)
 }
 
-export async function getAnalysisResult(taskId: number): Promise<Record<string, any>> {
-  return await App.GetAnalysisResult(taskId)
+/**
+ * 获取任务分析结果
+ * @param taskId 任务ID
+ * @param analysisType 分析类型，为空则返回所有分析结果
+ * @returns 按分析类型分组的结果
+ *
+ * 后端 analysis_type 命名: zombie_vm, right_size, tidal, health_score
+ * 前端应使用 createAnalysisTask 创建任务后调用此函数获取结果
+ */
+export async function getTaskAnalysisResult(taskId: number, analysisType: string = ''): Promise<Record<string, any>> {
+  return await App.GetTaskAnalysisResult(taskId, analysisType)
 }
 
 // =============== 采集 API ===============
@@ -72,6 +92,8 @@ export async function collectData(config: any): Promise<main.CollectionResult> {
 }
 
 // =============== 分析 API ===============
+// 注意：以下为实时分析 API，直接返回结果但不保存到数据库
+// 如需持久化结果，请使用 createAnalysisTask 创建分析任务
 
 export async function detectZombieVMs(connectionId: number, config: any): Promise<main.ZombieVMResult[]> {
   return await App.DetectZombieVMs(connectionId, config)
@@ -101,6 +123,23 @@ export async function listHosts(connectionId: number): Promise<main.HostListItem
 
 export async function listVMs(connectionId: number): Promise<main.VMListItem[]> {
   return await App.ListVMs(connectionId)
+}
+
+export async function listTaskVMs(taskId: number, limit: number = 100, offset: number = 0, keyword: string = ''): Promise<{vms: main.VMListItem[], total: number}> {
+  const result = await App.ListTaskVMs(taskId, limit, offset, keyword)
+  // 后端现在返回 TaskVMListResponse 结构体
+  if (result && result.vms) {
+    return {
+      vms: result.vms || [],
+      total: result.total || 0
+    }
+  }
+  // 如果返回值格式不对，返回空结果
+  console.warn('[listTaskVMs] 返回值格式异常:', result)
+  return {
+    vms: [],
+    total: 0
+  }
 }
 
 export async function getVMList(connectionId: number): Promise<{vms: any[], total: number}> {
@@ -141,10 +180,11 @@ const TaskApi = {
   list: listTasks,
   get: getTask,
   createCollectTask: createCollectTask,
+  createAnalysisTask: createAnalysisTask,
   stop: stopTask,
   retry: retryTask,
   getLogs: getTaskLogs,
-  getAnalysisResult: getAnalysisResult
+  getTaskAnalysisResult: getTaskAnalysisResult
 }
 
 const CollectionApi = {

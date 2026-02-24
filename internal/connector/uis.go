@@ -411,16 +411,17 @@ func (c *UISConnector) GetVMs() ([]VMInfo, error) {
 		}
 
 		result[i] = VMInfo{
-			Name:          vm.Name,
-			Datacenter:    vm.ClusterName,
-			CpuCount:      int32(vm.CpuCount),
-			MemoryMB:      int32(vm.MemoryMB),
-			PowerState:    types.VirtualMachinePowerState(powerState),
-			IPAddress:     vm.IPAddress,
-			GuestOS:       vm.GuestOS,
-			HostName:      vm.HostName,
-			OverallStatus: types.ManagedEntityStatus(overallStatus),
-			UUID:          vm.UUID,
+			Name:            vm.Name,
+			Datacenter:      vm.ClusterName,
+			CpuCount:        int32(vm.CpuCount),
+			MemoryMB:        int32(vm.MemoryMB),
+			PowerState:      types.VirtualMachinePowerState(powerState),
+			ConnectionState: "", // H3C UIS 不支持 ConnectionState 概念
+			IPAddress:       vm.IPAddress,
+			GuestOS:         vm.GuestOS,
+			HostName:        vm.HostName,
+			OverallStatus:   types.ManagedEntityStatus(overallStatus),
+			UUID:            vm.UUID,
 		}
 	}
 
@@ -663,6 +664,9 @@ func firstIPv4FromAttributes(v interface{}) string {
 }
 
 func mapUISPowerState(vmStatus string) string {
+	if vmStatus == "" {
+		return "unknown"
+	}
 	status := strings.ToLower(vmStatus)
 	switch status {
 	case "running", "poweron", "poweredon", "started":
@@ -672,7 +676,9 @@ func mapUISPowerState(vmStatus string) string {
 	case "suspended", "pause", "paused":
 		return "suspended"
 	default:
-		return "poweredOff"
+		// 对于未知状态（如 disconnected、inaccessible 等），返回原始值
+		// 这样前端可以识别并正确处理异常状态
+		return vmStatus
 	}
 }
 

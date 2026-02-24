@@ -3,9 +3,14 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
+
+	"justfit/internal/storage"
+
+	"gorm.io/gorm"
 )
 
 // TaskStatus 任务状态
@@ -70,15 +75,16 @@ type Scheduler struct {
 	resultSubs   map[uint][]chan *TaskResult
 	taskCounter  uint
 	running      bool
+	taskRepo     *storage.TaskRepository // 任务数据库仓储
 }
 
 // NewScheduler 创建任务调度器
-func NewScheduler(workerCount int) *Scheduler {
+func NewScheduler(workerCount int, repos *storage.Repositories) *Scheduler {
 	if workerCount <= 0 {
 		workerCount = 3
 	}
 
-	return &Scheduler{
+	s := &Scheduler{
 		tasks:        make(map[uint]*Task),
 		executors:    make(map[TaskType]Executor),
 		workerPool:   make(chan struct{}, workerCount),
@@ -86,6 +92,21 @@ func NewScheduler(workerCount int) *Scheduler {
 		resultSubs:   make(map[uint][]chan *TaskResult),
 		taskCounter:  0,
 		running:      true,
+		taskRepo:     repos.Task,
+	}
+
+	// 从数据库加载任务历史记录，初始化 taskCounter
+	s.loadFromDatabase()
+
+	return s
+}
+
+// loadFromDatabase 从数据库加载任务，恢复 taskCounter
+func (s *Scheduler) loadFromDatabase() {
+	// 获取数据库中最大的任务ID
+	maxID, err := s.taskRepo.GetMaxID()
+	if err == nil && maxID > 0 {
+		s.taskCounter = maxID
 	}
 }
 
@@ -106,6 +127,7 @@ func (s *Scheduler) Create(taskType TaskType, name string, config map[string]int
 	}
 
 	s.taskCounter++
+	now := time.Now()
 	task := &Task{
 		ID:          s.taskCounter,
 		Type:        taskType,
@@ -114,7 +136,54 @@ func (s *Scheduler) Create(taskType TaskType, name string, config map[string]int
 		Status:      StatusPending,
 		Progress:    0,
 		Config:      config,
-		CreatedAt:   time.Now(),
+		CreatedAt:   now,
+	}
+
+	// 保存到数据库
+	dbTask := &storage.Task{
+		Model:       gorm.Model{ID: task.ID},
+		Type:        string(task.Type),
+		Status:      string(task.Status),
+		Progress:    0,
+		Message:     name,
+		StartedAt:   nil,
+		CompletedAt: nil,
+	}
+
+	// 从配置中提取扩展字段
+	if connectionID, ok := config["connection_id"].(float64); ok {
+		dbTask.ConnectionID = uint(connectionID)
+	} else if connectionID, ok := config["connection_id"].(uint); ok {
+		dbTask.ConnectionID = connectionID
+	}
+	if connectionName, ok := config["connection_name"].(string); ok {
+		dbTask.ConnectionName = connectionName
+	}
+	if platform, ok := config["platform"].(string); ok {
+		dbTask.Platform = platform
+	}
+	if totalVMs, ok := config["total_vms"].(float64); ok {
+		dbTask.TotalVMs = int32(totalVMs)
+	} else if totalVMs, ok := config["total_vms"].(int); ok {
+		dbTask.TotalVMs = int32(totalVMs)
+	}
+	if selectedVMs, ok := config["selected_vms"].([]interface{}); ok {
+		// 将 []interface{} 转换为 JSON 字符串
+		vmKeys := make([]string, len(selectedVMs))
+		for i, vm := range selectedVMs {
+			if vmKey, ok := vm.(string); ok {
+				vmKeys[i] = vmKey
+			}
+		}
+		if len(vmKeys) > 0 {
+			if jsonBytes, err := json.Marshal(vmKeys); err == nil {
+				dbTask.SelectedVMs = string(jsonBytes)
+			}
+		}
+	}
+	if err := s.taskRepo.Create(dbTask); err != nil {
+		s.taskCounter-- // 回滚计数器
+		return nil, fmt.Errorf("保存任务到数据库失败: %w", err)
 	}
 
 	s.tasks[task.ID] = task
@@ -148,6 +217,10 @@ func (s *Scheduler) Submit(ctx context.Context, taskID uint) error {
 	task.Status = StatusRunning
 	now := time.Now()
 	task.StartedAt = &now
+
+	// 更新数据库
+	s.updateTaskInDB(task)
+
 	s.mu.Unlock()
 
 	// 异步执行
@@ -158,8 +231,10 @@ func (s *Scheduler) Submit(ctx context.Context, taskID uint) error {
 
 // execute 执行任务
 func (s *Scheduler) execute(ctx context.Context, task *Task) {
+	fmt.Printf("[Scheduler.execute] 开始执行任务: id=%d, type=%s, name=%s\n", task.ID, task.Type, task.Name)
 	defer func() {
 		<-s.workerPool // 释放 worker
+		fmt.Printf("[Scheduler.execute] 任务执行完成，释放worker: id=%d\n", task.ID)
 	}()
 
 	// 获取执行器
@@ -168,12 +243,14 @@ func (s *Scheduler) execute(ctx context.Context, task *Task) {
 	s.mu.RUnlock()
 
 	if !exists {
+		fmt.Printf("[Scheduler.execute] 错误：未找到执行器, type=%s\n", task.Type)
 		s.completeTask(task, &TaskResult{
 			Success: false,
 			Message: fmt.Sprintf("未找到 %s 类型的执行器", task.Type),
 		}, fmt.Errorf("未找到执行器"))
 		return
 	}
+	fmt.Printf("[Scheduler.execute] 找到执行器: type=%s\n", task.Type)
 
 	// 创建进度通道
 	progressCh := make(chan float64, 10)
@@ -183,14 +260,17 @@ func (s *Scheduler) execute(ctx context.Context, task *Task) {
 	go s.broadcastProgress(task.ID, progressCh)
 
 	// 执行任务
+	fmt.Printf("[Scheduler.execute] 调用执行器.Execute: id=%d\n", task.ID)
 	result, err := executor.Execute(ctx, task, progressCh)
 	if err != nil {
+		fmt.Printf("[Scheduler.execute] 执行器返回错误: id=%d, error=%v\n", task.ID, err)
 		s.completeTask(task, &TaskResult{
 			Success: false,
 			Message: err.Error(),
 		}, err)
 		return
 	}
+	fmt.Printf("[Scheduler.execute] 执行器返回成功: id=%d, success=%v, message=%s\n", task.ID, result.Success, result.Message)
 
 	s.completeTask(task, result, nil)
 }
@@ -199,6 +279,8 @@ func (s *Scheduler) execute(ctx context.Context, task *Task) {
 func (s *Scheduler) completeTask(task *Task, result *TaskResult, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	fmt.Printf("[Scheduler.completeTask] 完成任务: id=%d, err=%v\n", task.ID, err)
 
 	if err != nil {
 		task.Status = StatusFailed
@@ -215,6 +297,11 @@ func (s *Scheduler) completeTask(task *Task, result *TaskResult, err error) {
 	task.CompletedAt = &now
 	task.Progress = 100
 
+	fmt.Printf("[Scheduler.completeTask] 任务状态: id=%d, status=%s, error=%s\n", task.ID, task.Status, task.Error)
+
+	// 更新数据库中的任务状态
+	s.updateTaskInDB(task)
+
 	// 通知结果订阅者
 	if subs, exists := s.resultSubs[task.ID]; exists {
 		for _, ch := range subs {
@@ -228,6 +315,36 @@ func (s *Scheduler) completeTask(task *Task, result *TaskResult, err error) {
 
 	// 清理进度订阅
 	delete(s.progressSubs, task.ID)
+}
+
+// updateTaskInDB 更新数据库中的任务
+func (s *Scheduler) updateTaskInDB(task *Task) {
+	dbTask, err := s.taskRepo.GetByID(task.ID)
+	if err != nil {
+		return
+	}
+
+	dbTask.Status = string(task.Status)
+	dbTask.Progress = int(task.Progress)
+	if task.StartedAt != nil {
+		dbTask.StartedAt = task.StartedAt
+	}
+	if task.CompletedAt != nil {
+		dbTask.CompletedAt = task.CompletedAt
+	}
+
+	// 序列化结果
+	if task.Result != nil {
+		if resultJSON, err := json.Marshal(task.Result); err == nil {
+			dbTask.Result = string(resultJSON)
+		}
+	}
+
+	if task.Error != "" {
+		dbTask.Message = task.Error
+	}
+
+	_ = s.taskRepo.Update(dbTask)
 }
 
 // broadcastProgress 广播进度
@@ -258,9 +375,32 @@ func (s *Scheduler) Get(taskID uint) (*Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// 优先从内存获取
 	task, exists := s.tasks[taskID]
-	if !exists {
+	if exists {
+		// 返回副本
+		taskCopy := *task
+		return &taskCopy, nil
+	}
+
+	// 内存中没有，从数据库获取
+	dbTask, err := s.taskRepo.GetByID(taskID)
+	if err != nil {
 		return nil, fmt.Errorf("任务不存在: %d", taskID)
+	}
+
+	// 将数据库任务转换为内存任务格式
+	task = &Task{
+		ID:          dbTask.ID,
+		Type:        TaskType(dbTask.Type),
+		Name:        dbTask.Message,
+		Description: dbTask.Message,
+		Status:      TaskStatus(dbTask.Status),
+		Progress:    float64(dbTask.Progress),
+		Config:      make(map[string]interface{}),
+		CreatedAt:   dbTask.CreatedAt,
+		StartedAt:   dbTask.StartedAt,
+		CompletedAt: dbTask.CompletedAt,
 	}
 
 	// 返回副本
@@ -273,32 +413,68 @@ func (s *Scheduler) List(status TaskStatus, limit, offset int) ([]*Task, error) 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 先收集符合条件的任务
-	var matched []*Task
-	for _, task := range s.tasks {
-		if status != "" && task.Status != status {
-			continue
+	// 从数据库读取任务列表
+	var statusFilter string
+	if status != "" {
+		statusFilter = string(status)
+	}
+
+	dbTasks, err := s.taskRepo.ListByStatus(statusFilter, limit, offset)
+	if err != nil {
+		// 如果数据库查询失败，回退到内存列表
+		var matched []*Task
+		for _, task := range s.tasks {
+			if status != "" && task.Status != status {
+				continue
+			}
+			// 返回副本
+			taskCopy := *task
+			matched = append(matched, &taskCopy)
 		}
-		// 返回副本
-		taskCopy := *task
-		matched = append(matched, &taskCopy)
+		sortTasks(matched)
+
+		start := offset
+		if start > len(matched) {
+			start = len(matched)
+		}
+
+		end := start + limit
+		if limit <= 0 || end > len(matched) {
+			end = len(matched)
+		}
+
+		return matched[start:end], nil
 	}
 
-	// 按 ID 排序以确保顺序稳定
-	sortTasks(matched)
+	// 将数据库任务转换为内存任务格式
+	tasks := make([]*Task, 0, len(dbTasks))
+	for _, dbTask := range dbTasks {
+		task := &Task{
+			ID:          dbTask.ID,
+			Type:        TaskType(dbTask.Type),
+			Name:        dbTask.Message,
+			Description: dbTask.Message,
+			Status:      TaskStatus(dbTask.Status),
+			Progress:    float64(dbTask.Progress),
+			Config:      make(map[string]interface{}),
+			CreatedAt:   dbTask.CreatedAt,
+			StartedAt:   dbTask.StartedAt,
+			CompletedAt: dbTask.CompletedAt,
+		}
 
-	// 应用 offset 和 limit
-	start := offset
-	if start > len(matched) {
-		start = len(matched)
+		// 如果任务在内存中存在，使用内存中的状态
+		if memTask, exists := s.tasks[task.ID]; exists {
+			task.Status = memTask.Status
+			task.Progress = memTask.Progress
+			task.Error = memTask.Error
+			task.Result = memTask.Result
+			task.Config = memTask.Config
+		}
+
+		tasks = append(tasks, task)
 	}
 
-	end := start + limit
-	if limit <= 0 || end > len(matched) {
-		end = len(matched)
-	}
-
-	return matched[start:end], nil
+	return tasks, nil
 }
 
 // sortTasks 按 ID 排序任务
@@ -329,6 +505,9 @@ func (s *Scheduler) Cancel(taskID uint) error {
 	task.Status = StatusCancelled
 	now := time.Now()
 	task.CompletedAt = &now
+
+	// 更新数据库
+	s.updateTaskInDB(task)
 
 	// 通知结果订阅者
 	result := &TaskResult{

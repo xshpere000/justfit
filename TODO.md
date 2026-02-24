@@ -1,88 +1,100 @@
 # JustFit 统一 TODO
 
-> 更新时间：2026-02-12
+> 更新时间：2026-02-24
 > 说明：本文件为项目唯一待办清单；历史已完成事项已归档删除。
 
-## 前端 TODO
+## 本次重构已完成项
 
-> 进度概览：当前以联调收口与稳定性为主，组件化与页面完善为次优先。
+### 1. 配置化管理基础设施
+
+- [x] 创建测试环境配置文件 .env（包含H3C UIS和vCenter配置）
+- [x] 后端配置加载模块 internal/config/config.go
+- [x] 前端配置模块 frontend/src/config/index.ts
+
+### 2. 数据库模型重构
+
+- [x] 扩展Task模型，添加totalVMs/selectedVMs/connectionId等字段
+- [x] 完善TaskAnalysisResult与TaskVMSnapshot关联关系
+- [x] 数据库AutoMigrate自动迁移
+
+### 3. 前后端数据类型统一
+
+- [x] 定义统一API数据类型 - TaskInfo扩展
+- [x] 创建类型转换工具函数 frontend/src/utils/transform.ts
+
+### 4. 任务服务重构
+
+- [x] 后端任务服务 - 创建任务时保存totalVMs/selectedVMs
+
+## 后续优化目标
+
+> 重要原则：H3C UIS优先实现，但VMware vCenter同样重要，需保证两者都能正常工作并具备扩展性。
 
 ### P0（当前优先）
 
-#### 1) TaskDetail 联调收口
+#### 1) 虚拟化平台连接器重构
 
-- [ ] 统一任务详情字段映射，消除 `task.id` 与 `backendTaskId` 混用
-- [ ] 统一详情页路由入口参数规范（首页/任务中心进入行为一致）
-- [ ] 补齐异常场景提示：任务不存在、连接失效、日志为空、导出失败
-- [ ] 前端导出链路切换到任务维度 `ExportTaskReport(taskID, format)`
+- [ ] **抽象连接器接口** `internal/connector/interface.go`
+  - 定义统一的连接器接口（Connect, GetVMs, GetClusters, GetHosts, CollectMetrics等）
+  - 接口设计需兼容H3C UIS和VMware vCenter两种实现
 
-#### 2) 前端稳定性
+- [ ] **H3C UIS连接器实现**（优先）
+  - 完善 `internal/connector/uis.go` 实现
+  - 实现接口定义的所有方法
+  - 使用Python探测脚本验证API可用性
+  - 添加详细的日志记录
 
-- [ ] 任务进度轮询策略优化（减少重复请求与无效轮询）
-- [ ] 高数据量场景下 `Collection / Dashboard / TaskDetail` 交互稳定性验证
+- [ ] **VMware vCenter连接器实现**
+  - 完善 `internal/connector/vcenter.go` 实现
+  - 复用现有的govmomi实现
+  - 确保与UIS接口一致
+
+- [ ] **配置化平台选择**
+  - 根据.env中的DEFAULT_PLATFORM配置选择默认连接器
+  - 支持通过连接管理界面动态切换平台
+
+#### 2) 前端任务Store适配
+
+- [ ] 修改 `frontend/src/stores/task.ts`
+  - 适配新的后端TaskInfo数据结构
+  - 使用 transform.ts 中的转换函数
+  - 正确显示totalVMs和selectedVMs
+
+- [ ] 任务卡片展示修复
+  - 正确显示虚拟机数量
+  - 历史评估结果的持久化显示
+
+#### 3) 自动化测试
+
+- [ ] 创建单元测试：配置模块加载
+- [ ] 创建单元测试：数据库模型CRUD
+- [ ] 创建单元测试：任务服务创建和查询
+- [ ] 创建集成测试：完整的数据采集流程
 
 ### P1（功能完善）
 
-#### 3) 通用组件库
+#### 4) 数据采集和评估流程
 
-- [ ] `Loading.vue`
-- [ ] `Empty.vue`
-- [ ] `Error.vue`
-- [ ] `StatusBadge.vue`
-- [ ] `ConnectionForm.vue`
-- [ ] `AnalysisConfigForm.vue`
-- [ ] `TaskWizard.vue`
-- [ ] `ResourceTable.vue`
-- [ ] `MetricCard.vue`
-- [ ] `StatCard.vue`
-- [ ] `InfoList.vue`
+- [ ] 评估结果仅包含选择的虚拟机（过滤逻辑修复）
+- [ ] 评估结果的持久化存储验证
+- [ ] 前后端数据一致性验证
 
-#### 4) 图表组件（ECharts）
+#### 5) 连接管理
 
-- [ ] `LineChart.vue`
-- [ ] `BarChart.vue`
-- [ ] `PieChart.vue`
-- [ ] `GaugeChart.vue`
-- [ ] `HeatmapChart.vue`
-
-#### 5) 业务页面与能力
-
-- [ ] 报告管理列表页（`/reports`，来源于 docs 前端设计路由）：列表、状态、关联任务、下载入口
-- [ ] 报告详情页（`/reports/:id`，对应 `ReportDetail.vue`）：报告摘要、分析结果分区、二次导出
-- [ ] 报告与导出导航入口接入（`router + AppShell`）：菜单可见、面包屑/标题一致、从任务详情可跳转
-- [ ] 系统设置页从占位态升级为可交互界面（基础配置项 + 保存/校验反馈）
-- [ ] 首页信息架构收敛（`Home.vue` 与 `Dashboard.vue` 二选一并统一入口，避免双首页并存）
-- [ ] 告警管理页面
-- [ ] 虚拟机详情页面
-- [ ] 资源管理页面（`Clusters / Hosts / VMs`）
-- [ ] 资源列表搜索/筛选/排序/批量操作
+- [ ] 支持平台类型选择（h3c-uis / vcenter）
+- [ ] 连接测试功能适配新接口
+- [ ] 连接凭据的安全存储
 
 ### P2（优化与发布）
 
-#### 6) 体验与主题
+#### 6) 体验与稳定性
 
-- [ ] 亮色/暗色主题切换
-- [ ] 响应式布局优化
-- [ ] 统一组件样式规范
-
-#### 7) 部署与工程化
-
-- [ ] 生产环境构建配置
-- [ ] 打包体积优化
-- [ ] 多平台打包测试
-- [ ] 前端自动化测试（单测/E2E）
-
-## 后端 TODO
-
-> 进度概览：后端闭环已完成，当前仅保留非阻塞增强项。
-
-### P1（可持续增强，非阻塞）
-
-- [ ] ETL 断点续采与重试策略增强
-- [ ] 分析算法置信度与风险说明增强
-- [ ] 报告内容增强（P95、峰谷、建议动作）
+- [ ] 任务进度轮询策略优化
+- [ ] 高数据量场景交互稳定性
+- [ ] 错误处理和用户提示优化
 
 ## 备注
 
-- 后端闭环（任务维度 API、任务快照、指标可观测性）已完成。
-- `test/` 目录为测试代码，不作为主程序交付阻塞项。
+- H3C UIS优先级高于vCenter：在功能实现时，优先完成H3C UIS的对接，但两者都需要保证可用性
+- 扩展性：连接器接口设计需考虑未来可能接入的新平台（如OpenStack等）
+- 配置化：平台选择通过配置文件管理，支持运行时切换

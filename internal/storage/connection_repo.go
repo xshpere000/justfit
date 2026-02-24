@@ -281,6 +281,30 @@ func (r *TaskRepository) List(limit, offset int) ([]Task, error) {
 	return tasks, err
 }
 
+// ListByStatus 根据状态获取任务列表
+func (r *TaskRepository) ListByStatus(status string, limit, offset int) ([]Task, error) {
+	var tasks []Task
+	query := r.db.Order("created_at DESC")
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+	err := query.Find(&tasks).Error
+	return tasks, err
+}
+
+// GetMaxID 获取最大的任务ID
+func (r *TaskRepository) GetMaxID() (uint, error) {
+	var maxID uint
+	err := r.db.Model(&Task{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error
+	return maxID, err
+}
+
 // TaskVMSnapshotRepository 任务虚拟机快照仓储
 type TaskVMSnapshotRepository struct {
 	db *gorm.DB

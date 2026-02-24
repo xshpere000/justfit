@@ -36,6 +36,7 @@ type CollectionConfig struct {
 	MetricsDays  int      // 采集多少天的指标数据
 	Concurrency  int      // 并发数
 	Password     string   // 密码覆盖
+	SelectedVMs  []string // 用户选择的虚拟机 vmKey 列表，为空则采集所有
 }
 
 // CollectionResult 采集结果
@@ -54,6 +55,7 @@ type MetricsCollectionStats struct {
 	TotalVMs             int      `json:"total_vms"`
 	ScopedVMs            int      `json:"scoped_vms"`
 	SkippedPoweredOff    int      `json:"skipped_powered_off"`
+	SkippedAbnormal      int      `json:"skipped_abnormal"` // 跳过的异常状态虚拟机
 	CollectedVMs         int      `json:"collected_vms"`
 	FailedVMCount        int      `json:"failed_vm_count"`
 	CollectedMetricCount int      `json:"collected_metric_count"`
@@ -217,9 +219,16 @@ func (c *Collector) Collect(ctx context.Context, config *CollectionConfig) (*Col
 }
 
 // CollectMetrics 采集性能指标
-func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days int, passwordOverride string) (*MetricsCollectionStats, error) {
+// selectedVMs: 用户选择的虚拟机 vmKey 列表，为空则采集所有符合条件的虚拟机
+func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days int, passwordOverride string, selectedVMs []string) (*MetricsCollectionStats, error) {
 	stats := &MetricsCollectionStats{Scope: "poweredOn only"}
 	reasonCounts := make(map[string]int)
+
+	// 创建选中的虚拟机集合，用于快速查找
+	selectedSet := make(map[string]bool)
+	for _, vmKey := range selectedVMs {
+		selectedSet[vmKey] = true
+	}
 
 	conn, err := c.repos.Connection.GetByID(connectionID)
 	if err != nil {
@@ -246,13 +255,20 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 		return stats, fmt.Errorf("创建连接器失败: %w", err)
 	}
 
-	// 这里为了稳定，我们还是使用 client.GetVMs() 以确保 vCenter 侧的准确性（如 PowerState）
-	// 但必须并行化！
+	// 获取虚拟机列表
 	vms, err := client.GetVMs()
 	if err != nil {
 		return stats, fmt.Errorf("获取虚拟机列表失败: %w", err)
 	}
 	stats.TotalVMs = len(vms)
+
+	// 先确保所有虚拟机都保存到数据库（ProcessVMMetrics 需要虚拟机已存在）
+	for _, vm := range vms {
+		if err := c.processor.ProcessVM(connectionID, vm); err != nil {
+			// 记录错误但继续处理其他虚拟机
+			addMetricReason(reasonCounts, fmt.Sprintf("%s: 保存虚拟机信息失败: %v", buildVMKey(vm), err))
+		}
+	}
 
 	endTime := time.Now()
 	startTime := endTime.AddDate(0, 0, -days)
@@ -264,6 +280,22 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 	var mu sync.Mutex
 
 	for _, vm := range vms {
+		vmKey := buildVMKey(vm)
+
+		// 如果用户指定了虚拟机列表，只采集选中的
+		if len(selectedSet) > 0 && !selectedSet[vmKey] {
+			stats.SkippedPoweredOff++ // 使用此计数表示被过滤掉的虚拟机
+			continue
+		}
+
+		// 检查连接状态，跳过异常连接状态的虚拟机
+		if vm.ConnectionState != "" && vm.ConnectionState != "connected" {
+			stats.SkippedAbnormal++
+			addMetricReason(reasonCounts, fmt.Sprintf("%s: 连接状态异常 (%s)", vmKey, vm.ConnectionState))
+			continue
+		}
+
+		// 只采集开机状态的虚拟机
 		if vm.PowerState != "poweredOn" {
 			stats.SkippedPoweredOff++
 			continue
@@ -315,7 +347,14 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 	stats.Reasons = renderMetricReasons(reasonCounts)
 
 	if stats.CollectedVMs == 0 && stats.ScopedVMs > 0 {
-		return stats, fmt.Errorf("性能指标采集失败：已筛选 %d 台开机虚拟机，但全部采集失败", stats.ScopedVMs)
+		reasonStr := ""
+		if len(stats.Reasons) > 0 {
+			reasonStr = "\n失败原因: " + stats.Reasons[0]
+			if len(stats.Reasons) > 1 {
+				reasonStr += fmt.Sprintf(" 等 %d 种原因", len(stats.Reasons))
+			}
+		}
+		return stats, fmt.Errorf("性能指标采集失败：已筛选 %d 台开机虚拟机，但全部采集失败%s", stats.ScopedVMs, reasonStr)
 	}
 
 	return stats, nil

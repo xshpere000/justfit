@@ -124,16 +124,17 @@ type HostInfo struct {
 
 // VMInfo 虚拟机信息
 type VMInfo struct {
-	Name          string
-	Datacenter    string
-	CpuCount      int32
-	MemoryMB      int32
-	PowerState    types.VirtualMachinePowerState
-	IPAddress     string
-	GuestOS       string
-	HostName      string
-	OverallStatus types.ManagedEntityStatus
-	UUID          string
+	Name            string
+	Datacenter      string
+	CpuCount        int32
+	MemoryMB        int32
+	PowerState      types.VirtualMachinePowerState
+	ConnectionState string                         // 连接状态: connected, disconnected, orphaned, notResponding
+	IPAddress       string
+	GuestOS         string
+	HostName        string
+	OverallStatus   types.ManagedEntityStatus
+	UUID            string
 }
 
 // GetClusters 获取所有集群信息
@@ -267,17 +268,21 @@ func (vc *VCenterClient) GetVMs() ([]VMInfo, error) {
 				hostName = hostObj.Name()
 			}
 
+			// 获取连接状态字符串
+			connectionState := string(vmMo.Summary.Runtime.ConnectionState)
+
 			vms = append(vms, VMInfo{
-				Name:          vmMo.Name,
-				Datacenter:    dc.Name(),
-				CpuCount:      vmMo.Summary.Config.NumCpu,
-				MemoryMB:      vmMo.Summary.Config.MemorySizeMB,
-				PowerState:    vmMo.Summary.Runtime.PowerState,
-				IPAddress:     vmMo.Summary.Guest.IpAddress,
-				GuestOS:       vmMo.Summary.Guest.GuestFullName,
-				HostName:      hostName,
-				OverallStatus: vmMo.Summary.OverallStatus,
-				UUID:          vmMo.Summary.Config.Uuid,
+				Name:            vmMo.Name,
+				Datacenter:      dc.Name(),
+				CpuCount:        vmMo.Summary.Config.NumCpu,
+				MemoryMB:        vmMo.Summary.Config.MemorySizeMB,
+				PowerState:      vmMo.Summary.Runtime.PowerState,
+				ConnectionState: connectionState,
+				IPAddress:       vmMo.Summary.Guest.IpAddress,
+				GuestOS:         vmMo.Summary.Guest.GuestFullName,
+				HostName:        hostName,
+				OverallStatus:   vmMo.Summary.OverallStatus,
+				UUID:            vmMo.Summary.Config.Uuid,
 			})
 		}
 	}

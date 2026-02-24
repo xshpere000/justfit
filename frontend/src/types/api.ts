@@ -102,10 +102,19 @@ export interface TaskInfo {
   Name: string;
   Status: TaskStatus;
   Progress: number;
+  Message?: string;
+  Result?: string;
   Error?: string;
   CreatedAt: string;
   StartedAt?: string;
   CompletedAt?: string;
+  // 任务关联信息（扩展字段）
+  ConnectionID?: number;    // 关联的连接ID
+  ConnectionName?: string;  // 连接名称
+  Platform?: PlatformType;  // 平台类型: vcenter, h3c-uis
+  // VM选择信息
+  TotalVMs?: number;        // 虚拟机总数
+  SelectedVMs?: string;     // 选中的VM列表(JSON数组字符串)
 }
 
 export interface TaskLogEntry {

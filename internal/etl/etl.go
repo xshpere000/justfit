@@ -68,19 +68,20 @@ func (p *Processor) ProcessVM(connectionID uint, vm connector.VMInfo) error {
 	now := time.Now()
 
 	dbVM := &storage.VM{
-		ConnectionID:  connectionID,
-		VMKey:         buildVMKey(vm),
-		UUID:          vm.UUID,
-		Name:          vm.Name,
-		Datacenter:    vm.Datacenter,
-		CpuCount:      vm.CpuCount,
-		MemoryMB:      vm.MemoryMB,
-		PowerState:    string(vm.PowerState),
-		IPAddress:     vm.IPAddress,
-		GuestOS:       vm.GuestOS,
-		HostName:      vm.HostName,
-		OverallStatus: string(vm.OverallStatus),
-		CollectedAt:   now,
+		ConnectionID:    connectionID,
+		VMKey:           buildVMKey(vm),
+		UUID:            vm.UUID,
+		Name:            vm.Name,
+		Datacenter:      vm.Datacenter,
+		CpuCount:        vm.CpuCount,
+		MemoryMB:        vm.MemoryMB,
+		PowerState:      string(vm.PowerState),
+		ConnectionState: vm.ConnectionState,
+		IPAddress:       vm.IPAddress,
+		GuestOS:         vm.GuestOS,
+		HostName:        vm.HostName,
+		OverallStatus:   string(vm.OverallStatus),
+		CollectedAt:     now,
 	}
 
 	return p.repos.VM.UpdateOrCreate(dbVM)

@@ -29,6 +29,11 @@ export const useConnectionStore = defineStore('connection', () => {
     connections.value.filter((c) => c.status === 'connected')
   )
 
+  // 辅助函数：找到连接在数组中的索引
+  function findConnectionIndex(id: number): number {
+    return connections.value.findIndex((c) => c.id === id)
+  }
+
   // 操作
   async function fetchConnections() {
     loading.value = true
@@ -61,10 +66,13 @@ export const useConnectionStore = defineStore('connection', () => {
     error.value = null
     try {
       const status = await ConnectionAPI.testConnection(id)
-      // 更新连接状态
-      const conn = connections.value.find((c) => c.id === id)
-      if (conn) {
-        conn.status = status
+      // 更新连接状态 - 使用索引替换确保响应式更新
+      const index = findConnectionIndex(id)
+      if (index !== -1) {
+        connections.value[index] = {
+          ...connections.value[index],
+          status
+        }
       }
       return status
     } catch (e: any) {
@@ -88,9 +96,12 @@ export const useConnectionStore = defineStore('connection', () => {
   }
 
   function updateConnectionStatus(id: number, status: string) {
-    const conn = connections.value.find((c) => c.id === id)
-    if (conn) {
-      conn.status = status
+    const index = findConnectionIndex(id)
+    if (index !== -1) {
+      connections.value[index] = {
+        ...connections.value[index],
+        status
+      }
     }
   }
 

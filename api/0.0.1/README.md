@@ -650,11 +650,68 @@ interface AnalysisResponse {
 
 ---
 
-### GetAnalysisResult
+### CreateAnalysisTask
 
-获取已保存的分析结果。
+创建分析任务。分析任务会异步执行，结果自动保存到数据库。
 
-**方法**: `GetAnalysisResult(resultID uint) (map[string]interface{}, error)`
+**方法**: `CreateAnalysisTask(analysisType string, connectionID uint, config map[string]interface{}) (uint, error)`
+
+**请求参数**:
+```typescript
+// analysisType: 前端使用
+"zombie"      -> 僵尸VM检测
+"rightsize"   -> Right Size分析
+"tidal"       -> 潮汐模式检测
+"health"      -> 健康评分
+
+// config 根据分析类型不同同而不同
+{
+  analysis_days?: number;     // 分析天数
+  cpu_threshold?: number;     // CPU阈值 (zombie)
+  memory_threshold?: number;  // 内存阈值 (zombie)
+  min_confidence?: number;    // 最小置信度 (zombie)
+  buffer_ratio?: number;      // 缓冲比例 (rightsize)
+  min_stability?: number;     // 最小稳定性 (tidal)
+}
+```
+
+**返回**: 任务ID
+
+---
+
+### GetTaskAnalysisResult
+
+获取任务的分析结果。
+
+**方法**: `GetTaskAnalysisResult(taskID uint, analysisType string) (interface{}, error)`
+
+**请求参数**:
+- `taskID`: 任务ID
+- `analysisType`: 分析类型（为空则返回所有类型的分析结果）
+
+**返回**: 按分析类型分组的结果
+```typescript
+{
+  // 后端命名格式
+  zombie_vm: {
+    count: number,
+    results: [...]
+  },
+  right_size: {
+    count: number,
+    results: [...]
+  },
+  tidal: {
+    count: number,
+    results: [...]
+  },
+  health_score: {
+    overall_score: number,
+    health_level: string,
+    ...
+  }
+}
+```
 
 ---
 

@@ -36,9 +36,9 @@
         </div>
         <div class="toolbar-right">
              <el-radio-group v-model="filterStatus" class="status-filter">
-                <el-radio-button label="all">全部</el-radio-button>
-                <el-radio-button label="running">进行中</el-radio-button>
-                <el-radio-button label="completed">已完成</el-radio-button>
+                <el-radio-button value="all">全部</el-radio-button>
+                <el-radio-button value="running">进行中</el-radio-button>
+                <el-radio-button value="completed">已完成</el-radio-button>
               </el-radio-group>
             <el-button type="primary" class="create-btn" @click="startNewTask">
               <el-icon><Plus /></el-icon>新建任务
@@ -94,6 +94,9 @@
                       <span class="status-text">
                         <el-icon class="is-loading" v-if="task.status === 'running'"><Loading /></el-icon>
                         {{ getStatusText(task.status) }}
+                      </span>
+                      <span class="vm-info" v-if="task.totalVMs">
+                        {{ task.collectedVMs || 0 }}/{{ task.totalVMs }} VM
                       </span>
                       <span class="progress-val">{{ task.progress }}%</span>
                    </div>
@@ -192,9 +195,16 @@ const features = [
 
 onMounted(() => {
   taskStore.loadTasksFromStorage()
+  // 添加日志检查任务数据
+  console.log('[Home.vue] onMounted 加载后的任务列表:', taskStore.tasks.map(t => ({ id: t.id, name: t.name, totalVMs: t.totalVMs, status: t.status })))
 })
 
-const tasks = computed(() => taskStore.tasks)
+const tasks = computed(() => {
+  const result = taskStore.tasks
+  // 添加日志检查computed值
+  console.log('[Home.vue] tasks computed 被调用, 任务数量:', result.length)
+  return result
+})
 
 const filteredTasks = computed(() => {
   let result = tasks.value

@@ -53,8 +53,30 @@ export const useTaskStore = defineStore('task', () => {
 
   const hasRunningTasks = computed(() => runningTasks.value.length > 0)
 
-  function getTask(id: string): Task | undefined {
-    return tasks.value.find(t => t.id === id)
+  // 辅助函数：找到任务在数组中的索引
+  function findTaskIndex(id: string | undefined): number {
+    if (!id || typeof id !== 'string') {
+      return -1
+    }
+
+    // 首先尝试精确匹配 ID
+    let index = tasks.value.findIndex(t => t.id === id)
+    if (index !== -1) return index
+
+    // 如果找不到，尝试通过 backendTaskId 匹配
+    const numericId = id.replace('backend_', '')
+    const backendId = parseInt(numericId, 10)
+    if (!isNaN(backendId)) {
+      index = tasks.value.findIndex(t => t.backendTaskId === backendId)
+      if (index !== -1) return index
+    }
+
+    return -1
+  }
+
+  function getTask(id: string | undefined): Task | undefined {
+    const index = findTaskIndex(id)
+    return index !== -1 ? tasks.value[index] : undefined
   }
 
   function createTask(params: CreateTaskParams): Task {
@@ -83,80 +105,116 @@ export const useTaskStore = defineStore('task', () => {
     }
 
     tasks.value.unshift(task)
+    console.log('[createTask] 创建任务, taskId:', task.id, 'totalVMs:', task.totalVMs, '完整的task对象:', JSON.parse(JSON.stringify(task)))
     return task
   }
 
   function updateTaskStatus(id: string, status: TaskStatus, progress?: number) {
-    const task = getTask(id)
-    if (task) {
-      task.status = status
-      if (progress !== undefined) {
-        task.progress = progress
+    const index = findTaskIndex(id)
+    if (index !== -1) {
+      const task = tasks.value[index]
+      const now = status === 'running' && !task.started_at ? new Date().toISOString() : task.started_at
+      const end = (status === 'completed' || status === 'failed' || status === 'cancelled') ? new Date().toISOString() : task.ended_at
+
+      // 创建新对象替换，确保触发响应式更新
+      const newTask = {
+        ...task,
+        status,
+        progress: progress !== undefined ? progress : task.progress,
+        started_at: now,
+        ended_at: end
       }
-      if (status === 'running' && !task.started_at) {
-        task.started_at = new Date().toISOString()
-      }
-      if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-        task.ended_at = new Date().toISOString()
-      }
+      tasks.value[index] = newTask
+      console.log('[updateTaskStatus] 更新任务状态, taskId:', id, 'status:', status, '更新前totalVMs:', task.totalVMs, '更新后totalVMs:', newTask.totalVMs)
     }
   }
 
   function updateTaskProgress(id: string, progress: number, currentStep?: string) {
-    const task = getTask(id)
-    if (task) {
-      task.progress = progress
-      if (currentStep) {
-        task.current_step = currentStep
+    const index = findTaskIndex(id)
+    if (index !== -1) {
+      const task = tasks.value[index]
+      tasks.value[index] = {
+        ...task,
+        progress,
+        current_step: currentStep || task.current_step
       }
     }
   }
 
   function updateCollectionProgress(id: string, collected: number, total: number) {
-    const task = getTask(id)
-    if (task) {
-      task.collectedVMs = collected
-      task.totalVMs = total
-      task.progress = Math.floor((collected / total) * 100)
-      task.current_step = '正在采集 ' + collected + '/' + total
+    const index = findTaskIndex(id)
+    if (index !== -1) {
+      const task = tasks.value[index]
+      tasks.value[index] = {
+        ...task,
+        collectedVMs: collected,
+        totalVMs: total,
+        progress: Math.floor((collected / total) * 100),
+        current_step: '正在采集 ' + collected + '/' + total
+      }
     }
   }
 
   function updateAnalysisResult(id: string, analysisType: keyof Task['analysisResults'], completed: boolean) {
-    const task = getTask(id)
-    if (task && task.analysisResults) {
-      task.analysisResults[analysisType] = completed
+    const index = findTaskIndex(id)
+    if (index !== -1) {
+      const task = tasks.value[index]
+      if (task.analysisResults) {
+        tasks.value[index] = {
+          ...task,
+          analysisResults: {
+            ...task.analysisResults,
+            [analysisType]: completed
+          }
+        }
+        console.log('[updateAnalysisResult] 更新分析结果状态:', id, analysisType, completed, '新的 analysisResults:', tasks.value[index].analysisResults)
+      }
+    } else {
+      console.warn('[updateAnalysisResult] 任务未找到:', id)
     }
   }
 
   function setTaskError(id: string, error: string) {
-    const task = getTask(id)
-    if (task) {
-      task.error = error
-      task.status = 'failed'
-      task.ended_at = new Date().toISOString()
+    const index = findTaskIndex(id)
+    if (index !== -1) {
+      const task = tasks.value[index]
+      tasks.value[index] = {
+        ...task,
+        error,
+        status: 'failed',
+        ended_at: new Date().toISOString()
+      }
     }
   }
 
   function pauseTask(id: string) {
-    const task = getTask(id)
-    if (task && task.status === 'running') {
-      task.status = 'paused'
+    const index = findTaskIndex(id)
+    if (index !== -1 && tasks.value[index].status === 'running') {
+      tasks.value[index] = {
+        ...tasks.value[index],
+        status: 'paused'
+      }
     }
   }
 
   function resumeTask(id: string) {
-    const task = getTask(id)
-    if (task && task.status === 'paused') {
-      task.status = 'running'
+    const index = findTaskIndex(id)
+    if (index !== -1 && tasks.value[index].status === 'paused') {
+      tasks.value[index] = {
+        ...tasks.value[index],
+        status: 'running'
+      }
     }
   }
 
   function cancelTask(id: string) {
-    const task = getTask(id)
-    if (task && (task.status === 'running' || task.status === 'paused')) {
-      task.status = 'cancelled'
-      task.ended_at = new Date().toISOString()
+    const index = findTaskIndex(id)
+    if (index !== -1 && (tasks.value[index].status === 'running' || tasks.value[index].status === 'paused')) {
+      tasks.value[index] = {
+        ...tasks.value[index],
+        status: 'cancelled',
+        ended_at: new Date().toISOString()
+      }
     }
   }
 
@@ -179,9 +237,9 @@ export const useTaskStore = defineStore('task', () => {
     currentTask.value = null
   }
 
-  async function startCollectionTask(taskId: string, connectionId: number, days: number = 30) {
-    const task = getTask(taskId)
-    if (!task) return
+  async function startCollectionTask(taskId: string, connectionId: number, selectedVMs: string[] = [], days: number = 30) {
+    const index = findTaskIndex(taskId)
+    if (index === -1) return
 
     try {
       updateTaskStatus(taskId, 'running', 0)
@@ -189,10 +247,15 @@ export const useTaskStore = defineStore('task', () => {
       const backendTaskId = await TaskAPI.createCollectTask({
         connection_id: connectionId,
         data_types: ['clusters', 'hosts', 'vms', 'metrics'],
-        metrics_days: days
+        metrics_days: days,
+        selected_vms: selectedVMs
       })
 
-      task.backendTaskId = backendTaskId
+      // 更新 backendTaskId
+      tasks.value[index] = {
+        ...tasks.value[index],
+        backendTaskId
+      }
 
       pollTaskStatus(taskId, backendTaskId)
     } catch (e: any) {
@@ -207,10 +270,14 @@ export const useTaskStore = defineStore('task', () => {
       try {
         const taskInfo = await TaskAPI.getTask(backendTaskId)
 
-        const task = getTask(taskId)
-        if (task) {
-          task.status = taskInfo.status as TaskStatus
-          task.progress = taskInfo.progress
+        const index = findTaskIndex(taskId)
+        if (index !== -1) {
+          const task = tasks.value[index]
+          tasks.value[index] = {
+            ...task,
+            status: taskInfo.status as TaskStatus,
+            progress: taskInfo.progress
+          }
 
           if (taskInfo.status === 'completed') {
             updateTaskStatus(taskId, 'completed', 100)
@@ -227,31 +294,66 @@ export const useTaskStore = defineStore('task', () => {
 
     setTimeout(() => {
       clearInterval(pollInterval)
-      const task = getTask(taskId)
-      if (task && task.status === 'running') {
+      const index = findTaskIndex(taskId)
+      if (index !== -1 && tasks.value[index].status === 'running') {
         updateTaskStatus(taskId, 'failed')
-        task.error = '任务超时'
+        setTaskError(taskId, '任务超时')
       }
     }, 5 * 60 * 1000)
   }
 
   async function syncTasksFromBackend() {
     try {
-      const backendTasks = await TaskAPI.listTasks()
+      // 显式传递参数，避免 Wails 绑定参数错乱
+      const backendTasks = await TaskAPI.listTasks('', 100, 0)
 
-      tasks.value = backendTasks.map(bt => ({
-        id: 'backend_' + bt.id,
-        backendTaskId: bt.id,
-        type: bt.type as TaskType,
-        name: bt.name,
-        status: bt.status as TaskStatus,
-        progress: bt.progress,
-        error: bt.error,
-        created_at: bt.created_at,
-        started_at: bt.started_at,
-        ended_at: bt.completed_at,
-        canMinimize: true
-      }))
+      // 创建一个映射，用于快速查找现有任务
+      const existingTasksMap = new Map<string, Task>()
+      for (const task of tasks.value) {
+        if (task.backendTaskId) {
+          existingTasksMap.set(String(task.backendTaskId), task)
+        }
+      }
+
+      // 合并后端数据与现有任务数据，保留所有前端字段
+      tasks.value = backendTasks.map(bt => {
+        const existing = existingTasksMap.get(String(bt.id))
+        if (existing) {
+          // 如果任务已存在，更新状态和进度，但保留其他所有字段
+          return {
+            ...existing,
+            status: bt.status as TaskStatus,
+            progress: bt.progress,
+            error: bt.error,
+            started_at: bt.started_at || existing.started_at,
+            ended_at: bt.completed_at || existing.ended_at
+          }
+        } else {
+          // 如果是新任务，创建基础对象
+          return {
+            id: 'backend_' + bt.id,
+            backendTaskId: bt.id,
+            type: bt.type as TaskType,
+            name: bt.name,
+            status: bt.status as TaskStatus,
+            progress: bt.progress,
+            error: bt.error,
+            created_at: bt.created_at,
+            started_at: bt.started_at,
+            ended_at: bt.completed_at,
+            canMinimize: true,
+            // 初始化缺失的字段为默认值
+            totalVMs: 0,
+            collectedVMs: 0,
+            analysisResults: {
+              zombie: false,
+              rightsize: false,
+              tidal: false,
+              health: false
+            }
+          }
+        }
+      })
     } catch (e: any) {
       console.error('Failed to sync tasks from backend:', e)
     }
@@ -278,6 +380,8 @@ export const useTaskStore = defineStore('task', () => {
           }
         })
         tasks.value = parsedTasks
+        console.log('[loadTasksFromStorage] 从localStorage加载任务, 数量:', parsedTasks.length)
+        parsedTasks.forEach(t => console.log('  - taskId:', t.id, 'name:', t.name, 'totalVMs:', t.totalVMs, 'status:', t.status))
       }
     } catch (e) {
       console.error('Failed to load tasks from storage:', e)

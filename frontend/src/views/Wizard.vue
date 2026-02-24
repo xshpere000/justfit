@@ -80,7 +80,8 @@
              </div>
              <div class="header-right">
                 <span style="color: #606266; font-size: 13px; margin-right: 12px">已选择 {{ selectedVMs.size }} 台</span>
-                <el-checkbox v-model="isAllSelected" @change="handleSelectAll" label="选择本页所有" border size="small" />
+                <el-checkbox v-model="isAllSelected" @change="handleSelectAll" label="选择本页所有" border size="small" style="margin-right: 8px" />
+                <el-button :icon="Refresh" @click="refreshVMList" :loading="vmLoading" link>刷新列表</el-button>
              </div>
           </div>
 
@@ -92,9 +93,12 @@
                  <div class="vm-grid" v-else>
                     <div v-for="vm in filteredVMs" :key="vm.uuid || vm.id"
                          class="vm-item"
-                         :class="{ selected: selectedVMs.has(vm.name) }"
-                         @click="toggleVM(vm.name)">
-                       <div class="vm-status-dot" :class="vm.power_state === 'poweredOn' ? 'on' : 'off'"></div>
+                         :class="{
+                           selected: selectedVMs.has(getVMKey(vm)),
+                           'state-warning': !isVMStateNormal(vm)
+                         }"
+                         @click="toggleVM(vm)">
+                       <div class="vm-status-dot" :class="getVMStateDotClass(vm)"></div>
                        <div class="vm-info">
                           <div class="vm-name" :title="vm.name">{{ vm.name }}</div>
                           <div class="vm-spec">
@@ -103,8 +107,11 @@
                             {{ vm.memory_mb > 0 ? formatMemory(vm.memory_mb) : '内存: 未获取' }}
                           </div>
                        </div>
+                       <div class="vm-state-badge" v-if="!isVMStateNormal(vm)">
+                          {{ getVMStateText(vm) }}
+                       </div>
                        <div class="vm-check">
-                          <el-icon v-if="selectedVMs.has(vm.name)"><Check /></el-icon>
+                          <el-icon v-if="selectedVMs.has(getVMKey(vm))"><Check /></el-icon>
                        </div>
                     </div>
                  </div>
@@ -171,7 +178,7 @@ import { useRouter } from 'vue-router'
 import { useTaskStore, type CreateTaskParams } from '@/stores/task'
 import * as ConnectionAPI from '@/api/connection'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
-import { Monitor, Connection, Search, Check, Flag, ArrowLeft } from '@element-plus/icons-vue'
+import { Monitor, Connection, Search, Check, Flag, ArrowLeft, Refresh } from '@element-plus/icons-vue'
 
 defineOptions({
   name: 'Wizard'
@@ -321,20 +328,212 @@ async function fetchVMList(connId: number) {
     }
 }
 
-function handleSelectAll(val: boolean) {
-    const pageVMs = filteredVMs.value
-    if (val) {
-        pageVMs.forEach(vm => selectedVMs.value.add(vm.name))
-    } else {
-        pageVMs.forEach(vm => selectedVMs.value.delete(vm.name))
+// 刷新虚拟机列表
+async function refreshVMList() {
+    if (!createdConnectionId.value) {
+        ElMessage.warning('请先建立连接')
+        return
+    }
+
+    try {
+        await fetchVMList(createdConnectionId.value)
+        ElMessage.success('虚拟机列表已刷新')
+    } catch (e: any) {
+        ElMessage.error('刷新失败: ' + (e.message || '未知错误'))
     }
 }
 
-function toggleVM(name: string) {
-    if (selectedVMs.value.has(name)) {
-        selectedVMs.value.delete(name)
+// 获取虚拟机的唯一标识，必须与后端 buildVMKey 函数的格式一致
+// 后端 buildVMKey 逻辑：
+//   - 如果有 UUID，返回 "uuid:" + lowercase(uuid)
+//   - 否则如果有 datacenter，返回 "datacenter:name"
+//   - 否则返回 name
+function getVMKey(vm: any): string {
+    // 优先使用 UUID，与后端保持一致
+    if (vm.uuid && vm.uuid.trim() !== '') {
+        return 'uuid:' + vm.uuid.trim().toLowerCase()
+    }
+    // 如果有 datacenter，使用 datacenter:name 格式
+    if (vm.datacenter && vm.datacenter.trim() !== '') {
+        return vm.datacenter.trim() + ':' + (vm.name || '').trim()
+    }
+    // 最后使用 name
+    return (vm.name || '').trim()
+}
+
+// ==================== 虚拟机状态判断 ====================
+
+// 正常连接状态
+const NORMAL_CONNECTION_STATES = new Set([
+    'connected',     // 正常连接
+    ''               // 空字符串（H3C UIS 可能没有此字段）
+])
+
+// 正常电源状态列表（支持扩展）
+const NORMAL_VM_STATES = new Set([
+    // VMware vCenter 状态（全部小写存储）
+    'poweredon',      // 开机
+    'poweredoff',     // 关机
+    'suspended',      // 挂起
+
+    // H3C UIS 状态（全部小写存储）
+    'running',        // 运行中（对应 vCenter 的 poweredOn）
+    'stopped',        // 已停止（对应 vCenter 的 poweredOff）
+    'on',             // 开机
+    'off',            // 关机
+    'shutdown'        // 已关机
+])
+
+// 异常状态映射表（支持扩展）
+const VM_STATE_TEXT_MAP: Record<string, string> = {
+    // VMware vCenter 状态
+    'orphaned': '孤立',
+    'inaccessible': '无法访问',
+    'disconnected': '已断开',
+    'notResponding': '无响应',
+    'unknown': '未知状态',
+    'invalid': '无效',
+    'wait': '等待中',
+    'blocked': '已阻塞',
+
+    // H3C UIS 状态
+    'isolated': '孤立',
+    'lost': '丢失',
+    'error': '错误',
+    'migrating': '迁移中',
+    'creating': '创建中',
+    'deleting': '删除中',
+    'rebooting': '重启中'
+}
+
+/**
+ * 获取虚拟机的实际显示状态
+ * 优先使用连接状态（如果异常），否则使用电源状态
+ * @param vm 虚拟机对象
+ * @returns 实际应该显示的状态字符串
+ */
+function getVMActualState(vm: any): string {
+    // 如果有连接状态且不是正常连接，返回连接状态
+    const connectionState = vm.connection_state || ''
+    if (connectionState && !NORMAL_CONNECTION_STATES.has(connectionState.toLowerCase())) {
+        return connectionState
+    }
+    // 否则返回电源状态
+    return vm.power_state || ''
+}
+
+/**
+ * 判断虚拟机状态是否正常
+ * @param vm 虚拟机对象
+ * @returns true=正常状态，false=异常状态
+ */
+function isVMStateNormal(vm: any): boolean {
+    // 检查连接状态
+    const connectionState = (vm.connection_state || '').toLowerCase()
+    if (connectionState && !NORMAL_CONNECTION_STATES.has(connectionState)) {
+        console.log(`[VM State] 虚拟机 "${vm.name}" 连接状态异常: ${vm.connection_state}`)
+        return false
+    }
+
+    // 检查电源状态
+    const powerState = vm.power_state || ''
+    if (!powerState) {
+        console.warn(`[VM State] 虚拟机 "${vm.name}" 空电源状态，判定为异常`)
+        return false
+    }
+
+    const state = powerState.toLowerCase()
+    const isNormal = NORMAL_VM_STATES.has(state)
+    if (!isNormal) {
+        console.log(`[VM State] 虚拟机 "${vm.name}" 未知电源状态: "${powerState}"，判定为异常`)
+    }
+    return isNormal
+}
+
+/**
+ * 获取虚拟机状态的显示文本
+ * @param vm 虚拟机对象
+ * @returns 状态显示文本
+ */
+function getVMStateText(vm: any): string {
+    const actualState = getVMActualState(vm)
+    if (!actualState) return '未知'
+
+    const state = actualState.toLowerCase()
+
+    // 先检查是否是已知异常状态
+    if (VM_STATE_TEXT_MAP[state]) {
+        return VM_STATE_TEXT_MAP[state]
+    }
+
+    // 如果不是正常状态也不是已知异常状态，返回原始值
+    if (!isVMStateNormal(vm)) {
+        return actualState
+    }
+
+    // 正常状态不需要显示标签
+    return ''
+}
+
+/**
+ * 获取虚拟机状态指示点的样式类
+ * @param vm 虚拟机对象
+ * @returns 样式类名
+ */
+function getVMStateDotClass(vm: any): string {
+    const actualState = getVMActualState(vm)
+    if (!actualState) return 'unknown'
+
+    const state = actualState.toLowerCase()
+
+    // 开机状态（包括 H3C UIS 的 running）
+    if (state === 'poweredon' || state === 'on' || state === 'running') {
+        return 'on'
+    }
+
+    // 关机状态（包括 H3C UIS 的 stopped）
+    if (state === 'poweredoff' || state === 'off' || state === 'shutdown' || state === 'stopped') {
+        return 'off'
+    }
+
+    // 挂起状态
+    if (state === 'suspended') {
+        return 'paused'
+    }
+
+    // 异常状态使用警告色
+    return 'warning'
+}
+
+// ==================== 虚拟机选择 ====================
+
+function toggleVM(vm: any) {
+    // 检查虚拟机状态，异常状态不允许选择
+    if (!isVMStateNormal(vm)) {
+        ElMessage.warning({
+            message: `虚拟机 "${vm.name}" 状态异常（${getVMStateText(vm)}），无法评估`,
+            duration: 3000
+        })
+        return
+    }
+
+    const key = getVMKey(vm)
+    if (selectedVMs.value.has(key)) {
+        selectedVMs.value.delete(key)
     } else {
-        selectedVMs.value.add(name)
+        selectedVMs.value.add(key)
+    }
+}
+
+function handleSelectAll(val: boolean) {
+    const pageVMs = filteredVMs.value
+    // 只选择状态正常的虚拟机
+    const normalVMs = pageVMs.filter(vm => isVMStateNormal(vm))
+
+    if (val) {
+        normalVMs.forEach(vm => selectedVMs.value.add(getVMKey(vm)))
+    } else {
+        pageVMs.forEach(vm => selectedVMs.value.delete(getVMKey(vm)))
     }
 }
 
@@ -349,6 +548,12 @@ function formatMemory(value: number | undefined) {
 async function submitTask() {
   submitLoading.value = true
   try {
+     console.log('[Wizard.submitTask] 开始创建任务')
+     console.log('[Wizard.submitTask] selectedVMs.value:', selectedVMs.value)
+     console.log('[Wizard.submitTask] selectedVMs.value类型:', typeof selectedVMs.value)
+     console.log('[Wizard.submitTask] selectedVMs.value.size:', selectedVMs.value?.size)
+     console.log('[Wizard.submitTask] Array.from(selectedVMs.value):', Array.from(selectedVMs.value || []))
+
      const task = taskStore.createTask({
         type: 'collection',
         name: '评估任务-' + connectionForm.name,
@@ -359,7 +564,11 @@ async function submitTask() {
         totalVMs: selectedVMs.value.size
      })
 
-     taskStore.startCollectionTask(task.id, createdConnectionId.value, 30)
+     // 保存任务到 localStorage
+     taskStore.saveTasksToStorage()
+
+     // 启动采集任务，将选中的虚拟机列表传递给后端
+     taskStore.startCollectionTask(task.id, createdConnectionId.value, Array.from(selectedVMs.value), 30)
 
      ElMessage.success('任务已创建，后台正在采集中...')
      router.push('/')
@@ -542,13 +751,35 @@ function handleCancel() {
             .vm-check { opacity: 1; }
         }
 
+        // 异常状态样式
+        &.state-warning {
+            background: #fef9e7;  // 淡黄色背景
+            border-color: #e6c48c;  // 深黄色边框
+            cursor: not-allowed;
+
+            &:hover {
+                background: #fef9e7;
+                border-color: #e6c48c;
+            }
+
+            .vm-name {
+                color: #e6a23c;  // 橙黄色文字
+            }
+        }
+
         .vm-status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
             background: #dcdfe6;
             margin-right: 12px;
+            flex-shrink: 0;
+
             &.on { background: #67c23a; }
+            &.off { background: #909399; }
+            &.paused { background: #409eff; }
+            &.warning { background: #e6a23c; }  // 异常状态：橙色
+            &.unknown { background: #f56c6c; }  // 未知状态：红色
         }
 
         .vm-info {
@@ -557,6 +788,19 @@ function handleCancel() {
 
             .vm-name { font-size: 14px; font-weight: 500; color: #303133; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
             .vm-spec { font-size: 12px; color: #909399; }
+        }
+
+        // 异常状态标签
+        .vm-state-badge {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            padding: 2px 6px;
+            background: rgba(230, 162, 60, 0.15);
+            color: #e6a23c;
+            font-size: 11px;
+            border-radius: 3px;
+            border: 1px solid rgba(230, 162, 60, 0.3);
         }
 
         .vm-check {
