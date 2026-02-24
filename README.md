@@ -13,7 +13,7 @@ JustFit 是面向多云/虚拟化平台资源优化的交互式桌面工具，�
 
 ### 依赖
 
-- Go 1.21+
+- Go 1.24+
 - Node.js 18+（推荐使用 nvm 管理）
 - Wails CLI（`go install github.com/wailsapp/wails/v2/cmd/wails@latest`）
 
@@ -25,19 +25,24 @@ JustFit 是面向多云/虚拟化平台资源优化的交互式桌面工具，�
 
 ### 生产构建
 
+> 该命令会构建 Go 后端与 Vue 前端，生成各平台可发布包（Windows NSIS、Linux AppImage/deb、macOS DMG）。 默认输出路径为 `build/bin/`，可通过 `-o` 参数自定义输出文件名。支持指定构建平台（如 `-platform windows/amd64`）和启用 UPX 压缩（需先安装 UPX）。示例命令如下：
+
 ```bash
+# 构建当前平台的可发布包，不指定二进制输出路径会默认生成在 `build/bin/` 下
 wails build
 
-wails.exe build -platform windows/amd64 -o JustFit_0.0.1_amd64-portable.exe
-```
+# 构建指定平台的可发布包（示例：Windows 64 位），并自定义输出文件名
+wails build -platform windows/amd64 -o JustFit_0.0.1_amd64-portable.exe
 
-该命令会构建 Go 后端与 Vue 前端，生成各平台可发布包（Windows NSIS、Linux AppImage/deb、macOS DMG）。
+# 构建指定平台的可发布包，并使用 UPX 压缩生成的二进制文件（需要先安装 UPX）
+wails build -platform windows/amd64 -o JustFit_0.0.1_amd64-portable.exe -upx
+```
 
 ### 目录结构
 
 - `frontend/`：Vue 3 + Vite + Pinia 构建的 UI，包含 views、components、stores 与 api 抽象层。
 - `internal/`：Go 后端核心模块（connector、etl、analyzer、storage、task 等）。
-- `wailsjs/`：Wails 运行时与前后端桥接代码。
+- `frontend/wailsjs/`：Wails 运行时与前后端桥接代码。
 - `docs/0.0.1/`：当前 Beta 版本文档（需求/设计/测试/部署/管理）。
 
 ## 文档与版本
