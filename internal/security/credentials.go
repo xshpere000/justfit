@@ -4,10 +4,12 @@ package security
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
+	"justfit/internal/appdir"
 	"justfit/internal/storage"
 )
 
@@ -20,25 +22,25 @@ var (
 
 // CredentialInfo 凭据信息（不包含敏感数据）
 type CredentialInfo struct {
-	ID          uint   `json:"id"`
-	Name        string `json:"name"`
-	Platform    string `json:"platform"`
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	Username    string `json:"username"`
-	Insecure    bool   `json:"insecure"`
+	ID       uint   `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Insecure bool   `json:"insecure"`
 }
 
 // EncryptedCredential 加密后的凭据
 type EncryptedCredential struct {
-	ID           uint   `json:"id"`
-	Name         string `json:"name"`
-	Platform     string `json:"platform"`
-	Host         string `json:"host"`
-	Port         int    `json:"port"`
-	Username     string `json:"username"`
+	ID            uint   `json:"id"`
+	Name          string `json:"name"`
+	Platform      string `json:"platform"`
+	Host          string `json:"host"`
+	Port          int    `json:"port"`
+	Username      string `json:"username"`
 	EncryptedData string `json:"encrypted_data"` // Base64 编码的加密凭据
-	Insecure     bool   `json:"insecure"`
+	Insecure      bool   `json:"insecure"`
 }
 
 // CredentialManager 凭据管理器
@@ -51,11 +53,12 @@ type CredentialManager struct {
 // NewCredentialManager 创建凭据管理器
 func NewCredentialManager(dataDir string) (*CredentialManager, error) {
 	if dataDir == "" {
-		homeDir, err := os.UserHomeDir()
+		// 使用 appdir 模块获取应用数据目录
+		var err error
+		dataDir, err = appdir.GetAppDataDir(nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("获取应用数据目录失败: %w", err)
 		}
-		dataDir = filepath.Join(homeDir, ".justfit")
 	}
 
 	// 确保目录存在
@@ -132,14 +135,14 @@ func (cm *CredentialManager) SaveConnection(conn *storage.Connection) error {
 
 	// 更新或添加
 	cred := EncryptedCredential{
-		ID:           conn.ID,
-		Name:         conn.Name,
-		Platform:     conn.Platform,
-		Host:         conn.Host,
-		Port:         conn.Port,
-		Username:     conn.Username,
+		ID:            conn.ID,
+		Name:          conn.Name,
+		Platform:      conn.Platform,
+		Host:          conn.Host,
+		Port:          conn.Port,
+		Username:      conn.Username,
 		EncryptedData: encrypted,
-		Insecure:     conn.Insecure,
+		Insecure:      conn.Insecure,
 	}
 
 	// 查找并更新

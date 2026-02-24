@@ -27,6 +27,8 @@ JustFit 是面向多云/虚拟化平台资源优化的交互式桌面工具，�
 
 ```bash
 wails build
+
+wails.exe build -platform windows/amd64 -o JustFit_0.0.1_amd64-portable.exe
 ```
 
 该命令会构建 Go 后端与 Vue 前端，生成各平台可发布包（Windows NSIS、Linux AppImage/deb、macOS DMG）。

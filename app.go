@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"justfit/internal/analyzer"
+	"justfit/internal/appdir"
 	"justfit/internal/connector"
 	"justfit/internal/etl"
 	"justfit/internal/report"
@@ -78,7 +79,8 @@ func (a *App) startup(ctx context.Context) {
 	a.resultStorage = analyzer.NewResultStorage(a.repos)
 
 	// 创建任务日志记录器
-	logDir := filepath.Join(os.Getenv("HOME"), ".justfit", "logs")
+	// 使用 appdir 模块统一获取日志目录，支持开发/生产模式自动检测
+	logDir := appdir.MustGetLogDir(a.ctx)
 	taskLogger, err := task.NewLogger(logDir, 1000)
 	if err != nil {
 		fmt.Printf("WARNING: 创建任务日志记录器失败: %v，使用临时目录\n", err)
@@ -2267,8 +2269,8 @@ func (a *App) ExportDiagnosticPackage() (string, error) {
 	_ = os.WriteFile(filepath.Join(tmpDir, "system_info.json"), sysInfoData, 0644)
 
 	// 2. 数据库信息（不包含敏感数据）
-	homeDir := os.Getenv("HOME")
-	dbPath := filepath.Join(homeDir, ".justfit", "justfit.db")
+	// 使用 appdir 模块获取数据库路径
+	dbPath := appdir.MustGetDBPath(a.ctx)
 	if _, err := os.Stat(dbPath); err == nil {
 		// 复制数据库文件到临时目录（用于诊断）
 		// 实际生产中应该脱敏处理

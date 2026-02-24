@@ -79,7 +79,9 @@ func loadConfig() error {
 	cfg.AppEnv = Env(getEnv("APP_ENV", string(EnvTest)))
 	cfg.ServerHost = getEnv("SERVER_HOST", "0.0.0.0")
 	cfg.ServerPort = getEnvInt("SERVER_PORT", 8080)
-	cfg.DBPath = getEnv("DB_PATH", "./data/justfit.db")
+	// DB_PATH 默认值为空，让 storage.Init 使用 appdir 模块统一获取目录
+	// 支持通过环境变量 JUSTFIT_DATA_DIR 或 DB_PATH 覆盖
+	cfg.DBPath = getEnv("DB_PATH", "")
 	cfg.LogLevel = getEnv("LOG_LEVEL", "debug")
 
 	// 虚拟化平台配置

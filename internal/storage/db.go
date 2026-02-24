@@ -9,6 +9,8 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"justfit/internal/appdir"
 )
 
 // DB 数据库实例
@@ -20,14 +22,15 @@ type Config struct {
 }
 
 // Init 初始化数据库
+// 使用 appdir 模块统一获取应用数据目录，支持开发和生产模式
 func Init(cfg *Config) error {
 	if cfg.DataDir == "" {
-		// 默认使用用户数据目录
-		homeDir, err := os.UserHomeDir()
+		// 使用 appdir 模块获取应用数据目录
+		dataDir, err := appdir.GetAppDataDir(nil)
 		if err != nil {
-			return fmt.Errorf("获取用户目录失败: %w", err)
+			return fmt.Errorf("获取应用数据目录失败: %w", err)
 		}
-		cfg.DataDir = filepath.Join(homeDir, ".justfit")
+		cfg.DataDir = dataDir
 	}
 
 	// 确保数据目录存在
