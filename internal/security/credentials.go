@@ -55,7 +55,7 @@ func NewCredentialManager(dataDir string) (*CredentialManager, error) {
 	if dataDir == "" {
 		// 使用 appdir 模块获取应用数据目录
 		var err error
-		dataDir, err = appdir.GetAppDataDir(nil)
+		dataDir, err = appdir.GetAppDataDir()
 		if err != nil {
 			return nil, fmt.Errorf("获取应用数据目录失败: %w", err)
 		}

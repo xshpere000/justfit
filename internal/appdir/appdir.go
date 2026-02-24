@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
-	"strings"
 )
 
 // AppDataDir 应用数据目录名称
@@ -73,100 +72,22 @@ func getPlatformStandardDir() (string, error) {
 	}
 }
 
-// IsDevMode 检测是否运行在开发模式
-func IsDevMode(ctx interface{}) bool {
-	// 方法1: 检查命令行参数
-	for _, arg := range os.Args {
-		if strings.Contains(arg, "dev") || strings.Contains(arg, "-dev") {
-			return true
-		}
-	}
-
-	// 方法2: 检查环境变量（wails dev 会设置特定环境变量）
-	if wailsDev := os.Getenv("WAILS_DEV"); wailsDev != "" {
-		return true
-	}
-
-	// 方法3: 如果传入了 context，可以使用 wailsruntime 检查
-	if ctx != nil {
-		// 尝试类型断言获取 Wails 环境信息
-		if wailsCtx, ok := ctx.(interface{ Environment() map[string]string }); ok {
-			env := wailsCtx.Environment()
-			if _, dev := env["dev"]; dev {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // GetAppDataDir 获取应用数据目录
-// 开发模式下可以返回项目根目录的 .justfit 目录，方便调试
-func GetAppDataDir(ctx interface{}) (string, error) {
+// 优先使用环境变量 JUSTFIT_DATA_DIR 指定的目录
+// 否则使用平台标���的应用数据目录
+func GetAppDataDir() (string, error) {
 	// 首先检查环境变量是否有显式指定
 	if customDir := os.Getenv("JUSTFIT_DATA_DIR"); customDir != "" {
 		return customDir, nil
 	}
 
-	// 检查是否强制使用生产模式目录（即使在开发模式）
-	if forceProd := os.Getenv("JUSTFIT_FORCE_PROD_MODE"); forceProd == "1" || forceProd == "true" {
-		return getPlatformStandardDir()
-	}
-
-	// 检测是否是开发模式
-	isDev := IsDevMode(ctx)
-
-	if isDev {
-		// 开发模式：使用项目根目录的 .justfit 目录
-		// 获取可执行文件所在目录
-		exePath, err := os.Executable()
-		if err != nil {
-			// 如果获取失败，使用当前工作目录
-			exePath = "."
-		}
-
-		// 对于 wails dev，可执行文件在临时目录，应该使用项目目录
-		// 检查当前工作目录
-		cwd, err := os.Getwd()
-		if err == nil && cwd != "" {
-			// 检查是否存在 frontend 目录（项目根目录标识）
-			if _, err := os.Stat(filepath.Join(cwd, "frontend")); err == nil {
-				return filepath.Join(cwd, ".justfit"), nil
-			}
-		}
-
-		// 尝试获取项目根目录
-		if exePath != "." {
-			dir := filepath.Dir(exePath)
-			// 向上查找项目根目录
-			for i := 0; i < 4; i++ {
-				if _, err := os.Stat(filepath.Join(dir, "frontend")); err == nil {
-					return filepath.Join(dir, ".justfit"), nil
-				}
-				parent := filepath.Dir(dir)
-				if parent == dir {
-					break
-				}
-				dir = parent
-			}
-		}
-
-		// 兜底：使用当前工作目录
-		cwd = "."
-		if c, err := os.Getwd(); err == nil {
-			cwd = c
-		}
-		return filepath.Join(cwd, ".justfit"), nil
-	}
-
-	// 生产模式：使用符合各平台标准的应用数据目录
+	// 使用平台标准的应用数据目录
 	return getPlatformStandardDir()
 }
 
 // GetLogDir 获取日志目录
-func GetLogDir(ctx interface{}) (string, error) {
-	appDataDir, err := GetAppDataDir(ctx)
+func GetLogDir() (string, error) {
+	appDataDir, err := GetAppDataDir()
 	if err != nil {
 		return "", err
 	}
@@ -174,8 +95,8 @@ func GetLogDir(ctx interface{}) (string, error) {
 }
 
 // GetDBPath 获取数据库文件路径
-func GetDBPath(ctx interface{}) (string, error) {
-	appDataDir, err := GetAppDataDir(ctx)
+func GetDBPath() (string, error) {
+	appDataDir, err := GetAppDataDir()
 	if err != nil {
 		return "", err
 	}
@@ -183,8 +104,8 @@ func GetDBPath(ctx interface{}) (string, error) {
 }
 
 // EnsureAppDirs 确保应用所需的所有目录都存在
-func EnsureAppDirs(ctx interface{}) error {
-	appDataDir, err := GetAppDataDir(ctx)
+func EnsureAppDirs() error {
+	appDataDir, err := GetAppDataDir()
 	if err != nil {
 		return err
 	}
@@ -195,7 +116,7 @@ func EnsureAppDirs(ctx interface{}) error {
 	}
 
 	// 创建日志目录
-	logDir, err := GetLogDir(ctx)
+	logDir, err := GetLogDir()
 	if err != nil {
 		return err
 	}
@@ -207,8 +128,8 @@ func EnsureAppDirs(ctx interface{}) error {
 }
 
 // MustGetAppDataDir 获取应用数据目录，如果失败则 panic
-func MustGetAppDataDir(ctx interface{}) string {
-	dir, err := GetAppDataDir(ctx)
+func MustGetAppDataDir() string {
+	dir, err := GetAppDataDir()
 	if err != nil {
 		panic("failed to get app data dir: " + err.Error())
 	}
@@ -216,8 +137,8 @@ func MustGetAppDataDir(ctx interface{}) string {
 }
 
 // MustGetLogDir 获取日志目录，如果失败则 panic
-func MustGetLogDir(ctx interface{}) string {
-	dir, err := GetLogDir(ctx)
+func MustGetLogDir() string {
+	dir, err := GetLogDir()
 	if err != nil {
 		panic("failed to get log dir: " + err.Error())
 	}
@@ -225,27 +146,19 @@ func MustGetLogDir(ctx interface{}) string {
 }
 
 // MustGetDBPath 获取数据库文件路径，如果失败则 panic
-func MustGetDBPath(ctx interface{}) string {
-	path, err := GetDBPath(ctx)
+func MustGetDBPath() string {
+	path, err := GetDBPath()
 	if err != nil {
 		panic("failed to get db path: " + err.Error())
 	}
 	return path
 }
 
-// InitWithContext 初始化并确保目录存在，返回应用数据目录路径
+// Init 初始化并确保目录存在，返回应用数据目录路径
 // 这个函数应该在应用启动时调用
-func InitWithContext(ctx interface{}) (string, error) {
-	if err := EnsureAppDirs(ctx); err != nil {
+func Init() (string, error) {
+	if err := EnsureAppDirs(); err != nil {
 		return "", err
 	}
-	return GetAppDataDir(ctx)
-}
-
-// GetWailsRuntime 获取 wails runtime（如果可用）
-// 避免直接依赖 wails runtime 导致开发模式编译问题
-var GetWailsRuntime func(ctx interface{}) interface{} = func(ctx interface{}) interface{} {
-	// 这是一个兼容性函数，用于获取 wails runtime
-	// 实际使用时直接传入 context 即可
-	return nil
+	return GetAppDataDir()
 }

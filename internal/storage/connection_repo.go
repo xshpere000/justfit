@@ -100,6 +100,16 @@ func (r *ClusterRepository) ListByConnectionID(connectionID uint) ([]Cluster, er
 	return clusters, err
 }
 
+// GetByID 根据ID获取集群
+func (r *ClusterRepository) GetByID(id uint) (*Cluster, error) {
+	var cluster Cluster
+	err := r.db.First(&cluster, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &cluster, nil
+}
+
 // HostRepository 主机仓储
 type HostRepository struct {
 	db *gorm.DB
@@ -139,6 +149,16 @@ func (r *HostRepository) ListByConnectionID(connectionID uint) ([]Host, error) {
 	var hosts []Host
 	err := r.db.Where("connection_id = ?", connectionID).Find(&hosts).Error
 	return hosts, err
+}
+
+// GetByID 根据ID获取主机
+func (r *HostRepository) GetByID(id uint) (*Host, error) {
+	var host Host
+	err := r.db.First(&host, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &host, nil
 }
 
 // VMRepository 虚拟机仓储
@@ -200,6 +220,41 @@ func (r *VMRepository) GetByID(id uint) (*VM, error) {
 		return nil, err
 	}
 	return &vm, nil
+}
+
+// CountByConnectionID 统计连接的虚拟机数量
+func (r *VMRepository) CountByConnectionID(connectionID uint) (int, error) {
+	var count int64
+	err := r.db.Model(&VM{}).Where("connection_id = ?", connectionID).Count(&count).Error
+	return int(count), err
+}
+
+// ListByConnectionIDPaged 分页获取连接的虚拟机列表
+func (r *VMRepository) ListByConnectionIDPaged(connectionID uint, limit, offset int, keyword string) ([]VM, int64, error) {
+	var vms []VM
+	var total int64
+
+	query := r.db.Model(&VM{}).Where("connection_id = ?", connectionID)
+
+	if keyword != "" {
+		query = query.Where("name LIKE ? OR uuid LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
+	// 先统计总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 分页查询
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
+	}
+
+	err := query.Find(&vms).Error
+	return vms, total, err
 }
 
 // MetricRepository 性能指标仓储

@@ -194,7 +194,8 @@ const features = [
 ]
 
 onMounted(() => {
-  taskStore.loadTasksFromStorage()
+  // 从后端同步任务数据
+  taskStore.syncTasksFromBackend()
   // 添加日志检查任务数据
   console.log('[Home.vue] onMounted 加载后的任务列表:', taskStore.tasks.map(t => ({ id: t.id, name: t.name, totalVMs: t.totalVMs, status: t.status })))
 })

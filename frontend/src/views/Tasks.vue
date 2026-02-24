@@ -49,8 +49,8 @@ import { Monitor, Connection, Clock, Delete } from '@element-plus/icons-vue'
 
 const taskStore = useTaskStore()
 
-// 初始化加载任务
-taskStore.loadTasksFromStorage()
+// 初始化时从后端同步任务
+taskStore.syncTasksFromBackend()
 
 function refreshList() {
   taskStore.syncTasksFromBackend()

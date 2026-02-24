@@ -590,8 +590,7 @@ function pollTaskStatus(backendTaskId: number) {
         task.value.status = taskInfo.status as any
         task.value.progress = taskInfo.progress
         task.value.error = taskInfo.error
-        taskStore.saveTasksToStorage()
-
+        
         if (taskInfo.status === 'completed') {
           stopPolling()
           if (task.value.connectionId) {
@@ -624,8 +623,7 @@ async function handleCancel() {
     }
 
     taskStore.cancelTask(taskId)
-    taskStore.saveTasksToStorage()
-    ElMessage.success('任务已取消')
+        ElMessage.success('任务已取消')
     router.push('/')
   } catch (error: any) {
     if (error !== 'cancel') {
@@ -646,8 +644,7 @@ async function handleRetry() {
     task.value.status = 'pending'
     task.value.progress = 0
     task.value.error = ''
-    taskStore.saveTasksToStorage()
-    pollTaskStatus(newBackendTaskId)
+        pollTaskStatus(newBackendTaskId)
     ElMessage.success('任务已提交重试')
   } catch (error: any) {
     ElMessage.error(error.message || '重试失败')
@@ -752,8 +749,7 @@ async function loadAnalysisResultFromBackend(backendTaskId: number) {
       console.log('[loadAnalysisResultFromBackend] 未找到 health_score 数据')
     }
 
-    taskStore.saveTasksToStorage()
-  } catch (error) {
+      } catch (error) {
     console.error('[loadAnalysisResultFromBackend] 加载失败:', error)
   }
 }
@@ -852,8 +848,7 @@ async function runAnalysis(type: string) {
           console.log('[runAnalysis] 更新前 task.analysisResults:', task.value?.analysisResults)
           taskStore.updateAnalysisResult(taskId.value, analysisType, true)
           console.log('[runAnalysis] 更新后 task.analysisResults:', task.value?.analysisResults)
-          taskStore.saveTasksToStorage()
-          console.log('[runAnalysis] analysisData.zombie.length:', analysisData.zombie.length)
+                    console.log('[runAnalysis] analysisData.zombie.length:', analysisData.zombie.length)
           ElMessage.success('分析完成')
         } else if (taskInfo.status === 'failed') {
           clearInterval(pollInterval)
@@ -902,8 +897,7 @@ async function handleCommand(cmd: string) {
       await ElMessageBox.confirm('确定要删除此任务吗？', '确认删除', { type: 'warning' })
       stopPolling()
       taskStore.deleteTask(taskId.value)
-      taskStore.saveTasksToStorage()
-      ElMessage.success('任务已删除')
+            ElMessage.success('任务已删除')
       router.push('/')
     } catch {
       // 用户取消
@@ -998,8 +992,7 @@ async function syncTaskFromBackend() {
       if (matchedBackendTask) {
         console.log('[TaskDetail] 匹配到后端任务:', matchedBackendTask)
         task.value.backendTaskId = matchedBackendTask.id
-        taskStore.saveTasksToStorage()
-      } else {
+              } else {
         console.log('[TaskDetail] 未找到匹配的后端任务')
         // 列出所有后端任务供调试
         backendTasks.forEach((bt: any) => {

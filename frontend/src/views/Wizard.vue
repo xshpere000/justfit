@@ -564,10 +564,6 @@ async function submitTask() {
         totalVMs: selectedVMs.value.size
      })
 
-     // 保存任务到 localStorage
-     taskStore.saveTasksToStorage()
-
-     // 启动采集任务，将选中的虚拟机列表传递给后端
      taskStore.startCollectionTask(task.id, createdConnectionId.value, Array.from(selectedVMs.value), 30)
 
      ElMessage.success('任务已创建，后台正在采集中...')

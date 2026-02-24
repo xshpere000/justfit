@@ -18,15 +18,15 @@ var DB *gorm.DB
 
 // Config 数据库配置
 type Config struct {
-	DataDir string // 数据目录
+	DataDir string // 数据目录，为空时使用默认路径
 }
 
 // Init 初始化数据库
-// 使用 appdir 模块统一获取应用数据目录，支持开发和生产模式
+// 使用 appdir 模块统一获取应用数据目录
 func Init(cfg *Config) error {
 	if cfg.DataDir == "" {
 		// 使用 appdir 模块获取应用数据目录
-		dataDir, err := appdir.GetAppDataDir(nil)
+		dataDir, err := appdir.GetAppDataDir()
 		if err != nil {
 			return fmt.Errorf("获取应用数据目录失败: %w", err)
 		}
@@ -103,6 +103,11 @@ type Repositories struct {
 	AnalysisResult *AnalysisResultRepository
 	Alert          *AlertRepository
 	Settings       *SettingsRepository
+}
+
+// DB 返回底层数据库连接
+func (r *Repositories) DB() *gorm.DB {
+	return DB
 }
 
 // NewRepositories 创建数据仓储

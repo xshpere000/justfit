@@ -17,11 +17,9 @@ function handleBeforeUnload(e: BeforeUnloadEvent) {
   }
 }
 
-onMounted(() => {
-  // 加载保存的任务
-  taskStore.loadTasksFromStorage()
+onMounted(async () => {
+  await taskStore.syncTasksFromBackend()
 
-  // 添加关闭保护
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
 

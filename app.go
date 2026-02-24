@@ -17,6 +17,7 @@ import (
 	"justfit/internal/appdir"
 	"justfit/internal/connector"
 	"justfit/internal/etl"
+	applogger "justfit/internal/logger"
 	"justfit/internal/report"
 	"justfit/internal/security"
 	"justfit/internal/service"
@@ -46,8 +47,32 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// 确保应用目录存在
+	if err := appdir.EnsureAppDirs(); err != nil {
+		fmt.Printf("WARNING: 创建应用目录失败: %v\n", err)
+	}
+
+	// 初始化日志系统
+	logDir := appdir.MustGetLogDir()
+	logFilePath := filepath.Join(logDir, "app.log")
+	fileOutput, err := applogger.NewFileOutput(logFilePath)
+	if err != nil {
+		fmt.Printf("WARNING: 创建文件日志输出失败: %v\n", err)
+	}
+	logConfig := &applogger.Config{
+		Level:      applogger.INFO,
+		Outputs:    []applogger.Output{
+			applogger.NewConsoleOutput(applogger.FormatText),
+			fileOutput,
+		},
+		CallerSkip: 1,
+	}
+	globalLogger := applogger.New(logConfig)
+	globalLogger.Info("应用启动", applogger.String("logDir", logDir))
+
 	// 初始化数据库
 	if err := storage.Init(&storage.Config{}); err != nil {
+		globalLogger.Error("初始化数据库失败", applogger.Err(err))
 		fmt.Printf("FATAL: 初始化数据库失败: %v\n", err)
 		// 在实际生产环境中，这里应该记录日志并可能退出，或者在前端显示错误
 		// 为防止 panic，这里我们尽量保证 a.repos 不为空，或者后续操作检查 Connection
@@ -79,8 +104,6 @@ func (a *App) startup(ctx context.Context) {
 	a.resultStorage = analyzer.NewResultStorage(a.repos)
 
 	// 创建任务日志记录器
-	// 使用 appdir 模块统一获取日志目录，支持开发/生产模式自动检测
-	logDir := appdir.MustGetLogDir(a.ctx)
 	taskLogger, err := task.NewLogger(logDir, 1000)
 	if err != nil {
 		fmt.Printf("WARNING: 创建任务日志记录器失败: %v，使用临时目录\n", err)
@@ -2270,7 +2293,7 @@ func (a *App) ExportDiagnosticPackage() (string, error) {
 
 	// 2. 数据库信息（不包含敏感数据）
 	// 使用 appdir 模块获取数据库路径
-	dbPath := appdir.MustGetDBPath(a.ctx)
+	dbPath := appdir.MustGetDBPath()
 	if _, err := os.Stat(dbPath); err == nil {
 		// 复制数据库文件到临时目录（用于诊断）
 		// 实际生产中应该脱敏处理

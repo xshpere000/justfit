@@ -94,17 +94,9 @@ const router = createRouter({
 
 // 路由守卫
 router.beforeEach((to, from, next) => {
-  // 设置页面标题
   if (to.meta?.title) {
     document.title = to.meta.title + ' - JustFit'
   }
-
-  // 检查是否有正在运行的任务，如果有任务正在运行且用户试图离开
-  const runningTask = localStorage.getItem('justfit_running_task')
-  if (runningTask && to.path !== '/' && !to.path.startsWith('/task/')) {
-    // 可以在这里添加提示逻辑
-  }
-
   next()
 })
 

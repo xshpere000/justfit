@@ -359,35 +359,6 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
-  function saveTasksToStorage() {
-    try {
-      localStorage.setItem('justfit_tasks', JSON.stringify(tasks.value))
-    } catch (e) {
-      console.error('Failed to save tasks to storage:', e)
-    }
-  }
-
-  function loadTasksFromStorage() {
-    try {
-      const saved = localStorage.getItem('justfit_tasks')
-      if (saved) {
-        const parsedTasks = JSON.parse(saved) as Task[]
-        parsedTasks.forEach(task => {
-          if (task.status === 'running') {
-            task.status = 'failed'
-            task.error = '任务被中断'
-            task.ended_at = new Date().toISOString()
-          }
-        })
-        tasks.value = parsedTasks
-        console.log('[loadTasksFromStorage] 从localStorage加载任务, 数量:', parsedTasks.length)
-        parsedTasks.forEach(t => console.log('  - taskId:', t.id, 'name:', t.name, 'totalVMs:', t.totalVMs, 'status:', t.status))
-      }
-    } catch (e) {
-      console.error('Failed to load tasks from storage:', e)
-    }
-  }
-
   return {
     tasks,
     runningTasks,
@@ -407,8 +378,6 @@ export const useTaskStore = defineStore('task', () => {
     clearCompletedTasks,
     setCurrentTask,
     resetCurrentTask,
-    saveTasksToStorage,
-    loadTasksFromStorage,
     startCollectionTask,
     syncTasksFromBackend,
     pollTaskStatus

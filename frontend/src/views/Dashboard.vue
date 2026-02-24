@@ -213,7 +213,7 @@ const recentTasks = computed(() => {
 onMounted(async () => {
   await Promise.all([
     connectionStore.fetchConnections(),
-    taskStore.loadTasksFromStorage(),
+    taskStore.syncTasksFromBackend(),  // 改为从后端同步
     loadDashboardStats()
   ])
 })

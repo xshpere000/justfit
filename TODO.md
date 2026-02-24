@@ -1,100 +1,79 @@
 # JustFit 统一 TODO
 
 > 更新时间：2026-02-24
-> 说明：本文件为项目唯一待办清单；历史已完成事项已归档删除。
 
-## 本次重构已完成项
+## v0.0.2 已完成 ✅
 
-### 1. 配置化管理基础设施
+### 架构重构
+- [x] DTO 层设计 (15 个文件)
+- [x] Mapper 层实现 (6 个映射器)
+- [x] Logger 结构化日志系统 (5 个文件)
+- [x] Errors 统一错误处理
+- [x] Service v2 层 (3 个服务)
+- [x] appdir 简化 (统一数据目录管理)
 
-- [x] 创建测试环境配置文件 .env（包含H3C UIS和vCenter配置）
-- [x] 后端配置加载模块 internal/config/config.go
-- [x] 前端配置模块 frontend/src/config/index.ts
+### 测试
+- [x] Logger 单元测试 (12 个测试用例)
+- [x] Errors 单元测试 (12 个测试用例)
 
-### 2. 数据库模型重构
+### 文档
+- [x] docs/0.0.2/ 系列文档 (12 个文档)
+- [x] CLAUDE.md 代码审查检查点
+- [x] manual.md 手动测试指南
+- [x] problems.md 问题跟踪
 
-- [x] 扩展Task模型，添加totalVMs/selectedVMs/connectionId等字段
-- [x] 完善TaskAnalysisResult与TaskVMSnapshot关联关系
-- [x] 数据库AutoMigrate自动迁移
+### 问题修复
+- [x] appdir 开发/生产模式区分简化
+- [x] 日志系统初始化
+- [x] 数据目录统一管理
+- [x] 移除前端 localStorage 缓存，统一使用后端存储
 
-### 3. 前后端数据类型统一
+## 待完成 ⏳
 
-- [x] 定义统一API数据类型 - TaskInfo扩展
-- [x] 创建类型转换工具函数 frontend/src/utils/transform.ts
+### P0 - 前端适配 (高优先级)
 
-### 4. 任务服务重构
+#### 1) 前端类型定义迁移
+- [ ] 将 `frontend/src/api/index.ts` 等文件中的类型引用更新为使用 `types/v2.ts`
+- [ ] 确保 API 响应处理与新的 DTO 结构兼容
 
-- [x] 后端任务服务 - 创建任务时保存totalVMs/selectedVMs
+#### 2) 任务状态刷新问题
+- [ ] 修复历史评估数据为空的问题 (前端状态管理)
+- [ ] 确保任务详情进入时重新调用 API 获取最新数据
 
-## 后续优化目标
+### P1 - 功能集成 (中优先级)
 
-> 重要原则：H3C UIS优先实现，但VMware vCenter同样重要，需保证两者都能正常工作并具备扩展性。
+#### 3) Service v2 集成到 app.go
+- [ ] 逐步将 `app.go` 中的方法迁移到使用 v2 service 层
+- [ ] 替换 `fmt.Printf` 为新的 logger 系统
+- [ ] 使用统一的错误处理
 
-### P0（当前优先）
+#### 4) 连接器接口完善
+- [ ] 抽象并完善 `connector.Connector` 接口
+- [ ] 确保 vCenter 和 H3C UIS 实现一致
 
-#### 1) 虚拟化平台连接器重构
+### P2 - 测试补充 (低优先级)
 
-- [ ] **抽象连接器接口** `internal/connector/interface.go`
-  - 定义统一的连接器接口（Connect, GetVMs, GetClusters, GetHosts, CollectMetrics等）
-  - 接口设计需兼容H3C UIS和VMware vCenter两种实现
+#### 5) 集成测试
+- [ ] Service 层集成测试
+- [ ] API 端到端测试
+- [ ] 数据采集流程测试
 
-- [ ] **H3C UIS连接器实现**（优先）
-  - 完善 `internal/connector/uis.go` 实现
-  - 实现接口定义的所有方法
-  - 使用Python探测脚本验证API可用性
-  - 添加详细的日志记录
+#### 6) 性能测试
+- [ ] 大数据量场景测试 (1000+ VM)
+- [ ] 并发任务测试
 
-- [ ] **VMware vCenter连接器实现**
-  - 完善 `internal/connector/vcenter.go` 实现
-  - 复用现有的govmomi实现
-  - 确保与UIS接口一致
+## 废弃内容
 
-- [ ] **配置化平台选择**
-  - 根据.env中的DEFAULT_PLATFORM配置选择默认连接器
-  - 支持通过连接管理界面动态切换平台
+以下内容已在 v0.0.2 重构中废弃：
 
-#### 2) 前端任务Store适配
-
-- [ ] 修改 `frontend/src/stores/task.ts`
-  - 适配新的后端TaskInfo数据结构
-  - 使用 transform.ts 中的转换函数
-  - 正确显示totalVMs和selectedVMs
-
-- [ ] 任务卡片展示修复
-  - 正确显示虚拟机数量
-  - 历史评估结果的持久化显示
-
-#### 3) 自动化测试
-
-- [ ] 创建单元测试：配置模块加载
-- [ ] 创建单元测试：数据库模型CRUD
-- [ ] 创建单元测试：任务服务创建和查询
-- [ ] 创建集成测试：完整的数据采集流程
-
-### P1（功能完善）
-
-#### 4) 数据采集和评估流程
-
-- [ ] 评估结果仅包含选择的虚拟机（过滤逻辑修复）
-- [ ] 评估结果的持久化存储验证
-- [ ] 前后端数据一致性验证
-
-#### 5) 连接管理
-
-- [ ] 支持平台类型选择（h3c-uis / vcenter）
-- [ ] 连接测试功能适配新接口
-- [ ] 连接凭据的安全存储
-
-### P2（优化与发布）
-
-#### 6) 体验与稳定性
-
-- [ ] 任务进度轮询策略优化
-- [ ] 高数据量场景交互稳定性
-- [ ] 错误处理和用户提示优化
+- ~~开发/生产模式区分~~ (统一使用平台标准目录)
+- ~~旧的类型转换方式~~ (使用 DTO + Mapper)
+- ~~fmt.Printf 日志方式~~ (使用 structured logger)
 
 ## 备注
 
-- H3C UIS优先级高于vCenter：在功能实现时，优先完成H3C UIS的对接，但两者都需要保证可用性
-- 扩展性：连接器接口设计需考虑未来可能接入的新平台（如OpenStack等）
-- 配置化：平台选择通过配置文件管理，支持运行时切换
+- 数据目录统一管理：
+  - Windows: `%APPDATA%\justfit`
+  - macOS: `~/Library/Application Support/justfit`
+  - Linux: `~/.local/share/justfit`
+- 可通过 `JUSTFIT_DATA_DIR` 环境变量自定义数据目录
