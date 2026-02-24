@@ -66,8 +66,8 @@ pnpm-debug.log*
 # 包管理器锁定文件
 yarn.lock
 pnpm-lock.yaml
-frontend\package-lock.json
-frontend\package.json.md5
+frontend/package-lock.json
+frontend/package.json.md5
 
 # =============================================================================
 # IDE / 编辑器
