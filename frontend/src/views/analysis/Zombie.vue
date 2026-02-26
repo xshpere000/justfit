@@ -14,32 +14,32 @@
         <el-row :gutter="20">
           <el-col :span="8">
             <el-form-item label="选择连接">
-              <el-select v-model="config.connection_id" placeholder="请选择连接" style="width: 100%">
+              <el-select v-model="config.connectionId" placeholder="请选择连接" style="width: 100%">
                 <el-option v-for="conn in connectionStore.connections" :key="conn.id" :label="conn.name" :value="conn.id" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="分析天数">
-              <el-input-number v-model="config.analysis_days" :min="7" :max="90" style="width: 100%" />
+              <el-input-number v-model="config.analysisDays" :min="7" :max="90" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="最小置信度">
-              <el-slider v-model="config.min_confidence" :min="0" :max="1" :step="0.1" :show-tooltip="false" />
-              <span class="form-tip">{{ (config.min_confidence * 100).toFixed(0) }}%</span>
+              <el-slider v-model="config.minConfidence" :min="0" :max="1" :step="0.1" :show-tooltip="false" />
+              <span class="form-tip">{{ (config.minConfidence * 100).toFixed(0) }}%</span>
             </el-form-item>
           </el-col>
         </el-row>
         <el-row :gutter="20">
           <el-col :span="8">
             <el-form-item label="CPU 阈值 (%)">
-              <el-input-number v-model="config.cpu_threshold" :min="0" :max="100" :step="1" style="width: 100%" />
+              <el-input-number v-model="config.cpuThreshold" :min="0" :max="100" :step="1" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="内存阈值 (%)">
-              <el-input-number v-model="config.memory_threshold" :min="0" :max="100" :step="1" style="width: 100%" />
+              <el-input-number v-model="config.memoryThreshold" :min="0" :max="100" :step="1" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -88,21 +88,21 @@
       </template>
 
       <el-table :data="results" stripe max-height="500">
-        <el-table-column prop="vm_name" label="虚拟机名称" min-width="180" />
+        <el-table-column prop="vmName" label="虚拟机名称" min-width="180" />
         <el-table-column prop="datacenter" label="数据中心" width="150" />
         <el-table-column prop="host" label="主机" width="150" />
-        <el-table-column prop="cpu_count" label="CPU(核)" width="80" />
-        <el-table-column prop="memory_mb" label="内存(MB)" width="100" />
+        <el-table-column prop="cpuCount" label="CPU(核)" width="80" />
+        <el-table-column prop="memoryMb" label="内存(MB)" width="100" />
         <el-table-column label="CPU 使用率" width="100">
           <template #default="{ row }">
-            <el-progress :percentage="row.cpu_usage" :color="'#67C23A'" :show-text="false" />
-            <span class="progress-text">{{ row.cpu_usage.toFixed(1) }}%</span>
+            <el-progress :percentage="row.cpuUsage" :color="'#67C23A'" :show-text="false" />
+            <span class="progress-text">{{ row.cpuUsage.toFixed(1) }}%</span>
           </template>
         </el-table-column>
         <el-table-column label="内存使用率" width="100">
           <template #default="{ row }">
-            <el-progress :percentage="row.memory_usage" :color="'#67C23A'" :show-text="false" />
-            <span class="progress-text">{{ row.memory_usage.toFixed(1) }}%</span>
+            <el-progress :percentage="row.memoryUsage" :color="'#67C23A'" :show-text="false" />
+            <span class="progress-text">{{ row.memoryUsage.toFixed(1) }}%</span>
           </template>
         </el-table-column>
         <el-table-column prop="confidence" label="置信度" width="100">
@@ -110,7 +110,7 @@
             <el-tag :type="getConfidenceType(row.confidence)">{{ (row.confidence * 100).toFixed(0) }}%</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="days_low_usage" label="低载天数" width="100" />
+        <el-table-column prop="daysLowUsage" label="低载天数" width="100" />
         <el-table-column label="建议操作" min-width="150">
           <template #default="{ row }">
             {{ row.recommendation }}
@@ -159,11 +159,11 @@ import * as AnalysisAPI from '@/api/connection'
 const connectionStore = useConnectionStore()
 
 const config = reactive({
-  connection_id: undefined as number | undefined,
-  analysis_days: 14,
-  cpu_threshold: 5,
-  memory_threshold: 10,
-  min_confidence: 0.7
+  connectionId: undefined as number | undefined,
+  analysisDays: 14,
+  cpuThreshold: 5,
+  memoryThreshold: 10,
+  minConfidence: 0.7
 })
 
 const analyzing = ref(false)
@@ -171,15 +171,15 @@ const analyzed = ref(false)
 const results = ref([])
 
 const canAnalyze = computed(() => {
-  return config.connection_id && config.connection_id > 0 && !analyzing.value
+  return config.connectionId && config.connectionId > 0 && !analyzing.value
 })
 
 const totalWastedCPU = computed(() => {
-  return results.value.reduce((sum, r) => sum + (r.cpu_count || 0), 0)
+  return results.value.reduce((sum, r) => sum + (r.cpuCount || 0), 0)
 })
 
 const totalWastedMemory = computed(() => {
-  return results.value.reduce((sum, r) => sum + (r.memory_mb || 0), 0)
+  return results.value.reduce((sum, r) => sum + (r.memoryMB || 0), 0)
 })
 
 const averageConfidence = computed(() => {
@@ -188,7 +188,7 @@ const averageConfidence = computed(() => {
 })
 
 async function handleAnalyze() {
-  if (!config.connection_id) {
+  if (!config.connectionId) {
     ElMessage.warning('请选择连接')
     return
   }
@@ -198,11 +198,11 @@ async function handleAnalyze() {
   results.value = []
 
   try {
-    const data = await AnalysisAPI.detectZombieVMs(config.connection_id, {
-      analysis_days: config.analysis_days || 7,
-      cpu_threshold: config.cpu_threshold || 5,
-      memory_threshold: config.memory_threshold || 10,
-      min_confidence: config.min_confidence || 0.7
+    const data = await AnalysisAPI.detectZombieVMs(config.connectionId, {
+      analysisDays: config.analysisDays || 7,
+      cpuThreshold: config.cpuThreshold || 5,
+      memoryThreshold: config.memoryThreshold || 10,
+      minConfidence: config.minConfidence || 0.7
     })
     results.value = data
     analyzed.value = true

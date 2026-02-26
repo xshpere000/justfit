@@ -13,8 +13,8 @@ type ConnectionResponse struct {
 	Username  string     `json:"username"`
 	Insecure  bool       `json:"insecure"`
 	Status    string     `json:"status"`
-	CreatedAt time.Time  `json:"created_at"`
-	LastSync  *time.Time `json:"last_sync,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	LastSync  *time.Time `json:"lastSync,omitempty"`
 }
 
 // ConnectionListItem 连接列表项
@@ -24,8 +24,8 @@ type ConnectionListItem struct {
 	Platform  string  `json:"platform"`
 	Host      string  `json:"host"`
 	Status    string  `json:"status"`
-	VMCount   int     `json:"vm_count"`
-	LastSync  *string `json:"last_sync,omitempty"`
+	VMCount   int     `json:"vmCount"`
+	LastSync  *string `json:"lastSync,omitempty"`
 }
 
 // TestConnectionResponse 测试连接响应

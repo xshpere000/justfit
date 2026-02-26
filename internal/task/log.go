@@ -23,8 +23,8 @@ type LogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Level     LogLevel  `json:"level"`
 	Message   string    `json:"message"`
-	TaskID    uint      `json:"task_id,omitempty"`
-	TaskType  TaskType  `json:"task_type,omitempty"`
+	TaskID    uint      `json:"taskId,omitempty"`
+	TaskType  TaskType  `json:"taskType,omitempty"`
 }
 
 // Logger 任务日志记录器

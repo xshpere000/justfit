@@ -21,24 +21,24 @@ func NewEngine(repos *storage.Repositories) *Engine {
 
 // VMAnalysisResult 虚拟机分析结果
 type VMAnalysisResult struct {
-	VMKey      string `json:"vm_key"`
-	VMName     string `json:"vm_name"`
+	VMKey      string `json:"vmKey"`
+	VMName     string `json:"vmName"`
 	Datacenter string `json:"datacenter"`
 	Host       string `json:"host"`
-	CPUCount   int32  `json:"cpu_count"`
-	MemoryMB   int32  `json:"memory_mb"`
-	PowerState string `json:"power_state"`
+	CPUCount   int32  `json:"cpuCount"`
+	MemoryMB   int32  `json:"memoryMb"`
+	PowerState string `json:"powerState"`
 }
 
 // ZombieVMResult 僵尸 VM 分析结果
 type ZombieVMResult struct {
 	VMAnalysisResult
-	CPUUsage       float64  `json:"cpu_usage"`      // 平均 CPU 使用率
-	MemoryUsage    float64  `json:"memory_usage"`   // 平均内存使用率
-	DiskIORate     float64  `json:"disk_io_rate"`   // 平均磁盘 I/O 速率
-	NetworkRate    float64  `json:"network_rate"`   // 平均网络速率
+	CPUUsage       float64  `json:"cpuUsage"`      // 平均 CPU 使用率
+	MemoryUsage    float64  `json:"memoryUsage"`   // 平均内存使用率
+	DiskIORate     float64  `json:"diskIoRate"`   // 平均磁盘 I/O 速率
+	NetworkRate    float64  `json:"networkRate"`   // 平均网络速率
 	Confidence     float64  `json:"confidence"`     // 置信度 0-100
-	DaysLowUsage   int      `json:"days_low_usage"` // 低负载天数
+	DaysLowUsage   int      `json:"daysLowUsage"` // 低负载天数
 	Evidence       []string `json:"evidence"`       // 证据列表
 	Recommendation string   `json:"recommendation"`
 }

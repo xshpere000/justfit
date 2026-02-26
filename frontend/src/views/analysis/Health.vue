@@ -48,8 +48,8 @@
             <div class="score-circle">
               <el-progress
                 type="circle"
-                :percentage="result.overall_score"
-                :color="getHealthColor(result.overall_score)"
+                :percentage="result.overallScore"
+                :color="getHealthColor(result.overallScore)"
                 :width="140"
               >
                 <template #default="{ percentage }">
@@ -59,8 +59,8 @@
               </el-progress>
             </div>
             <div class="health-level">
-              <el-tag :type="getHealthLevelType(result.health_level)" size="large">
-                {{ getHealthLevelText(result.health_level) }}
+              <el-tag :type="getHealthLevelType(result.healthLevel)" size="large">
+                {{ getHealthLevelText(result.healthLevel) }}
               </el-tag>
             </div>
           </el-card>
@@ -75,46 +75,46 @@
                 <div class="metric-item">
                   <span class="metric-label">资源均衡度</span>
                   <el-progress
-                    :percentage="result.resource_balance * 100"
+                    :percentage="result.resourceBalance * 100"
                     :color="'#409EFF'"
                     :show-text="false"
                   />
-                  <span class="metric-value">{{ (result.resource_balance * 100).toFixed(0) }}%</span>
+                  <span class="metric-value">{{ (result.resourceBalance * 100).toFixed(0) }}%</span>
                 </div>
               </el-col>
               <el-col :span="8">
                 <div class="metric-item">
                   <span class="metric-label">超配风险</span>
                   <el-progress
-                    :percentage="result.overcommit_risk * 100"
-                    :color="getRiskColor(result.overcommit_risk)"
+                    :percentage="result.overcommitRisk * 100"
+                    :color="getRiskColor(result.overcommitRisk)"
                     :show-text="false"
                   />
-                  <span class="metric-value">{{ (result.overcommit_risk * 100).toFixed(0) }}%</span>
+                  <span class="metric-value">{{ (result.overcommitRisk * 100).toFixed(0) }}%</span>
                 </div>
               </el-col>
               <el-col :span="8">
                 <div class="metric-item">
                   <span class="metric-label">热点集中度</span>
                   <el-progress
-                    :percentage="result.hotspot_concentration * 100"
-                    :color="getHotspotColor(result.hotspot_concentration)"
+                    :percentage="result.hotspotConcentration * 100"
+                    :color="getHotspotColor(result.hotspotConcentration)"
                     :show-text="false"
                   />
-                  <span class="metric-value">{{ (result.hotspot_concentration * 100).toFixed(0) }}%</span>
+                  <span class="metric-value">{{ (result.hotspotConcentration * 100).toFixed(0) }}%</span>
                 </div>
               </el-col>
             </el-row>
             <el-divider />
             <el-row :gutter="16">
               <el-col :span="8">
-                <el-statistic title="集群总数" :value="result.total_clusters" />
+                <el-statistic title="集群总数" :value="result.clusterCount" />
               </el-col>
               <el-col :span="8">
-                <el-statistic title="主机总数" :value="result.total_hosts" />
+                <el-statistic title="主机总数" :value="result.hostCount" />
               </el-col>
               <el-col :span="8">
-                <el-statistic title="虚拟机总数" :value="result.total_vms" />
+                <el-statistic title="虚拟机总数" :value="result.vmCount" />
               </el-col>
             </el-row>
           </el-card>
@@ -131,8 +131,8 @@
                 风险项
               </span>
             </template>
-            <ul v-if="result.risk_items.length > 0" class="suggestion-list">
-              <li v-for="(item, index) in result.risk_items" :key="index">
+            <ul v-if="result.riskItems.length > 0" class="suggestion-list">
+              <li v-for="(item, index) in result.riskItems" :key="index">
                 {{ item }}
               </li>
             </ul>

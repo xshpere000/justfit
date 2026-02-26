@@ -43,9 +43,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="last_sync" label="最后同步" width="180">
+        <el-table-column prop="lastSync" label="最后同步" width="180">
           <template #default="{ row }">
-            {{ row.last_sync || '-' }}
+            {{ row.lastSync || '-' }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">

@@ -6,30 +6,28 @@ export type TaskStatus = 'pending' | 'running' | 'paused' | 'completed' | 'faile
 export type TaskType = 'collection' | 'analysis_zombie' | 'analysis_rightsize' | 'analysis_tidal' | 'analysis_health'
 
 export interface Task {
-  id: string
-  type: TaskType
+  id: number
+  type: string
   name: string
   status: TaskStatus
   progress: number
+  error?: string
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
   connectionId?: number
   connectionName?: string
   platform?: string
   selectedVMs?: string[]
-  totalVMs?: number
-  collectedVMs?: number
+  vmCount?: number
+  collectedVMCount?: number
+  currentStep?: string
   analysisResults?: {
     zombie?: boolean
     rightsize?: boolean
     tidal?: boolean
     health?: boolean
   }
-  error?: string
-  canMinimize?: boolean
-  backendTaskId?: number
-  created_at?: string
-  started_at?: string
-  ended_at?: string
-  current_step?: string
 }
 
 export interface CreateTaskParams {
@@ -39,333 +37,235 @@ export interface CreateTaskParams {
   connectionName: string
   platform: string
   selectedVMs: string[]
-  totalVMs: number
+  vmCount: number
 }
 
 export const useTaskStore = defineStore('task', () => {
   const tasks = ref<Task[]>([])
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
   const runningTasks = computed(() =>
     tasks.value.filter(t => t.status === 'running')
   )
 
-  const currentTask = ref<Task | null>(null)
-
   const hasRunningTasks = computed(() => runningTasks.value.length > 0)
 
-  // 辅助函数：找到任务在数组中的索引
-  function findTaskIndex(id: string | undefined): number {
-    if (!id || typeof id !== 'string') {
-      return -1
+  // 从后端获取任务列表（唯一的数据来源）
+  async function syncTasksFromBackend() {
+    console.log('[taskStore] syncTasksFromBackend 开始同步任务列表')
+    loading.value = true
+    error.value = null
+    try {
+      const backendTasks = await TaskAPI.listTasks('', 100, 0)
+      console.log('[taskStore] syncTasksFromBackend 从后端获取到任务数量:', backendTasks.length)
+      console.log('[taskStore] syncTasksFromBackend 任务详情:', backendTasks.map(t => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        progress: t.progress,
+        vmCount: t.vmCount,
+        collectedVMCount: t.collectedVMCount,
+        analysisResults: t.analysisResults
+      })))
+
+      tasks.value = backendTasks.map(bt => ({
+        id: bt.id,
+        type: bt.type,
+        name: bt.name,
+        status: bt.status as TaskStatus,
+        progress: bt.progress,
+        error: bt.error,
+        createdAt: bt.createdAt,
+        startedAt: bt.startedAt,
+        completedAt: bt.completedAt,
+        connectionId: bt.connectionId,
+        connectionName: bt.connectionName,
+        platform: bt.platform,
+        host: bt.host,
+        selectedVMs: bt.selectedVMs,
+        vmCount: bt.vmCount,
+        collectedVMCount: bt.collectedVMCount,
+        currentStep: bt.currentStep,
+        analysisResults: bt.analysisResults
+      }))
+      console.log('[taskStore] syncTasksFromBackend 同步完成')
+    } catch (e: any) {
+      console.error('[taskStore] syncTasksFromBackend 同步失败:', e)
+      error.value = e.message || '同步任务列表失败'
+      throw e
+    } finally {
+      loading.value = false
     }
-
-    // 首先尝试精确匹配 ID
-    let index = tasks.value.findIndex(t => t.id === id)
-    if (index !== -1) return index
-
-    // 如果找不到，尝试通过 backendTaskId 匹配
-    const numericId = id.replace('backend_', '')
-    const backendId = parseInt(numericId, 10)
-    if (!isNaN(backendId)) {
-      index = tasks.value.findIndex(t => t.backendTaskId === backendId)
-      if (index !== -1) return index
-    }
-
-    return -1
   }
 
-  function getTask(id: string | undefined): Task | undefined {
-    const index = findTaskIndex(id)
-    return index !== -1 ? tasks.value[index] : undefined
-  }
-
-  function createTask(params: CreateTaskParams): Task {
-    const timestamp = Date.now()
-    const randomStr = Math.random().toString(36).substr(2, 9)
-    const task: Task = {
-      id: 'task_' + timestamp + '_' + randomStr,
+  // 创建任务（直接调用后端）
+  async function createTask(params: CreateTaskParams): Promise<Task> {
+    console.log('[taskStore] createTask 开始创建任务, params:', {
       type: params.type,
       name: params.name,
-      status: 'pending',
-      progress: 0,
       connectionId: params.connectionId,
-      connectionName: params.connectionName,
       platform: params.platform,
-      selectedVMs: params.selectedVMs,
-      totalVMs: params.totalVMs,
-      collectedVMs: 0,
-      analysisResults: {
-        zombie: false,
-        rightsize: false,
-        tidal: false,
-        health: false
-      },
-      canMinimize: true,
-      created_at: new Date().toISOString()
-    }
+      selectedVMsCount: params.selectedVMs.length,
+      vmCount: params.vmCount
+    })
 
-    tasks.value.unshift(task)
-    console.log('[createTask] 创建任务, taskId:', task.id, 'totalVMs:', task.totalVMs, '完整的task对象:', JSON.parse(JSON.stringify(task)))
-    return task
-  }
+    try {
+      const backendTaskId = await TaskAPI.createCollectTask({
+        name: params.name,
+        connectionId: params.connectionId,
+        connectionName: params.connectionName,
+        platform: params.platform,
+        dataTypes: ['clusters', 'hosts', 'vms', 'metrics'],
+        metricsDays: 30,
+        vmCount: params.vmCount,
+        selectedVMs: params.selectedVMs
+      })
+      console.log('[taskStore] createTask 后端任务创建成功, backendTaskId:', backendTaskId)
 
-  function updateTaskStatus(id: string, status: TaskStatus, progress?: number) {
-    const index = findTaskIndex(id)
-    if (index !== -1) {
-      const task = tasks.value[index]
-      const now = status === 'running' && !task.started_at ? new Date().toISOString() : task.started_at
-      const end = (status === 'completed' || status === 'failed' || status === 'cancelled') ? new Date().toISOString() : task.ended_at
+      // 创建成功后刷新任务列表
+      await syncTasksFromBackend()
 
-      // 创建新对象替换，确保触发响应式更新
-      const newTask = {
-        ...task,
-        status,
-        progress: progress !== undefined ? progress : task.progress,
-        started_at: now,
-        ended_at: end
+      // 返回创建的任务
+      const createdTask = tasks.value.find(t => t.id === backendTaskId)
+      if (createdTask) {
+        console.log('[taskStore] createTask 从任务列表中找到创建的任务:', createdTask)
+        return createdTask
       }
-      tasks.value[index] = newTask
-      console.log('[updateTaskStatus] 更新任务状态, taskId:', id, 'status:', status, '更新前totalVMs:', task.totalVMs, '更新后totalVMs:', newTask.totalVMs)
-    }
-  }
 
-  function updateTaskProgress(id: string, progress: number, currentStep?: string) {
-    const index = findTaskIndex(id)
-    if (index !== -1) {
-      const task = tasks.value[index]
-      tasks.value[index] = {
-        ...task,
-        progress,
-        current_step: currentStep || task.current_step
+      // 如果找不到，返回基础对象
+      console.warn('[taskStore] createTask 未在任务列表中找到创建的任务, 返回基础对象')
+      return {
+        id: backendTaskId,
+        type: params.type,
+        name: params.name,
+        status: 'pending',
+        progress: 0,
+        createdAt: new Date().toISOString()
       }
+    } catch (e: any) {
+      console.error('[taskStore] createTask 创建任务失败:', e)
+      throw e
     }
   }
 
-  function updateCollectionProgress(id: string, collected: number, total: number) {
-    const index = findTaskIndex(id)
-    if (index !== -1) {
-      const task = tasks.value[index]
-      tasks.value[index] = {
-        ...task,
-        collectedVMs: collected,
-        totalVMs: total,
-        progress: Math.floor((collected / total) * 100),
-        current_step: '正在采集 ' + collected + '/' + total
-      }
+  // 启动采集任务（向后兼容）
+  async function startCollectionTask(taskId: number, connectionId: number, selectedVMs: string[] = [], days: number = 30) {
+    // 任务已在 createTask 时创建，这里只刷新状态
+    await syncTasksFromBackend()
+  }
+
+  // 获取单个任务
+  function getTask(id: number | string): Task | undefined {
+    const numId = typeof id === 'string' ? parseInt(id.replace('backend_', ''), 10) : id
+    return tasks.value.find(t => t.id === numId)
+  }
+
+  // 更新任务状态（向后兼容，实际上会刷新整个列表）
+  async function updateTaskStatus(id: string | number, status: TaskStatus, progress?: number) {
+    // 这个方法现在只是触发刷新，实际状态由后端管理
+    await syncTasksFromBackend()
+  }
+
+  // 更新任务进度（向后兼容）
+  async function updateTaskProgress(id: string | number, progress: number, currentStep?: string) {
+    await syncTasksFromBackend()
+  }
+
+  // 更新采集进度（向后兼容）
+  async function updateCollectionProgress(id: string | number, collected: number, total: number) {
+    await syncTasksFromBackend()
+  }
+
+  // 更新分析结果（向后兼容，现在数据从后端直接获取）
+  async function updateAnalysisResult(id: string | number, analysisType: string, completed: boolean) {
+    // 不做任何操作，分析结果状态从后端直接获取
+    console.log('[updateAnalysisResult] 已弃用，数据将从后端同步获取')
+  }
+
+  // 设置任务错误（向后兼容）
+  async function setTaskError(id: string | number, errorMsg: string) {
+    await syncTasksFromBackend()
+  }
+
+  // 暂停任务（后端不支持，保留接口）
+  async function pauseTask(id: string | number) {
+    console.warn('pauseTask is not supported by backend')
+  }
+
+  // 恢复任务（后端不支持，保留接口）
+  async function resumeTask(id: string | number) {
+    console.warn('resumeTask is not supported by backend')
+  }
+
+  // 取消任务
+  async function cancelTask(id: string | number) {
+    const numId = typeof id === 'string' ? parseInt(id, 10) : id
+    console.log('[taskStore] cancelTask 取消任务, taskId:', numId)
+    try {
+      await TaskAPI.stopTask(numId)
+      console.log('[taskStore] cancelTask 后端停止成功, 刷新任务列表')
+      await syncTasksFromBackend()
+    } catch (e: any) {
+      console.error('[taskStore] cancelTask 取消任务失败:', e)
+      throw e
     }
   }
 
-  function updateAnalysisResult(id: string, analysisType: keyof Task['analysisResults'], completed: boolean) {
-    const index = findTaskIndex(id)
-    if (index !== -1) {
-      const task = tasks.value[index]
-      if (task.analysisResults) {
-        tasks.value[index] = {
-          ...task,
-          analysisResults: {
-            ...task.analysisResults,
-            [analysisType]: completed
-          }
-        }
-        console.log('[updateAnalysisResult] 更新分析结果状态:', id, analysisType, completed, '新的 analysisResults:', tasks.value[index].analysisResults)
-      }
-    } else {
-      console.warn('[updateAnalysisResult] 任务未找到:', id)
+  // 删除任务
+  async function deleteTask(id: string | number) {
+    const numId = typeof id === 'string' ? parseInt(id, 10) : id
+    console.log('[taskStore] deleteTask 删除任务, taskId:', numId)
+    try {
+      await TaskAPI.deleteTask(numId)
+      console.log('[taskStore] deleteTask 后端删除成功, 从本地列表移除')
+      // 从本地列表中移除
+      tasks.value = tasks.value.filter(t => t.id !== numId)
+    } catch (e: any) {
+      console.error('[taskStore] deleteTask 删除任务失败:', e)
+      throw e
     }
   }
 
-  function setTaskError(id: string, error: string) {
-    const index = findTaskIndex(id)
-    if (index !== -1) {
-      const task = tasks.value[index]
-      tasks.value[index] = {
-        ...task,
-        error,
-        status: 'failed',
-        ended_at: new Date().toISOString()
-      }
-    }
-  }
-
-  function pauseTask(id: string) {
-    const index = findTaskIndex(id)
-    if (index !== -1 && tasks.value[index].status === 'running') {
-      tasks.value[index] = {
-        ...tasks.value[index],
-        status: 'paused'
-      }
-    }
-  }
-
-  function resumeTask(id: string) {
-    const index = findTaskIndex(id)
-    if (index !== -1 && tasks.value[index].status === 'paused') {
-      tasks.value[index] = {
-        ...tasks.value[index],
-        status: 'running'
-      }
-    }
-  }
-
-  function cancelTask(id: string) {
-    const index = findTaskIndex(id)
-    if (index !== -1 && (tasks.value[index].status === 'running' || tasks.value[index].status === 'paused')) {
-      tasks.value[index] = {
-        ...tasks.value[index],
-        status: 'cancelled',
-        ended_at: new Date().toISOString()
-      }
-    }
-  }
-
-  function deleteTask(id: string) {
-    const index = tasks.value.findIndex(t => t.id === id)
-    if (index !== -1) {
-      tasks.value.splice(index, 1)
-    }
-  }
-
+  // 清除已完成的任务
   function clearCompletedTasks() {
     tasks.value = tasks.value.filter(t => t.status !== 'completed' && t.status !== 'failed' && t.status !== 'cancelled')
   }
 
-  function setCurrentTask(task: Task | null) {
-    currentTask.value = task
-  }
-
-  function resetCurrentTask() {
-    currentTask.value = null
-  }
-
-  async function startCollectionTask(taskId: string, connectionId: number, selectedVMs: string[] = [], days: number = 30) {
-    const index = findTaskIndex(taskId)
-    if (index === -1) return
-
-    try {
-      updateTaskStatus(taskId, 'running', 0)
-
-      const backendTaskId = await TaskAPI.createCollectTask({
-        connection_id: connectionId,
-        data_types: ['clusters', 'hosts', 'vms', 'metrics'],
-        metrics_days: days,
-        selected_vms: selectedVMs
-      })
-
-      // 更新 backendTaskId
-      tasks.value[index] = {
-        ...tasks.value[index],
-        backendTaskId
+  // 轮询运行中的任务
+  let pollInterval: ReturnType<typeof setInterval> | null = null
+  function startPolling(interval: number = 2000) {
+    stopPolling()
+    pollInterval = setInterval(async () => {
+      if (hasRunningTasks.value) {
+        await syncTasksFromBackend()
       }
-
-      pollTaskStatus(taskId, backendTaskId)
-    } catch (e: any) {
-      console.error('Task execution failed:', e)
-      setTaskError(taskId, e.message || '执行异常')
-      updateTaskStatus(taskId, 'failed')
-    }
+    }, interval)
   }
 
-  function pollTaskStatus(taskId: string, backendTaskId: number) {
-    const pollInterval = setInterval(async () => {
-      try {
-        const taskInfo = await TaskAPI.getTask(backendTaskId)
-
-        const index = findTaskIndex(taskId)
-        if (index !== -1) {
-          const task = tasks.value[index]
-          tasks.value[index] = {
-            ...task,
-            status: taskInfo.status as TaskStatus,
-            progress: taskInfo.progress
-          }
-
-          if (taskInfo.status === 'completed') {
-            updateTaskStatus(taskId, 'completed', 100)
-            clearInterval(pollInterval)
-          } else if (taskInfo.status === 'failed') {
-            setTaskError(taskId, taskInfo.error || '任务失败')
-            clearInterval(pollInterval)
-          }
-        }
-      } catch (e) {
-        console.error('Failed to poll task status:', e)
-      }
-    }, 2000)
-
-    setTimeout(() => {
+  function stopPolling() {
+    if (pollInterval) {
       clearInterval(pollInterval)
-      const index = findTaskIndex(taskId)
-      if (index !== -1 && tasks.value[index].status === 'running') {
-        updateTaskStatus(taskId, 'failed')
-        setTaskError(taskId, '任务超时')
-      }
-    }, 5 * 60 * 1000)
+      pollInterval = null
+    }
   }
 
-  async function syncTasksFromBackend() {
-    try {
-      // 显式传递参数，避免 Wails 绑定参数错乱
-      const backendTasks = await TaskAPI.listTasks('', 100, 0)
-
-      // 创建一个映射，用于快速查找现有任务
-      const existingTasksMap = new Map<string, Task>()
-      for (const task of tasks.value) {
-        if (task.backendTaskId) {
-          existingTasksMap.set(String(task.backendTaskId), task)
-        }
-      }
-
-      // 合并后端数据与现有任务数据，保留所有前端字段
-      tasks.value = backendTasks.map(bt => {
-        const existing = existingTasksMap.get(String(bt.id))
-        if (existing) {
-          // 如果任务已存在，更新状态和进度，但保留其他所有字段
-          return {
-            ...existing,
-            status: bt.status as TaskStatus,
-            progress: bt.progress,
-            error: bt.error,
-            started_at: bt.started_at || existing.started_at,
-            ended_at: bt.completed_at || existing.ended_at
-          }
-        } else {
-          // 如果是新任务，创建基础对象
-          return {
-            id: 'backend_' + bt.id,
-            backendTaskId: bt.id,
-            type: bt.type as TaskType,
-            name: bt.name,
-            status: bt.status as TaskStatus,
-            progress: bt.progress,
-            error: bt.error,
-            created_at: bt.created_at,
-            started_at: bt.started_at,
-            ended_at: bt.completed_at,
-            canMinimize: true,
-            // 初始化缺失的字段为默认值
-            totalVMs: 0,
-            collectedVMs: 0,
-            analysisResults: {
-              zombie: false,
-              rightsize: false,
-              tidal: false,
-              health: false
-            }
-          }
-        }
-      })
-    } catch (e: any) {
-      console.error('Failed to sync tasks from backend:', e)
-    }
+  // 初始化
+  async function init() {
+    await syncTasksFromBackend()
+    startPolling()
   }
 
   return {
     tasks,
+    loading,
+    error,
     runningTasks,
-    currentTask,
     hasRunningTasks,
-    getTask,
+    syncTasksFromBackend,
     createTask,
+    startCollectionTask,
+    getTask,
     updateTaskStatus,
     updateTaskProgress,
     updateCollectionProgress,
@@ -376,10 +276,8 @@ export const useTaskStore = defineStore('task', () => {
     cancelTask,
     deleteTask,
     clearCompletedTasks,
-    setCurrentTask,
-    resetCurrentTask,
-    startCollectionTask,
-    syncTasksFromBackend,
-    pollTaskStatus
+    startPolling,
+    stopPolling,
+    init
   }
 })

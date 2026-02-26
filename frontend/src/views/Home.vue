@@ -80,10 +80,11 @@
                 <div class="task-connection">
                   <el-icon><Connection /></el-icon>
                   <span>{{ task.connectionName }}</span>
+                  <span class="connection-host" v-if="task.host">({{ task.host }})</span>
                 </div>
                 <div class="task-time">
                   <el-icon><Clock /></el-icon>
-                  <span>{{ formatTime(task.created_at) }}</span>
+                  <span>{{ formatTime(task.createdAt) }}</span>
                 </div>
               </div>
 
@@ -95,8 +96,8 @@
                         <el-icon class="is-loading" v-if="task.status === 'running'"><Loading /></el-icon>
                         {{ getStatusText(task.status) }}
                       </span>
-                      <span class="vm-info" v-if="task.totalVMs">
-                        {{ task.collectedVMs || 0 }}/{{ task.totalVMs }} VM
+                      <span class="vm-info" v-if="task.vmCount">
+                        {{ task.collectedVMCount || 0 }}/{{ task.vmCount }} VM
                       </span>
                       <span class="progress-val">{{ task.progress }}%</span>
                    </div>
@@ -108,7 +109,7 @@
                    <div class="result-stat">
                       <div class="stat-item">
                         <span class="label">虚拟机</span>
-                        <span class="val">{{ task.totalVMs }}</span>
+                        <span class="val">{{ task.vmCount }}</span>
                       </div>
                       <el-divider direction="vertical" />
                        <div class="stat-item">
@@ -138,6 +139,12 @@
         </el-scrollbar>
       </div>
     </div>
+
+    <!-- 版本信息 -->
+    <div class="version-info">
+      <span class="version-text">JustFit v{{ appVersion }}</span>
+      <span v-if="isDevVersion" class="dev-badge">开发版</span>
+    </div>
   </div>
 </template>
 
@@ -146,6 +153,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { VersionApi } from '@/api/connection'
+import type { AppVersionInfo } from '@/api/types'
 import {
   Search,
   Plus,
@@ -165,6 +174,10 @@ const taskStore = useTaskStore()
 
 const searchQuery = ref('')
 const filterStatus = ref<'all' | 'running' | 'completed'>('all')
+
+// 版本信息
+const appVersion = ref('')
+const isDevVersion = ref(false)
 
 const features = [
   {
@@ -193,12 +206,39 @@ const features = [
   }
 ]
 
-onMounted(() => {
+onMounted(async () => {
+  console.log('[Home.vue] onMounted 初始化开始')
+
   // 从后端同步任务数据
-  taskStore.syncTasksFromBackend()
-  // 添加日志检查任务数据
-  console.log('[Home.vue] onMounted 加载后的任务列表:', taskStore.tasks.map(t => ({ id: t.id, name: t.name, totalVMs: t.totalVMs, status: t.status })))
+  try {
+    await taskStore.syncTasksFromBackend()
+    console.log('[Home.vue] 任务列表同步成功, 任务数量:', taskStore.tasks.length)
+    console.log('[Home.vue] 任务详情:', taskStore.tasks.map(t => ({
+      id: t.id,
+      name: t.name,
+      vmCount: t.vmCount,
+      status: t.status,
+      progress: t.progress
+    })))
+  } catch (error) {
+    console.error('[Home.vue] 任务列表同步失败:', error)
+  }
+
+  // 获取应用版本信息
+  await loadAppVersion()
 })
+
+// 加载应用版本
+async function loadAppVersion() {
+  try {
+    const versionInfo: AppVersionInfo = await VersionApi.getAppVersion()
+    appVersion.value = versionInfo.version
+    isDevVersion.value = versionInfo.isDevelopment
+    console.log('[Home.vue] 应用版本:', versionInfo)
+  } catch (error) {
+    console.error('[Home.vue] 获取版本信息失败:', error)
+  }
+}
 
 const tasks = computed(() => {
   const result = taskStore.tasks
@@ -227,7 +267,7 @@ const filteredTasks = computed(() => {
   }
 
   // 3. 排序 (最新的在前)
-  return [...result].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+  return [...result].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
 })
 
 function formatTime(isoString: string | undefined): string {
@@ -270,23 +310,33 @@ function openTask(task: Task) {
   router.push('/task/' + task.id)
 }
 
-function handleTaskCommand(cmd: string, task: Task) {
+async function handleTaskCommand(cmd: string, task: Task) {
+  console.log('[Home.vue] handleTaskCommand 被调用, command:', cmd, 'taskId:', task.id, 'taskName:', task.name)
+
   switch (cmd) {
     case 'pause':
-      taskStore.pauseTask(task.id)
+      console.log('[Home.vue] 暂停任务, taskId:', task.id)
+      await taskStore.pauseTask(task.id)
       break
     case 'resume':
-      taskStore.resumeTask(task.id)
+      console.log('[Home.vue] 恢复任务, taskId:', task.id)
+      await taskStore.resumeTask(task.id)
       break
     case 'cancel':
       ElMessageBox.confirm('确定取消该任务吗？', '提示', { type: 'warning' })
-        .then(() => taskStore.cancelTask(task.id))
-        .catch(() => {})
+        .then(async () => {
+          console.log('[Home.vue] 用户确认取消任务, taskId:', task.id)
+          await taskStore.cancelTask(task.id)
+        })
+        .catch(() => console.log('[Home.vue] 用户取消取消任务操作'))
       break
     case 'delete':
       ElMessageBox.confirm('确定删除该任务记录吗？', '提示', { type: 'warning' })
-        .then(() => taskStore.deleteTask(task.id))
-        .catch(() => {})
+        .then(async () => {
+          console.log('[Home.vue] 用户确认删除任务, taskId:', task.id)
+          await taskStore.deleteTask(task.id)
+        })
+        .catch(() => console.log('[Home.vue] 用户取消删除任务操作'))
       break
   }
 }
@@ -580,5 +630,35 @@ function handleTaskCommand(cmd: string, task: Task) {
 .empty-state {
     padding: 60px 0;
     text-align: center;
+}
+
+.version-info {
+  position: fixed;
+  bottom: 12px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  font-size: 12px;
+  color: #909399;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  z-index: 100;
+
+  .version-text {
+    font-weight: 500;
+  }
+
+  .dev-badge {
+    padding: 2px 8px;
+    background: #fef0f0;
+    color: #f56c6c;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+  }
 }
 </style>

@@ -39,7 +39,7 @@ type EncryptedCredential struct {
 	Host          string `json:"host"`
 	Port          int    `json:"port"`
 	Username      string `json:"username"`
-	EncryptedData string `json:"encrypted_data"` // Base64 编码的加密凭据
+	EncryptedData string `json:"encryptedData"` // Base64 编码的加密凭据
 	Insecure      bool   `json:"insecure"`
 }
 

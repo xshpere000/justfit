@@ -6,7 +6,7 @@ import (
 )
 
 type VM struct {
-	PowerState string `json:"power_state"`
+	PowerState string `json:"powerState"`
 }
 
 func main() {

@@ -9,6 +9,7 @@
 *.so
 *.dylib
 /justfit
+main
 
 # Go 测试与覆盖率
 *.out
@@ -133,6 +134,7 @@ ehthumbs.db
 tmp/
 temp/
 *.tmp
+problems.md
 
 # 本地数据库
 *.db

@@ -25,8 +25,8 @@ type Entry struct {
 	Function  string `json:"function,omitempty"`
 
 	// 追踪信息
-	TraceID string `json:"trace_id,omitempty"`
-	SpanID  string `json:"span_id,omitempty"`
+	TraceID string `json:"traceId,omitempty"`
+	SpanID  string `json:"spanId,omitempty"`
 
 	// 错误信息
 	Error string `json:"error,omitempty"`

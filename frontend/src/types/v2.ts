@@ -1,6 +1,7 @@
 /**
  * JustFit v0.0.2 前端类型定义
  * 与后端 DTO 层保持一致
+ * 命名规范: 统一使用驼峰命名
  */
 
 // ==================== 通用响应 ====================
@@ -31,8 +32,8 @@ export interface ConnectionResponse {
   username: string
   insecure: boolean
   status: 'connected' | 'disconnected' | 'error'
-  created_at: string
-  last_sync?: string
+  createdAt: string
+  lastSync?: string
 }
 
 export interface ConnectionListItem {
@@ -41,8 +42,8 @@ export interface ConnectionListItem {
   platform: 'vcenter' | 'h3c-uis'
   host: string
   status: 'connected' | 'disconnected' | 'error'
-  vm_count: number
-  last_sync?: string
+  vmCount: number
+  lastSync?: string
 }
 
 export interface TestConnectionResponse {
@@ -81,43 +82,43 @@ export interface VMResponse {
   name: string
   datacenter: string
   uuid: string
-  cpu_count: number
-  memory_mb: number
-  memory_gb: number
-  power_state: 'poweredOn' | 'poweredOff' | 'suspended'
-  ip_address?: string
-  guest_os?: string
-  host_name?: string
-  overall_status?: 'gray' | 'green' | 'yellow' | 'red'
-  collected_at: string
+  cpuCount: number
+  memoryMb: number
+  memoryGb: number
+  powerState: 'poweredOn' | 'poweredOff' | 'suspended'
+  ipAddress?: string
+  guestOs?: string
+  hostName?: string
+  overallStatus?: 'gray' | 'green' | 'yellow' | 'red'
+  collectedAt: string
 }
 
 export interface HostResponse {
   id: number
   name: string
   datacenter: string
-  ip_address: string
-  cpu_cores: number
-  cpu_mhz: number
-  memory_mb: number
-  memory_gb: number
-  num_vms: number
-  power_state: string
-  overall_status: string
-  collected_at: string
+  ipAddress: string
+  cpuCores: number
+  cpuMhz: number
+  memoryMb: number
+  memoryGb: number
+  numVMs: number
+  powerState: string
+  overallStatus: string
+  collectedAt: string
 }
 
 export interface ClusterResponse {
   id: number
   name: string
   datacenter: string
-  total_cpu: number
-  total_memory: number
-  total_memory_gb: number
-  num_hosts: number
-  num_vms: number
+  totalCpu: number
+  totalMemory: number
+  totalMemoryGb: number
+  numHosts: number
+  numVMs: number
   status: string
-  collected_at: string
+  collectedAt: string
 }
 
 export interface MetricPoint {
@@ -126,12 +127,12 @@ export interface MetricPoint {
 }
 
 export interface MetricsResponse {
-  vm_id: number
-  vm_name: string
-  metric_type: 'cpu' | 'memory' | 'disk_read' | 'disk_write' | 'net_rx' | 'net_tx'
-  start_time: string
-  end_time: string
-  data_points: MetricPoint[]
+  vmId: number
+  vmName: string
+  metricType: 'cpu' | 'memory' | 'diskRead' | 'diskWrite' | 'netRx' | 'netTx'
+  startTime: string
+  endTime: string
+  dataPoints: MetricPoint[]
 }
 
 // ==================== 任务相关 ====================
@@ -146,22 +147,22 @@ export interface TaskResponse {
   status: TaskStatus
   progress: number
   error?: string
-  created_at: string
-  started_at?: string
-  completed_at?: string
-  duration_ms?: number
-  connection_id?: number
-  connection_name?: string
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+  durationMs?: number
+  connectionId?: number
+  connectionName?: string
   platform?: string
-  total_vms?: number
-  collected_vms?: number
+  VMCount?: number
+  collectedVMCount?: number
 }
 
 export interface TaskDetailResponse extends TaskResponse {
-  current_step?: string
+  currentStep?: string
   config?: Record<string, any>
   result?: Record<string, any>
-  analysis_results?: {
+  analysisResults?: {
     zombie?: boolean
     rightsize?: boolean
     tidal?: boolean
@@ -177,135 +178,135 @@ export interface TaskLogEntry {
 }
 
 export interface CreateCollectionRequest {
-  connection_id: number
-  connection_name: string
+  connectionId: number
+  connectionName: string
   platform: string
-  data_types: string[]
-  metrics_days: number
-  total_vms: number
-  selected_vms: string[]
+  dataTypes: string[]
+  metricsDays: number
+  vmCount: number
+  selectedVMs: string[]
 }
 
 export interface CreateAnalysisRequest {
-  connection_id: number
-  analysis_type: 'zombie' | 'rightsize' | 'tidal' | 'health'
+  connectionId: number
+  analysisType: 'zombie' | 'rightsize' | 'tidal' | 'health'
   config?: Record<string, any>
 }
 
 // ==================== 分析结果 ====================
 
 export interface ZombieVMResult {
-  vm_name: string
+  vmName: string
   datacenter: string
   host: string
-  cpu_count: number
-  memory_mb: number
-  cpu_usage: number
-  memory_usage: number
-  disk_io_rate: number
-  network_rate: number
+  cpuCount: number
+  memoryMb: number
+  cpuUsage: number
+  memoryUsage: number
+  diskIoRate: number
+  networkRate: number
   confidence: number
-  days_low_usage: number
+  daysLowUsage: number
   evidence: string[]
   recommendation: string
 }
 
 export interface RightSizeResult {
-  vm_name: string
+  vmName: string
   datacenter: string
-  current_cpu: number
-  current_memory_mb: number
-  current_memory_gb: number
-  recommended_cpu: number
-  recommended_memory_mb: number
-  recommended_memory_gb: number
-  adjustment_type: 'none' | 'up' | 'down'
-  risk_level: 'low' | 'medium' | 'high'
-  estimated_saving: string
+  currentCpu: number
+  currentMemoryMb: number
+  currentMemoryGb: number
+  recommendedCpu: number
+  recommendedMemoryMb: number
+  recommendedMemoryGb: number
+  adjustmentType: 'none' | 'up' | 'down'
+  riskLevel: 'low' | 'medium' | 'high'
+  estimatedSaving: string
   confidence: number
 }
 
 export interface TidalResult {
-  vm_name: string
+  vmName: string
   datacenter: string
   pattern: 'daily' | 'weekly' | 'none'
-  stability_score: number
-  peak_hours: number[]
-  peak_days: number[]
+  stabilityScore: number
+  peakHours: number[]
+  peakDays: number[]
   recommendation: string
-  estimated_saving: string
+  estimatedSaving: string
 }
 
 export interface HealthScoreResult {
-  connection_id: number
-  connection_name: string
-  overall_score: number
-  health_level: 'excellent' | 'good' | 'fair' | 'poor'
-  resource_balance: number
-  overcommit_risk: number
-  hotspot_concentration: number
-  total_clusters: number
-  total_hosts: number
-  total_vms: number
-  risk_items: string[]
+  connectionId: number
+  connectionName: string
+  overallScore: number
+  healthLevel: 'excellent' | 'good' | 'fair' | 'poor'
+  resourceBalance: number
+  overcommitRisk: number
+  hotspotConcentration: number
+  clusterCount: number
+  hostCount: number
+  vmCount: number
+  riskItems: string[]
   recommendations: string[]
 }
 
 export interface AnalysisSummary {
-  connection_id: number
-  total_vms: number
-  zombie_vms: number
-  rightsize_vms: number
-  tidal_vms: number
-  health_score: number
-  total_savings: string
-  last_analyzed: string
-  risk_distribution: Record<string, number>
+  connectionId: number
+  vmCount: number
+  zombieVMs: number
+  rightSizeVMs: number
+  tidalVMs: number
+  healthScore: number
+  totalSavings: string
+  lastAnalyzed: string
+  riskDistribution: Record<string, number>
 }
 
 // ==================== 告警相关 ====================
 
 export interface AlertResponse {
   id: number
-  target_type: 'cluster' | 'host' | 'vm'
-  target_key: string
-  target_name: string
-  alert_type: string
+  targetType: 'cluster' | 'host' | 'vm'
+  targetKey: string
+  targetName: string
+  alertType: string
   severity: 'info' | 'warning' | 'critical'
   title: string
   message: string
   data?: string
   acknowledged: boolean
-  acknowledged_at?: string
-  created_at: string
+  acknowledgedAt?: string
+  createdAt: string
 }
 
 export interface AlertListItem {
   id: number
-  target_type: 'cluster' | 'host' | 'vm'
-  target_name: string
-  alert_type: string
+  targetType: 'cluster' | 'host' | 'vm'
+  targetName: string
+  alertType: string
   severity: 'info' | 'warning' | 'critical'
   title: string
   message: string
   acknowledged: boolean
-  created_at: string
+  createdAt: string
 }
 
 export interface AlertStats {
   total: number
   unacknowledged: number
-  by_severity: Record<string, number>
-  by_type: Record<string, number>
+  bySeverity: Record<string, number>
+  byType: Record<string, number>
 }
 
 // ==================== 仪表盘 ====================
 
 export interface DashboardStats {
-  health_score: number
-  zombie_count: number
-  total_savings: string
-  total_vms: number
-  total_hosts: number
-  total_clusters: number
+  healthScore: number
+  zombieCount: number
+  totalSavings: string
+  vmCount: number
+  hostCount: number
+  clusterCount: number
 }

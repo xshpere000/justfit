@@ -22,7 +22,7 @@
           <el-col :span="8">
             <el-form-item label="选择连接">
               <el-select
-                v-model="config.connection_id"
+                v-model="config.connectionId"
                 placeholder="请选择连接"
                 style="width: 100%"
               >
@@ -38,7 +38,7 @@
           <el-col :span="8">
             <el-form-item label="分析天数">
               <el-input-number
-                v-model="config.analysis_days"
+                v-model="config.analysisDays"
                 :min="14"
                 :max="90"
                 style="width: 100%"
@@ -48,13 +48,13 @@
           <el-col :span="8">
             <el-form-item label="最小稳定性">
               <el-slider
-                v-model="config.min_stability"
+                v-model="config.minStability"
                 :min="0"
                 :max="1"
                 :step="0.1"
                 :show-tooltip="false"
               />
-              <span class="form-tip">{{ (config.min_stability * 100).toFixed(0) }}%</span>
+              <span class="form-tip">{{ (config.minStability * 100).toFixed(0) }}%</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -103,7 +103,7 @@
       </template>
 
       <el-table :data="results" stripe max-height="500">
-        <el-table-column prop="vm_name" label="虚拟机名称" min-width="180" />
+        <el-table-column prop="vmName" label="虚拟机名称" min-width="180" />
         <el-table-column prop="datacenter" label="数据中心" width="150" />
         <el-table-column prop="pattern" label="周期模式" width="120">
           <template #default="{ row }">
@@ -112,21 +112,21 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="stability_score" label="稳定性" width="120">
+        <el-table-column prop="stabilityScore" label="稳定性" width="120">
           <template #default="{ row }">
             <el-progress
-              :percentage="row.stability_score * 100"
-              :color="getStabilityColor(row.stability_score)"
+              :percentage="row.stabilityScore * 100"
+              :color="getStabilityColor(row.stabilityScore)"
               :show-text="false"
             />
-            <span class="progress-text">{{ (row.stability_score * 100).toFixed(0) }}%</span>
+            <span class="progress-text">{{ (row.stabilityScore * 100).toFixed(0) }}%</span>
           </template>
         </el-table-column>
         <el-table-column label="高峰时段" width="180">
           <template #default="{ row }">
             <div v-if="row.pattern === 'daily'">
               <el-tag
-                v-for="hour in row.peak_hours.slice(0, 3)"
+                v-for="hour in row.peakHours.slice(0, 3)"
                 :key="hour"
                 size="small"
                 style="margin-right: 4px"
@@ -136,7 +136,7 @@
             </div>
             <div v-else>
               <el-tag
-                v-for="day in row.peak_days.slice(0, 3)"
+                v-for="day in row.peakDays.slice(0, 3)"
                 :key="day"
                 size="small"
                 style="margin-right: 4px"
@@ -147,7 +147,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="recommendation" label="建议操作" min-width="200" />
-        <el-table-column prop="estimated_saving" label="预计节省" width="120" />
+        <el-table-column prop="estimatedSaving" label="预计节省" width="120" />
       </el-table>
     </el-card>
 
@@ -176,9 +176,9 @@ import type { TidalConfig, TidalResult } from '@/api/connection'
 const connectionStore = useConnectionStore()
 
 const config = reactive<TidalConfig>({
-  connection_id: undefined,
-  analysis_days: 30,
-  min_stability: 0.7
+  connectionId: undefined,
+  analysisDays: 30,
+  minStability: 0.7
 })
 
 const analyzing = ref(false)
@@ -186,7 +186,7 @@ const analyzed = ref(false)
 const results = ref<TidalResult[]>([])
 
 const canAnalyze = computed(() => {
-  return config.connection_id && config.connection_id > 0 && !analyzing.value
+  return config.connectionId && config.connectionId > 0 && !analyzing.value
 })
 
 const dailyPatternCount = computed(() => {
@@ -200,13 +200,13 @@ const weeklyPatternCount = computed(() => {
 const averageStability = computed(() => {
   if (results.value.length === 0) return 0
   return (
-    results.value.reduce((sum, r) => sum + r.stability_score, 0) /
+    results.value.reduce((sum, r) => sum + r.stabilityScore, 0) /
     results.value.length
   ) * 100
 })
 
 async function handleAnalyze() {
-  if (!config.connection_id) {
+  if (!config.connectionId) {
     ElMessage.warning('请选择连接')
     return
   }
@@ -216,7 +216,7 @@ async function handleAnalyze() {
   results.value = []
 
   try {
-    const data = await AnalysisAPI.detectTidalPattern(config.connection_id, config)
+    const data = await AnalysisAPI.detectTidalPattern(config.connectionId, config)
     results.value = data
     analyzed.value = true
 

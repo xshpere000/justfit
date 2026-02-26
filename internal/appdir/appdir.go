@@ -74,7 +74,7 @@ func getPlatformStandardDir() (string, error) {
 
 // GetAppDataDir 获取应用数据目录
 // 优先使用环境变量 JUSTFIT_DATA_DIR 指定的目录
-// 否则使用平台标���的应用数据目录
+// 否则使用平台标准的应用数据目录
 func GetAppDataDir() (string, error) {
 	// 首先检查环境变量是否有显式指定
 	if customDir := os.Getenv("JUSTFIT_DATA_DIR"); customDir != "" {

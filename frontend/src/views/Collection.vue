@@ -16,7 +16,7 @@
           <el-col :span="12">
             <el-form-item label="选择连接">
               <el-select
-                v-model="config.connection_id"
+                v-model="config.connectionId"
                 placeholder="请选择连接"
                 style="width: 100%"
               >
@@ -43,7 +43,7 @@
           <el-col :span="12">
             <el-form-item label="采集天数">
               <el-input-number
-                v-model="config.metrics_days"
+                v-model="config.metricsDays"
                 :min="1"
                 :max="90"
                 style="width: 100%"
@@ -54,7 +54,7 @@
         </el-row>
 
         <el-form-item label="数据类型">
-          <el-checkbox-group v-model="config.data_types">
+          <el-checkbox-group v-model="config.dataTypes">
             <el-checkbox label="clusters">集群信息</el-checkbox>
             <el-checkbox label="hosts">主机信息</el-checkbox>
             <el-checkbox label="vms">虚拟机信息</el-checkbox>
@@ -194,9 +194,9 @@ import {
 const connectionStore = useConnectionStore()
 
 const config = reactive<CollectionConfig>({
-  connection_id: 0,
-  data_types: ['clusters', 'hosts', 'vms', 'metrics'],
-  metrics_days: 7
+  connectionId: 0,
+  dataTypes: ['clusters', 'hosts', 'vms', 'metrics'],
+  metricsDays: 7
 })
 
 const collecting = ref(false)
@@ -208,8 +208,8 @@ const previewData = ref<any[]>([])
 
 const canStart = computed(() => {
   return (
-    config.connection_id > 0 &&
-    config.data_types.length > 0 &&
+    config.connectionId > 0 &&
+    config.dataTypes.length > 0 &&
     !collecting.value
   )
 })
@@ -237,29 +237,29 @@ const previewColumns = computed(() => {
     clusters: [
       { prop: 'name', label: '名称', width: 150 },
       { prop: 'datacenter', label: '数据中心', width: 150 },
-      { prop: 'total_cpu', label: 'CPU总量(MHz)', width: 120 },
-      { prop: 'total_memory_gb', label: '内存(GB)', width: 120 },
-      { prop: 'total_hosts', label: '主机数', width: 80 },
-      { prop: 'total_vms', label: '虚拟机数', width: 100 },
+      { prop: 'totalCpu', label: 'CPU总量(MHz)', width: 120 },
+      { prop: 'totalMemoryGb', label: '内存(GB)', width: 120 },
+      { prop: 'numHosts', label: '主机数', width: 80 },
+      { prop: 'numVMs', label: '虚拟机数', width: 100 },
       { prop: 'status', label: '状态', width: 100 }
     ],
     hosts: [
       { prop: 'name', label: '名称', width: 150 },
       { prop: 'datacenter', label: '数据中心', width: 150 },
-      { prop: 'ip_address', label: 'IP地址', width: 120 },
-      { prop: 'cpu_cores', label: 'CPU核数', width: 100 },
-      { prop: 'memory_gb', label: '内存(GB)', width: 120 },
-      { prop: 'vm_count', label: '虚拟机数', width: 100 },
-      { prop: 'power_state', label: '电源状态', width: 100 }
+      { prop: 'ipAddress', label: 'IP地址', width: 120 },
+      { prop: 'cpuCores', label: 'CPU核数', width: 100 },
+      { prop: 'memoryGb', label: '内存(GB)', width: 120 },
+      { prop: 'numVMs', label: '虚拟机数', width: 100 },
+      { prop: 'powerState', label: '电源状态', width: 100 }
     ],
     vms: [
       { prop: 'name', label: '名称', width: 200 },
       { prop: 'datacenter', label: '数据中心', width: 150 },
-      { prop: 'host_name', label: '主机', width: 150 },
-      { prop: 'cpu_count', label: 'CPU核数', width: 100 },
-      { prop: 'memory_gb', label: '内存(GB)', width: 120 },
-      { prop: 'ip_address', label: 'IP地址', width: 120 },
-      { prop: 'power_state', label: '电源状态', width: 100 }
+      { prop: 'hostName', label: '主机', width: 150 },
+      { prop: 'cpuCount', label: 'CPU核数', width: 100 },
+      { prop: 'memoryGb', label: '内存(GB)', width: 120 },
+      { prop: 'ipAddress', label: 'IP地址', width: 120 },
+      { prop: 'powerState', label: '电源状态', width: 100 }
     ]
   }
   return columnsMap[previewTab.value] || []
@@ -270,12 +270,12 @@ watch(previewTab, () => {
 })
 
 async function handleStart() {
-  if (!config.connection_id) {
+  if (!config.connectionId) {
     ElMessage.warning('请选择连接')
     return
   }
 
-  if (config.data_types.length === 0) {
+  if (config.dataTypes.length === 0) {
     ElMessage.warning('请至少选择一种数据类型')
     return
   }
@@ -326,20 +326,20 @@ async function handleRefresh() {
 }
 
 async function loadPreviewData() {
-  if (!config.connection_id) return
+  if (!config.connectionId) return
 
   previewLoading.value = true
   try {
     let dataStr = ''
     switch (previewTab.value) {
       case 'clusters':
-        dataStr = await getClusterListRaw(config.connection_id)
+        dataStr = await getClusterListRaw(config.connectionId)
         break
       case 'hosts':
-        dataStr = await getHostListRaw(config.connection_id)
+        dataStr = await getHostListRaw(config.connectionId)
         break
       case 'vms':
-        const vmResult = await getVMList(config.connection_id)
+        const vmResult = await getVMList(config.connectionId)
         previewData.value = vmResult.vms
         return
     }

@@ -41,6 +41,7 @@ func Init(cfg *Config) error {
 	dbPath := filepath.Join(cfg.DataDir, "justfit.db")
 
 	// 打开数据库
+	// 使用默认命名策略（蛇形），保证数据正常流转
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -61,18 +62,24 @@ func Init(cfg *Config) error {
 // autoMigrate 自动迁移表结构
 func autoMigrate() error {
 	return DB.AutoMigrate(
+		// 基础资源层
 		&Connection{},
 		&Cluster{},
 		&Host{},
 		&VM{},
-		&Metric{},
-		&Task{},
-		&TaskLog{},
+		&VMMetric{}, // 新表名
+
+		// 任务层
+		&AssessmentTask{},  // 新表名 (原 Task)
 		&TaskVMSnapshot{},
-		&TaskAnalysisResult{},
-		&Report{},
-		&AnalysisResult{},
-		&Alert{},
+		&TaskAnalysisJob{},  // 新表名 (原 TaskAnalysisResult)
+		&TaskLog{},          // 任务操作日志
+
+		// 输出层
+		&AnalysisFinding{}, // 新增
+		&TaskReport{},      // 新表名 (原 Report)
+
+		// 系统配置层
 		&Settings{},
 	)
 }
@@ -89,20 +96,32 @@ func Close() error {
 	return nil
 }
 
+// GetDB 获取数据库实例
+func GetDB() *gorm.DB {
+	return DB
+}
+
 // Repositories 数据仓储
 type Repositories struct {
-	Connection     *ConnectionRepository
-	Cluster        *ClusterRepository
-	Host           *HostRepository
-	VM             *VMRepository
-	Metric         *MetricRepository
-	Task           *TaskRepository
-	TaskVMSnapshot *TaskVMSnapshotRepository
-	TaskAnalysis   *TaskAnalysisResultRepository
-	Report         *ReportRepository
-	AnalysisResult *AnalysisResultRepository
-	Alert          *AlertRepository
-	Settings       *SettingsRepository
+	Connection        *ConnectionRepository
+	Cluster           *ClusterRepository
+	Host              *HostRepository
+	VM                *VMRepository
+	Metric            *MetricRepository // 向后兼容 (实际使用 VMMetric)
+	VMMetric          *MetricRepository // 新名称
+	Task              *TaskRepository   // 向后兼容 (实际使用 AssessmentTask)
+	AssessmentTask    *TaskRepository   // 新名称
+	TaskVMSnapshot    *TaskVMSnapshotRepository
+	TaskAnalysis      *TaskAnalysisResultRepository // 向后兼容
+	TaskAnalysisJob   *TaskAnalysisJobRepository     // 新名称
+	TaskAnalysisResult *TaskAnalysisJobRepository    // 向后兼容别名
+	TaskLog           *TaskLogRepository   // 任务日志
+	AnalysisFinding   *AnalysisFindingRepository
+	AnalysisResult    *AnalysisFindingRepository // 向后兼容别名
+	Report            *TaskReportRepository // 向后兼容 (实际使用 TaskReport)
+	TaskReport        *TaskReportRepository // 新名称
+	Alert             *AnalysisFindingRepository // 向后兼容别名
+	Settings          *SettingsRepository
 }
 
 // DB 返回底层数据库连接
@@ -112,18 +131,29 @@ func (r *Repositories) DB() *gorm.DB {
 
 // NewRepositories 创建数据仓储
 func NewRepositories() *Repositories {
+	taskRepo := NewTaskRepository()
+	metricRepo := NewMetricRepository()
+	findingRepo := NewAnalysisFindingRepository()
+
 	return &Repositories{
-		Connection:     NewConnectionRepository(),
-		Cluster:        NewClusterRepository(),
-		Host:           NewHostRepository(),
-		VM:             NewVMRepository(),
-		Metric:         NewMetricRepository(),
-		Task:           NewTaskRepository(),
-		TaskVMSnapshot: NewTaskVMSnapshotRepository(),
-		TaskAnalysis:   NewTaskAnalysisResultRepository(),
-		Report:         NewReportRepository(),
-		AnalysisResult: NewAnalysisResultRepository(),
-		Alert:          NewAlertRepository(),
-		Settings:       NewSettingsRepository(),
+		Connection:        NewConnectionRepository(),
+		Cluster:           NewClusterRepository(),
+		Host:              NewHostRepository(),
+		VM:                NewVMRepository(),
+		Metric:            metricRepo, // 向后兼容
+		VMMetric:          metricRepo,
+		Task:              taskRepo,   // 向后兼容
+		AssessmentTask:    taskRepo,
+		TaskVMSnapshot:    NewTaskVMSnapshotRepository(),
+		TaskAnalysis:      NewTaskAnalysisJobRepository(), // 向后兼容
+		TaskAnalysisJob:   NewTaskAnalysisJobRepository(),
+		TaskAnalysisResult: NewTaskAnalysisJobRepository(), // 向后兼容别名
+		TaskLog:           NewTaskLogRepository(),
+		AnalysisFinding:   findingRepo,
+		AnalysisResult:    findingRepo, // 向后兼容别名
+		Report:            NewTaskReportRepository(), // 向后兼容
+		TaskReport:        NewTaskReportRepository(),
+		Alert:             findingRepo, // 向后兼容别名
+		Settings:          NewSettingsRepository(),
 	}
 }

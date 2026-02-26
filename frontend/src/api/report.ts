@@ -55,8 +55,8 @@ export async function exportTaskReport(params: {
 }): Promise<string> {
   const response = await App.GenerateReport({
     title: params.title || ('任务报告-' + params.taskId),
-    connection_id: params.connectionId,
-    report_types: params.reportTypes
+    connectionId: params.connectionId,
+    reportTypes: params.reportTypes
   })
 
   if (!response.success) {

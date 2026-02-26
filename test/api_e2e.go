@@ -301,7 +301,7 @@ func (t *E2ETest) TestHealthScoreAnalysis(connectionID uint) error {
 	fmt.Printf("  超配风险: %.2f\n", result.OvercommitRisk)
 	fmt.Printf("  热点集中度: %.2f\n", result.HotspotConcentration)
 	fmt.Printf("  集群数: %d, 主机数: %d, 虚拟机数: %d\n",
-		result.TotalClusters, result.TotalHosts, result.TotalVMs)
+		result.ClusterCount, result.HostCount, result.VMCount)
 
 	if len(result.RiskItems) > 0 {
 		fmt.Printf("  风险项: %d 个\n", len(result.RiskItems))

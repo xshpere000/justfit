@@ -36,7 +36,7 @@ type UISVMInfo struct {
 	GuestOS     string `json:"osDesc,omitempty"`
 	IPAddress   string `json:"ipAddr,omitempty"`
 	CpuCount    int    `json:"cpuCount,omitempty"`
-	MemoryMB    int    `json:"memoryMB,omitempty"`
+	MemoryMB    int    `json:"memoryMb,omitempty"`
 }
 
 type UISClusterInfo struct {
@@ -446,7 +446,7 @@ func (c *UISConnector) GetVMMetrics(datacenter, vmName, vmUUID string, startTime
 			break
 		}
 
-		if strings.TrimSpace(vmUUID) == "" && vm.Name == vmName {
+		if strings.TrimSpace(vmUUID) == "" && vm.Name == vm.Name {
 			vmID = vm.ID
 			vmCpuCount = vm.CpuCount
 			vmMemoryMB = vm.MemoryMB
@@ -746,10 +746,18 @@ func (c *UISConnector) GetVMReport(vmID int, startTime, endTime string, cycle in
 	}
 }
 
-// TestConnection 测试连接
+// TestConnection 测试连接（轻量级，只验证连接可用性）
 func (c *UISConnector) TestConnection() error {
-	_, err := c.GetVMList()
-	return err
+	// 使用轻量级 API 测试连接，而不是获取所有虚拟机
+	// 获取集群概要信息通常比获取虚拟机列表快得多
+	url := fmt.Sprintf("https://%s/uis/cluster/clusterInfo/basic", c.config.Host)
+
+	_, err := c.get(url, nil)
+	if err != nil {
+		return fmt.Errorf("连接测试失败: %w", err)
+	}
+
+	return nil
 }
 
 // Close 关闭连接

@@ -13,6 +13,12 @@ import (
 	"justfit/internal/storage"
 )
 
+// ProgressCallback 进度回调函数类型
+// current: 当前已完成的数量
+// total: 总数量
+// message: 当前步骤描述
+type ProgressCallback func(current, total int, message string)
+
 // Collector 数据采集器
 type Collector struct {
 	connMgr   *connector.ConnectorManager
@@ -52,14 +58,14 @@ type CollectionResult struct {
 
 // MetricsCollectionStats 指标采集统计
 type MetricsCollectionStats struct {
-	TotalVMs             int      `json:"total_vms"`
-	ScopedVMs            int      `json:"scoped_vms"`
-	SkippedPoweredOff    int      `json:"skipped_powered_off"`
-	SkippedAbnormal      int      `json:"skipped_abnormal"` // 跳过的异常状态虚拟机
-	CollectedVMs         int      `json:"collected_vms"`
-	FailedVMCount        int      `json:"failed_vm_count"`
-	CollectedMetricCount int      `json:"collected_metric_count"`
-	FailedMetricCount    int      `json:"failed_metric_count"`
+	VMCount              int      `json:"vmCount"`
+	ScopedVMs            int      `json:"scopedVMs"`
+	SkippedPoweredOff    int      `json:"skippedPoweredOff"`
+	SkippedAbnormal      int      `json:"skippedAbnormal"` // 跳过的异常状态虚拟机
+	CollectedVMCount     int      `json:"collectedVMCount"`
+	FailedVMCount        int      `json:"failedVMCount"`
+	CollectedMetricCount int      `json:"collectedMetricCount"`
+	FailedMetricCount    int      `json:"failedMetricCount"`
 	Scope                string   `json:"scope"`
 	Reasons              []string `json:"reasons"`
 }
@@ -99,7 +105,10 @@ func (c *Collector) Collect(ctx context.Context, config *CollectionConfig) (*Col
 		return nil, fmt.Errorf("创建连接器失败: %w", err)
 	}
 
-	// 测试连接
+	// 更新连接状态
+	c.repos.Connection.UpdateStatus(config.ConnectionID, "connecting")
+
+	// 测试连接（可能较慢，特别是 UIS 平台）
 	if err := client.TestConnection(); err != nil {
 		c.repos.Connection.UpdateStatus(config.ConnectionID, "error")
 		return nil, fmt.Errorf("连接测试失败: %w", err)
@@ -220,7 +229,7 @@ func (c *Collector) Collect(ctx context.Context, config *CollectionConfig) (*Col
 
 // CollectMetrics 采集性能指标
 // selectedVMs: 用户选择的虚拟机 vmKey 列表，为空则采集所有符合条件的虚拟机
-func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days int, passwordOverride string, selectedVMs []string) (*MetricsCollectionStats, error) {
+func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days int, passwordOverride string, selectedVMs []string, progressCb ProgressCallback) (*MetricsCollectionStats, error) {
 	stats := &MetricsCollectionStats{Scope: "poweredOn only"}
 	reasonCounts := make(map[string]int)
 
@@ -260,7 +269,7 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 	if err != nil {
 		return stats, fmt.Errorf("获取虚拟机列表失败: %w", err)
 	}
-	stats.TotalVMs = len(vms)
+	stats.VMCount = len(vms)
 
 	// 先确保所有虚拟机都保存到数据库（ProcessVMMetrics 需要虚拟机已存在）
 	for _, vm := range vms {
@@ -278,6 +287,7 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, concurrency)
 	var mu sync.Mutex
+	var completedCount int // 已完成的VM数量（用于进度回调）
 
 	for _, vm := range vms {
 		vmKey := buildVMKey(vm)
@@ -336,8 +346,13 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 				stats.FailedMetricCount += 6
 				addMetricReason(reasonCounts, fmt.Sprintf("%s: 指标为空", vmKey))
 			} else {
-				stats.CollectedVMs++
+				stats.CollectedVMCount++
 				stats.CollectedMetricCount += count
+			}
+			completedCount++
+			// 调用进度回调
+			if progressCb != nil {
+				progressCb(completedCount, stats.ScopedVMs, fmt.Sprintf("已采集 %d/%d 台虚拟机", completedCount, stats.ScopedVMs))
 			}
 			mu.Unlock()
 		}(vm)
@@ -346,7 +361,7 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 	wg.Wait()
 	stats.Reasons = renderMetricReasons(reasonCounts)
 
-	if stats.CollectedVMs == 0 && stats.ScopedVMs > 0 {
+	if stats.CollectedVMCount == 0 && stats.ScopedVMs > 0 {
 		reasonStr := ""
 		if len(stats.Reasons) > 0 {
 			reasonStr = "\n失败原因: " + stats.Reasons[0]

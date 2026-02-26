@@ -1,6 +1,7 @@
 /**
  * 前端通用类型定义
  * 这些类型与前端代码使用的命名规范一致
+ * 命名规范: 统一使用驼峰命名
  */
 
 // =============== 连接相关 ===============
@@ -14,7 +15,7 @@ export interface ConnectionInfo {
   username: string
   insecure: boolean
   status: string
-  last_sync: string
+  lastSync: string
 }
 
 export interface CreateConnectionRequest {
@@ -34,9 +35,9 @@ export interface UpdateConnectionRequest extends CreateConnectionRequest {
 // =============== 数据采集相关 ===============
 
 export interface CollectionConfig {
-  connection_id: number
-  data_types: string[]
-  metrics_days: number
+  connectionId: number
+  dataTypes: string[]
+  metricsDays: number
 }
 
 export interface CollectionResult {
@@ -52,75 +53,75 @@ export interface CollectionResult {
 // =============== 分析相关 ===============
 
 export interface ZombieVMConfig {
-  connection_id?: number
-  analysis_days?: number
-  cpu_threshold?: number
-  memory_threshold?: number
-  min_confidence?: number
+  connectionId?: number
+  analysisDays?: number
+  cpuThreshold?: number
+  memoryThreshold?: number
+  minConfidence?: number
 }
 
 export interface ZombieVMResult {
-  vm_name: string
+  vmName: string
   datacenter: string
   host: string
-  cpu_count: number
-  memory_mb: number
-  cpu_usage: number
-  memory_usage: number
+  cpuCount: number
+  memoryMb: number
+  cpuUsage: number
+  memoryUsage: number
   confidence: number
-  days_low_usage: number
+  daysLowUsage: number
   evidence: string[]
   recommendation: string
 }
 
 export interface RightSizeConfig {
-  connection_id?: number
-  analysis_days?: number
-  buffer_ratio?: number
+  connectionId?: number
+  analysisDays?: number
+  bufferRatio?: number
 }
 
 export interface RightSizeResult {
-  vm_name: string
+  vmName: string
   datacenter: string
-  current_cpu: number
-  current_memory_mb: number
-  recommended_cpu: number
-  recommended_memory_mb: number
-  adjustment_type: string
-  risk_level: string
-  estimated_saving: string
+  currentCpu: number
+  currentMemoryMb: number
+  recommendedCpu: number
+  recommendedMemoryMb: number
+  adjustmentType: string
+  riskLevel: string
+  estimatedSaving: string
   confidence: number
 }
 
 export interface TidalConfig {
-  connection_id?: number
-  analysis_days?: number
-  min_stability?: number
+  connectionId?: number
+  analysisDays?: number
+  minStability?: number
 }
 
 export interface TidalResult {
-  vm_name: string
+  vmName: string
   datacenter: string
   pattern: string
-  stability_score: number
-  peak_hours: number[]
-  peak_days: number[]
+  stabilityScore: number
+  peakHours: number[]
+  peakDays: number[]
   recommendation: string
-  estimated_saving: string
+  estimatedSaving: string
 }
 
 export interface HealthScoreResult {
-  connection_id: number
-  connection_name: string
-  overall_score: number
-  health_level: string
-  resource_balance: number
-  overcommit_risk: number
-  hotspot_concentration: number
-  total_clusters: number
-  total_hosts: number
-  total_vms: number
-  risk_items: string[]
+  connectionId: number
+  connectionName: string
+  overallScore: number
+  healthLevel: string
+  resourceBalance: number
+  overcommitRisk: number
+  hotspotConcentration: number
+  clusterCount: number
+  hostCount: number
+  vmCount: number
+  riskItems: string[]
   recommendations: string[]
 }
 
@@ -128,49 +129,49 @@ export interface HealthScoreResult {
 
 export interface ClusterInfo {
   id: number
-  connection_id: number
+  connectionId: number
   name: string
   datacenter: string
   vendor: string
-  total_cpu: number
-  total_memory_mb: number
-  total_hosts: number
-  total_vms: number
-  created_at: string
+  totalCpu: number
+  totalMemoryMb: number
+  hostCount: number
+  vmCount: number
+  createdAt: string
 }
 
 export interface HostInfo {
   id: number
-  connection_id: number
-  cluster_id: number
-  cluster_name: string
+  connectionId: number
+  clusterId: number
+  clusterName: string
   name: string
   vendor: string
   model: string
-  cpu_cores: number
-  cpu_mhz: number
-  memory_mb: number
-  vm_count: number
-  power_state: string
-  created_at: string
+  cpuCores: number
+  cpuMhz: number
+  memoryMb: number
+  VMCount: number
+  powerState: string
+  createdAt: string
 }
 
 export interface VMInfo {
   id: number
-  connection_id: number
-  host_id: number
-  host_name: string
-  cluster_id: number
-  cluster_name: string
+  connectionId: number
+  hostId: number
+  hostName: string
+  clusterId: number
+  clusterName: string
   name: string
   uuid: string
   vcpu: number
-  memory_mb: number
-  disk_gb: number
-  os_type: string
-  power_state: string
-  ip_address: string
-  created_at: string
+  memoryMb: number
+  diskGb: number
+  osType: string
+  powerState: string
+  ipAddress: string
+  createdAt: string
 }
 
 // =============== 图表数据相关 ===============
@@ -194,11 +195,11 @@ export interface TaskInfo {
   name: string
   status: string
   progress: number
-  current_step?: string
-  total_steps?: number
-  started_at?: string
-  ended_at?: string
-  created_at: string
+  currentStep?: string
+  totalSteps?: number
+  startedAt?: string
+  endedAt?: string
+  createdAt: string
 }
 
 // =============== 报告相关 ===============

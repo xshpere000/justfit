@@ -22,14 +22,14 @@ const (
 // ReportConfig 报告配置
 type ReportConfig struct {
 	Type      ReportType `json:"type"`
-	OutputDir string     `json:"output_dir"`
+	OutputDir string     `json:"outputDir"`
 }
 
 // ReportData 报告数据
 type ReportData struct {
 	Title       string                 `json:"title"`
-	GeneratedAt time.Time              `json:"generated_at"`
-	ConnectionID uint                  `json:"connection_id"`
+	GeneratedAt time.Time              `json:"generatedAt"`
+	ConnectionID uint                  `json:"connectionId"`
 	Metadata    map[string]interface{} `json:"metadata"`
 	Sections    []ReportSection        `json:"sections"`
 }
@@ -281,20 +281,20 @@ func (g *Generator) renderSummary(data interface{}) string {
 
 	// 定义标签和颜色
 	labels := map[string]string{
-		"total_vms":     "虚拟机总数",
-		"total_hosts":   "主机总数",
-		"total_clusters": "集群总数",
-		"zombie_vms":    "僵尸 VM",
+		"vmCount":       "虚拟机总数",
+		"hostCount":     "主机总数",
+		"clusterCount":  "集群总数",
+		"zombieVMs":     "僵尸 VM",
 		"overallocated": "超配 VM",
 		"underutilized": "低利用率 VM",
-		"health_score":  "健康评分",
+		"healthScore":   "健康评分",
 	}
 
 	colors := map[string]string{
-		"zombie_vms":     "danger",
+		"zombieVMs":     "danger",
 		"overallocated":  "warning",
 		"underutilized":  "warning",
-		"health_score":   "success",
+		"healthScore":   "success",
 	}
 
 	for key, value := range m {

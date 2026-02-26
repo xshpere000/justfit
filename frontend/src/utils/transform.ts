@@ -11,32 +11,32 @@ import type { Task, CreateTaskParams } from '@/stores/task'
  */
 export function transformBackendTaskToFrontend(taskInfo: TaskInfo): Task {
   const task: Task = {
-    id: String(taskInfo.ID),
-    type: mapBackendTypeToFrontend(taskInfo.Type),
-    name: taskInfo.Name,
-    status: mapBackendStatusToFrontend(taskInfo.Status),
-    progress: taskInfo.Progress,
-    error: taskInfo.Error,
-    connectionId: taskInfo.ConnectionID,
-    connectionName: taskInfo.ConnectionName,
-    platform: taskInfo.Platform,
-    totalVMs: taskInfo.TotalVMs || 0,
-    collectedVMs: 0,
+    id: String(taskInfo.id),
+    type: mapBackendTypeToFrontend(taskInfo.type),
+    name: taskInfo.name,
+    status: mapBackendStatusToFrontend(taskInfo.status),
+    progress: taskInfo.progress,
+    error: taskInfo.error,
+    connectionId: taskInfo.connectionId,
+    connectionName: taskInfo.connectionName,
+    platform: taskInfo.platform,
+    vmCount: taskInfo.vmCount || 0,
+    collectedVMCount: 0,
     analysisResults: {
       zombie: false,
       rightsize: false,
       tidal: false,
       health: false,
     },
-    created_at: taskInfo.CreatedAt,
-    started_at: taskInfo.StartedAt,
-    ended_at: taskInfo.CompletedAt,
+    createdAt: taskInfo.createdAt,
+    startedAt: taskInfo.startedAt,
+    completedAt: taskInfo.completedAt,
   }
 
   // 解析selectedVMs JSON字符串
-  if (taskInfo.SelectedVMs) {
+  if (taskInfo.selectedVMs) {
     try {
-      task.selectedVMs = JSON.parse(taskInfo.SelectedVMs) as string[]
+      task.selectedVMs = JSON.parse(JSON.stringify(taskInfo.selectedVMs)) as string[]
     } catch {
       task.selectedVMs = []
     }
@@ -45,22 +45,7 @@ export function transformBackendTaskToFrontend(taskInfo: TaskInfo): Task {
   }
 
   // 解析Result JSON（可能包含分析结果状态）
-  if (taskInfo.Result) {
-    try {
-      const resultData = JSON.parse(taskInfo.Result)
-      if (resultData.analysisResults) {
-        task.analysisResults = {
-          zombie: resultData.analysisResults.zombie || false,
-          rightsize: resultData.analysisResults.rightsize || false,
-          tidal: resultData.analysisResults.tidal || false,
-          health: resultData.analysisResults.health || false,
-        }
-      }
-    } catch {
-      // 忽略解析错误
-    }
-  }
-
+  // 注意：后端可能不返回Result字段，这里暂时跳过
   return task
 }
 
@@ -79,7 +64,7 @@ export function transformFrontendTaskToBackend(
     connectionId,
     connectionName,
     platform,
-    totalVMs: task.totalVMs,
+    vmCount: task.vmCount,
     selectedVMs: JSON.stringify(task.selectedVMs || []),
     status: mapFrontendStatusToBackend(task.status),
   }
@@ -95,7 +80,7 @@ export function transformCreateTaskParams(params: CreateTaskParams): Record<stri
     connectionId: params.connectionId,
     connectionName: params.connectionName,
     platform: params.platform,
-    totalVMs: params.totalVMs,
+    vmCount: params.vmCount,
     selectedVMs: JSON.stringify(params.selectedVMs || []),
   }
 }
@@ -184,21 +169,23 @@ export function stringifySelectedVMs(selectedVMs: string[] | undefined): string 
  */
 export function createSafeTask(taskInfo: Partial<TaskInfo>): TaskInfo {
   return {
-    ID: taskInfo.ID || 0,
-    Type: taskInfo.Type || 'collection',
-    Name: taskInfo.Name || '',
-    Status: taskInfo.Status || 'pending',
-    Progress: taskInfo.Progress || 0,
-    Message: taskInfo.Message,
-    Result: taskInfo.Result,
-    Error: taskInfo.Error,
-    CreatedAt: taskInfo.CreatedAt || new Date().toISOString(),
-    StartedAt: taskInfo.StartedAt,
-    CompletedAt: taskInfo.CompletedAt,
-    ConnectionID: taskInfo.ConnectionID,
-    ConnectionName: taskInfo.ConnectionName,
-    Platform: taskInfo.Platform,
-    TotalVMs: taskInfo.TotalVMs,
-    SelectedVMs: taskInfo.SelectedVMs,
+    id: taskInfo.id || 0,
+    type: taskInfo.type || 'collection',
+    name: taskInfo.name || '',
+    status: taskInfo.status || 'pending',
+    progress: taskInfo.progress || 0,
+    error: taskInfo.error,
+    createdAt: taskInfo.createdAt || new Date().toISOString(),
+    startedAt: taskInfo.startedAt,
+    completedAt: taskInfo.completedAt,
+    connectionId: taskInfo.connectionId,
+    connectionName: taskInfo.connectionName,
+    host: taskInfo.host,
+    platform: taskInfo.platform,
+    selectedVMs: taskInfo.selectedVMs,
+    vmCount: taskInfo.vmCount,
+    collectedVMCount: taskInfo.collectedVMCount,
+    currentStep: taskInfo.currentStep,
+    analysisResults: taskInfo.analysisResults,
   }
 }

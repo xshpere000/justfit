@@ -11,7 +11,7 @@
               </el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value">{{ stats.health_score }}</div>
+              <div class="stat-value">{{ stats.healthScore }}</div>
               <div class="stat-label">平台健康评分</div>
             </div>
           </div>
@@ -26,7 +26,7 @@
               </el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value">{{ stats.zombie_count }}</div>
+              <div class="stat-value">{{ stats.zombieCount }}</div>
               <div class="stat-label">僵尸 VM 数量</div>
             </div>
           </div>
@@ -41,7 +41,7 @@
               </el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value">{{ stats.total_savings }}</div>
+              <div class="stat-value">{{ stats.totalSavings }}</div>
               <div class="stat-label">预计节省</div>
             </div>
           </div>
@@ -56,7 +56,7 @@
               </el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value">{{ stats.total_vms }}</div>
+              <div class="stat-value">{{ stats.vmCount }}</div>
               <div class="stat-label">虚拟机总数</div>
             </div>
           </div>
@@ -133,7 +133,7 @@
                 </el-icon>
                 <div class="task-details">
                   <div class="task-name">{{ task.name }}</div>
-                  <div class="task-time">{{ formatDate(task.created_at) }}</div>
+                  <div class="task-time">{{ formatDate(task.createdAt) }}</div>
                 </div>
               </div>
               <el-tag :type="getTaskStatusType(task.status)" size="small">
@@ -200,10 +200,10 @@ const connectionStore = useConnectionStore()
 const taskStore = useTaskStore()
 
 const stats = ref({
-  health_score: 0,
-  zombie_count: 0,
-  total_savings: '¥0',
-  total_vms: 0
+  healthScore: 0,
+  zombieCount: 0,
+  totalSavings: '¥0',
+  vmCount: 0
 })
 
 const recentTasks = computed(() => {
@@ -211,19 +211,27 @@ const recentTasks = computed(() => {
 })
 
 onMounted(async () => {
-  await Promise.all([
-    connectionStore.fetchConnections(),
-    taskStore.syncTasksFromBackend(),  // 改为从后端同步
-    loadDashboardStats()
-  ])
+  console.log('[Dashboard.vue] onMounted 初始化开始')
+  try {
+    await Promise.all([
+      connectionStore.fetchConnections(),
+      taskStore.syncTasksFromBackend(),
+      loadDashboardStats()
+    ])
+    console.log('[Dashboard.vue] 初始化完成')
+  } catch (error) {
+    console.error('[Dashboard.vue] 初始化失败:', error)
+  }
 })
 
 async function loadDashboardStats() {
+  console.log('[Dashboard.vue] loadDashboardStats 加载仪表盘数据')
   try {
     const data = await DashboardAPI.getStats()
     stats.value = data
+    console.log('[Dashboard.vue] loadDashboardStats 仪表盘数据加载成功:', data)
   } catch (e) {
-    console.error('Failed to load dashboard stats:', e)
+    console.error('[Dashboard.vue] loadDashboardStats 加载失败:', e)
   }
 }
 

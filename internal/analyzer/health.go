@@ -10,30 +10,30 @@ import (
 
 // HealthScoreResult 健康评分结果
 type HealthScoreResult struct {
-	ConnectionID   uint   `json:"connection_id"`
-	ConnectionName string `json:"connection_name"`
+	ConnectionID   uint   `json:"connectionId"`
+	ConnectionName string `json:"connectionName"`
 
 	// 总分
-	OverallScore float64 `json:"overall_score"` // 0-100
-	HealthLevel  string  `json:"health_level"`  // "优秀", "良好", "一般", "较差", "差"
+	OverallScore float64 `json:"overallScore"` // 0-100
+	HealthLevel  string  `json:"healthLevel"`  // "优秀", "良好", "一般", "较差", "差"
 
 	// 维度得分
-	ResourceBalance      float64 `json:"resource_balance"`      // 资源均衡度 0-100
-	OvercommitRisk       float64 `json:"overcommit_risk"`       // 超配风险 0-100
-	HotspotConcentration float64 `json:"hotspot_concentration"` // 热点集中度 0-100
+	ResourceBalance      float64 `json:"resourceBalance"`      // 资源均衡度 0-100
+	OvercommitRisk       float64 `json:"overcommitRisk"`       // 超配风险 0-100
+	HotspotConcentration float64 `json:"hotspotConcentration"` // 热点集中度 0-100
 
 	// 详情
-	TotalClusters int     `json:"total_clusters"`
-	TotalHosts    int     `json:"total_hosts"`
-	TotalVMs      int     `json:"total_vms"`
-	TotalCPUCores int64   `json:"total_cpu_cores"`
-	TotalMemoryGB float64 `json:"total_memory_gb"`
+	ClusterCount  int     `json:"clusterCount"`
+	HostCount     int     `json:"hostCount"`
+	VMCount       int     `json:"vmCount"`
+	CpuCoreCount  int64   `json:"cpuCoreCount"`
+	MemoryGB float64 `json:"memoryGb"`
 
-	AvgCPUUsage    float64 `json:"avg_cpu_usage"`
-	AvgMemoryUsage float64 `json:"avg_memory_usage"`
+	AvgCPUUsage    float64 `json:"avgCpuUsage"`
+	AvgMemoryUsage float64 `json:"avgMemoryUsage"`
 
 	// 风险项
-	RiskItems       []string `json:"risk_items"`
+	RiskItems       []string `json:"riskItems"`
 	Recommendations []string `json:"recommendations"`
 }
 
@@ -59,10 +59,15 @@ func (e *Engine) AnalyzeHealthScore(connectionID uint, config *HealthConfig) (*H
 		config = DefaultHealthConfig()
 	}
 
+	// 验证 connectionID
+	if connectionID == 0 {
+		return nil, fmt.Errorf("无效的连接ID: connectionID 不能为 0")
+	}
+
 	// 获取连接信息
 	conn, err := e.repos.Connection.GetByID(connectionID)
 	if err != nil {
-		return nil, fmt.Errorf("获取连接失败: %w", err)
+		return nil, fmt.Errorf("获取连接失败 (connectionID=%d): %w", connectionID, err)
 	}
 
 	// 获取集群列表
@@ -116,11 +121,11 @@ func (e *Engine) AnalyzeHealthScore(connectionID uint, config *HealthConfig) (*H
 		ResourceBalance:      resourceBalance,
 		OvercommitRisk:       overcommitRisk,
 		HotspotConcentration: hotspotConcentration,
-		TotalClusters:        len(clusters),
-		TotalHosts:           len(hosts),
-		TotalVMs:             len(vms),
-		TotalCPUCores:        totalCPUCores,
-		TotalMemoryGB:        totalMemoryGB,
+		ClusterCount:         len(clusters),
+		HostCount:            len(hosts),
+		VMCount:              len(vms),
+		CpuCoreCount:         totalCPUCores,
+		MemoryGB:             totalMemoryGB,
 		RiskItems:            riskItems,
 		Recommendations:      recommendations,
 	}

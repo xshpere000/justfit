@@ -13,25 +13,25 @@ import (
 // RightSizeResult Right Size 分析结果
 type RightSizeResult struct {
 	VMAnalysisResult
-	CurrentCPU      int32 `json:"current_cpu"`
-	CurrentMemoryMB int32 `json:"current_memory_mb"`
+	CurrentCPU      int32 `json:"currentCpu"`
+	CurrentMemoryMB int32 `json:"currentMemoryMb"`
 
 	// 分析数据
-	CPUP95     float64 `json:"cpu_p95"`     // 95分位 CPU 使用率
-	CPUPeak    float64 `json:"cpu_peak"`    // 峰值 CPU 使用率
-	CPUAvg     float64 `json:"cpu_avg"`     // 平均 CPU 使用率
-	MemoryP95  float64 `json:"memory_p95"`  // 95分位内存使用率
-	MemoryPeak float64 `json:"memory_peak"` // 峰值内存使用率
-	MemoryAvg  float64 `json:"memory_avg"`  // 平均内存使用率
+	CPUP95     float64 `json:"cpuP95"`     // 95分位 CPU 使用率
+	CPUPeak    float64 `json:"cpuPeak"`    // 峰值 CPU 使用率
+	CPUAvg     float64 `json:"cpuAvg"`     // 平均 CPU 使用率
+	MemoryP95  float64 `json:"memoryP95"`  // 95分位内存使用率
+	MemoryPeak float64 `json:"memoryPeak"` // 峰值内存使用率
+	MemoryAvg  float64 `json:"memoryAvg"`  // 平均内存使用率
 
 	// 推荐配置
-	RecommendedCPU      int32  `json:"recommended_cpu"`
-	RecommendedMemoryMB int32  `json:"recommended_memory_mb"`
-	AdjustmentType      string `json:"adjustment_type"` // "大幅缩容", "小幅缩容", "保持", "小幅扩容", "大幅扩容"
+	RecommendedCPU      int32  `json:"recommendedCpu"`
+	RecommendedMemoryMB int32  `json:"recommendedMemoryMb"`
+	AdjustmentType      string `json:"adjustmentType"` // "大幅缩容", "小幅缩容", "保持", "小幅扩容", "大幅扩容"
 
 	// 评估
-	RiskLevel       string  `json:"risk_level"`       // "低", "中", "高"
-	EstimatedSaving string  `json:"estimated_saving"` // 节省估算
+	RiskLevel       string  `json:"riskLevel"`       // "低", "中", "高"
+	EstimatedSaving string  `json:"estimatedSaving"` // 节省估算
 	Confidence      float64 `json:"confidence"`       // 置信度
 }
 

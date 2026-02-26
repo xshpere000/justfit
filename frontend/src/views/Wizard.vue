@@ -102,9 +102,9 @@
                        <div class="vm-info">
                           <div class="vm-name" :title="vm.name">{{ vm.name }}</div>
                           <div class="vm-spec">
-                            {{ vm.cpu_count > 0 ? vm.cpu_count + ' vCPU' : 'CPU: -' }}
+                            {{ vm.cpuCount > 0 ? vm.cpuCount + ' vCPU' : 'CPU: -' }}
                             /
-                            {{ vm.memory_mb > 0 ? formatMemory(vm.memory_mb) : '内存: 未获取' }}
+                            {{ vm.memoryGb > 0 ? formatMemory(vm.memoryGb * 1024) : '内存: 未获取' }}
                           </div>
                        </div>
                        <div class="vm-state-badge" v-if="!isVMStateNormal(vm)">
@@ -298,9 +298,9 @@ async function testConnection() {
 
     // 2. 采集数据
     await ConnectionAPI.CollectionApi.collect({
-      connection_id: connId,
-      data_types: ['clusters', 'hosts', 'vms'],
-      metrics_days: 30
+      connectionId: connId,
+      dataTypes: ['clusters', 'hosts', 'vms'],
+      metricsDays: 30
     })
 
     // 3. 获取虚拟机列表
@@ -414,12 +414,12 @@ const VM_STATE_TEXT_MAP: Record<string, string> = {
  */
 function getVMActualState(vm: any): string {
     // 如果有连接状态且不是正常连接，返回连接状态
-    const connectionState = vm.connection_state || ''
+    const connectionState = vm.connectionState || ''
     if (connectionState && !NORMAL_CONNECTION_STATES.has(connectionState.toLowerCase())) {
         return connectionState
     }
     // 否则返回电源状态
-    return vm.power_state || ''
+    return vm.powerState || ''
 }
 
 /**
@@ -429,14 +429,14 @@ function getVMActualState(vm: any): string {
  */
 function isVMStateNormal(vm: any): boolean {
     // 检查连接状态
-    const connectionState = (vm.connection_state || '').toLowerCase()
+    const connectionState = (vm.connectionState || '').toLowerCase()
     if (connectionState && !NORMAL_CONNECTION_STATES.has(connectionState)) {
-        console.log(`[VM State] 虚拟机 "${vm.name}" 连接状态异常: ${vm.connection_state}`)
+        console.log(`[VM State] 虚拟机 "${vm.name}" 连接状态异常: ${vm.connectionState}`)
         return false
     }
 
     // 检查电源状态
-    const powerState = vm.power_state || ''
+    const powerState = vm.powerState || ''
     if (!powerState) {
         console.warn(`[VM State] 虚拟机 "${vm.name}" 空电源状态，判定为异常`)
         return false
@@ -546,29 +546,39 @@ function formatMemory(value: number | undefined) {
 }
 
 async function submitTask() {
+  console.log('[Wizard.submitTask] ===== 开始创建任务 =====')
+  console.log('[Wizard.submitTask] selectedVMs.value:', selectedVMs.value)
+  console.log('[Wizard.submitTask] selectedVMs类型:', typeof selectedVMs.value)
+  console.log('[Wizard.submitTask] selectedVMs数量:', selectedVMs.value?.size)
+  console.log('[Wizard.submitTask] 创建的连接ID:', createdConnectionId.value)
+  console.log('[Wizard.submitTask] 连接名称:', connectionForm.name)
+  console.log('[Wizard.submitTask] 平台类型:', formData.platform)
+
   submitLoading.value = true
   try {
-     console.log('[Wizard.submitTask] 开始创建任务')
-     console.log('[Wizard.submitTask] selectedVMs.value:', selectedVMs.value)
-     console.log('[Wizard.submitTask] selectedVMs.value类型:', typeof selectedVMs.value)
-     console.log('[Wizard.submitTask] selectedVMs.value.size:', selectedVMs.value?.size)
-     console.log('[Wizard.submitTask] Array.from(selectedVMs.value):', Array.from(selectedVMs.value || []))
-
-     const task = taskStore.createTask({
-        type: 'collection',
+     const taskParams = {
+        type: 'collection' as const,
         name: '评估任务-' + connectionForm.name,
         platform: formData.platform,
         connectionId: createdConnectionId.value,
         connectionName: connectionForm.name,
-        selectedVMs: Array.from(selectedVMs.value),
-        totalVMs: selectedVMs.value.size
-     })
+        selectedVMs: Array.from(selectedVMs.value || []),
+        vmCount: selectedVMs.value?.size || 0
+     }
+     console.log('[Wizard.submitTask] 任务参数:', taskParams)
 
-     taskStore.startCollectionTask(task.id, createdConnectionId.value, Array.from(selectedVMs.value), 30)
+     const task = await taskStore.createTask(taskParams)
+     console.log('[Wizard.submitTask] 任务创建成功, taskId:', task.id, 'taskName:', task.name)
+
+     console.log('[Wizard.submitTask] 调用 startCollectionTask')
+     await taskStore.startCollectionTask(task.id, createdConnectionId.value, Array.from(selectedVMs.value || []), 30)
+     console.log('[Wizard.submitTask] startCollectionTask 完成')
 
      ElMessage.success('任务已创建，后台正在采集中...')
+     console.log('[Wizard.submitTask] ===== 任务创建流程完成 =====')
      router.push('/')
   } catch (e: any) {
+     console.error('[Wizard.submitTask] 创建任务失败:', e)
      ElMessage.error(e.message || '创建失败')
   } finally {
      submitLoading.value = false

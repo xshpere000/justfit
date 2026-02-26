@@ -85,10 +85,10 @@ func TestGenerateHTML(t *testing.T) {
 				Title: "数据汇总",
 				Type:  "summary",
 				Data: map[string]interface{}{
-					"total_vms":     100,
-					"total_hosts":   10,
-					"zombie_vms":    5,
-					"health_score":  85.5,
+					"vmCount":       100,
+					"hostCount":     10,
+					"zombieVMs":     5,
+					"healthScore":   85.5,
 				},
 			},
 			{
@@ -207,16 +207,16 @@ func TestRenderSummary(t *testing.T) {
 		{
 			name: "基本统计数据",
 			data: map[string]interface{}{
-				"total_vms":   100,
-				"total_hosts": 10,
+				"vmCount":     100,
+				"hostCount":   10,
 			},
 			contains: []string{"100", "10", "虚拟机总数", "主机总数"},
 		},
 		{
 			name: "带颜色的数据",
 			data: map[string]interface{}{
-				"zombie_vms": 5,
-				"health_score": 85.5,
+				"zombieVMs":   5,
+				"healthScore": 85.5,
 			},
 			contains: []string{"5", "86", "僵尸 VM", "danger", "success"},
 		},
@@ -338,12 +338,12 @@ func TestGenerateWithRealData(t *testing.T) {
 				Title: "资源概况",
 				Type:  "summary",
 				Data: map[string]interface{}{
-					"total_vms":      150,
-					"total_hosts":    8,
-					"total_clusters": 2,
-					"zombie_vms":     12,
-					"overallocated":  25,
-					"health_score":   78.5,
+					"vmCount":         150,
+					"hostCount":       8,
+					"clusterCount":    2,
+					"zombieVMs":       12,
+					"overallocated":    25,
+					"healthScore":     78.5,
 				},
 			},
 			{

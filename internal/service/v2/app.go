@@ -4,6 +4,7 @@ package v2
 
 import (
 	"context"
+	"time"
 
 	apperrors "justfit/internal/errors"
 	"justfit/internal/connector"
@@ -106,16 +107,16 @@ func (s *TaskService) GetByID(id uint) (*response.TaskDetailResponse, error) {
 		"health":    false,
 	}
 
-	if analysisRows, analysisErr := s.repos.TaskAnalysis.ListByTaskID(id); analysisErr == nil {
+	if analysisRows, analysisErr := s.repos.TaskAnalysisJob.ListByTaskID(id); analysisErr == nil {
 		for _, row := range analysisRows {
-			switch row.AnalysisType {
-			case "zombie_vm":
+			switch row.JobType {
+			case "zombie":
 				analysisResults["zombie"] = true
-			case "right_size":
+			case "rightsize":
 				analysisResults["rightsize"] = true
 			case "tidal":
 				analysisResults["tidal"] = true
-			case "health_score":
+			case "health":
 				analysisResults["health"] = true
 			}
 		}
@@ -179,8 +180,8 @@ func (s *TaskService) CreateCollection(req *request.CreateCollectionRequest) (ui
 		"platform":        req.Platform,
 		"data_types":      req.DataTypes,
 		"metrics_days":    req.MetricsDays,
-		"total_vms":       req.TotalVMs,
-		"selected_vms":    req.SelectedVMs,
+		"vmCount":         req.VMCount,
+		"selectedVMs":     req.SelectedVMs,
 	}
 
 	taskName := "采集任务"
@@ -205,9 +206,9 @@ func (s *TaskService) CreateAnalysis(req *request.CreateAnalysisRequest) (uint, 
 
 	// 前端类型到后端类型的映射
 	typeMapping := map[string]string{
-		"zombie":     "zombie_vm",
-		"rightsize":  "right_size",
-		"health":     "health_score",
+		"zombie":     "zombie",
+		"rightsize":  "rightsize",
+		"health":     "health",
 	}
 
 	backendType := req.AnalysisType
@@ -335,8 +336,14 @@ func (s *AlertService) GetStats() (*response.AlertStats, error) {
 func (s *AlertService) Mark(id uint, acknowledged bool) error {
 	s.log.Info("标记告警", logger.Uint("id", id), logger.Bool("acknowledged", acknowledged))
 
+	now := time.Now()
 	if acknowledged {
-		return s.repos.Alert.Acknowledge(id)
+		return s.repos.DB().Model(&storage.Alert{}).
+			Where("id = ?", id).
+			Updates(map[string]interface{}{
+				"acknowledged":    true,
+				"acknowledged_at": &now,
+			}).Error
 	}
 
 	// 取消确认

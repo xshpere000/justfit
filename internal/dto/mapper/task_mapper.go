@@ -49,23 +49,23 @@ func (m *TaskMapper) ToDTO(t *task.Task) *response.TaskResponse {
 	}
 
 	// 从配置中提取扩展信息
-	if connectionID, ok := t.Config["connection_id"].(uint); ok {
+	if connectionID, ok := t.Config["connectionId"].(uint); ok {
 		dto.ConnectionID = connectionID
 	}
-	if connectionName, ok := t.Config["connection_name"].(string); ok {
+	if connectionName, ok := t.Config["connectionName"].(string); ok {
 		dto.ConnectionName = connectionName
 	}
 	if platform, ok := t.Config["platform"].(string); ok {
 		dto.Platform = platform
 	}
-	if totalVMs, ok := t.Config["total_vms"].(int); ok {
-		dto.TotalVMs = int32(totalVMs)
+	if vmCount, ok := t.Config["vmCount"].(int); ok {
+		dto.VMCount = int32(vmCount)
 	}
 
 	// 从结果中提取已采集数量
 	if t.Result != nil {
 		if vms, ok := t.Result["vms"].(int); ok {
-			dto.CollectedVMs = int32(vms)
+			dto.CollectedVMCount = int32(vms)
 		}
 	}
 

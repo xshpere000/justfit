@@ -1,17 +1,18 @@
 /**
  * JustFit Backend API 类型定义
- * Version: 0.0.1
- * 生成日期: 2026-02-09
+ * Version: 0.0.2
+ * 更新日期: 2026-02-25
+ * 命名规范: 统一使用驼峰命名
  */
 
 // ==================== 基础类型 ====================
 
-export type EntityType = 'cluster' | 'host' | 'vm';
+export type entityType = 'cluster' | 'host' | 'vm';
 export type PlatformType = 'vcenter' | 'h3c-uis';
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 export type TaskType = 'collection' | 'analysis' | 'report';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
-export type AlertType = 'zombie_vm' | 'overprovisioned' | 'underprovisioned' | 'health_risk';
+export type alertType = 'zombieVm' | 'overprovisioned' | 'underprovisioned' | 'healthRisk';
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
 
 // ==================== 连接管理 ====================
@@ -27,27 +28,27 @@ export interface ConnectionRequest {
 }
 
 export interface Connection {
-  ID: number;
-  Name: string;
-  Platform: PlatformType;
-  Host: string;
-  Port: number;
-  Username: string;
-  Insecure: boolean;
-  Status: ConnectionStatus;
-  LastSync?: string;
+  id: number;
+  name: string;
+  platform: PlatformType;
+  host: string;
+  port: number;
+  username: string;
+  insecure: boolean;
+  status: ConnectionStatus;
+  lastSync?: string;
 }
 
 export interface ConnectionInfo {
-  ID: number;
-  Name: string;
-  Platform: PlatformType;
-  Host: string;
-  Port: number;
-  Username: string;
-  Insecure: boolean;
-  Status: ConnectionStatus;
-  LastSync?: string;
+  id: number;
+  name: string;
+  platform: PlatformType;
+  host: string;
+  port: number;
+  username: string;
+  insecure: boolean;
+  status: ConnectionStatus;
+  lastSync?: string;
 }
 
 export interface UpdateConnectionRequest {
@@ -71,306 +72,313 @@ export interface TestConnectionRequest {
 }
 
 export interface TestConnectionResult {
-  Success: boolean;
-  Message: string;
-  Version?: string;
-  Product?: string;
-  Latency?: number;
+  success: boolean;
+  message: string;
+  version?: string;
+  product?: string;
+  latency?: number;
 }
 
 // ==================== 采集任务 ====================
 
 export interface CollectionConfig {
-  connection_id: number;
-  data_types: string[];
-  metrics_days: number;
+  name: string;              // 任务名称
+  connectionId: number;
+  connectionName: string;    // 连接名称
+  platform: string;          // 平台类型: vcenter, h3c-uis
+  dataTypes: string[];       // clusters, hosts, vms, metrics
+  metricsDays: number;
+  vmCount: number;          // 虚拟机总数
+  selectedVMs: string[];     // 用户选择的虚拟机列表（vmKey 格式）
 }
 
 export interface CollectionResult {
-  Success: boolean;
-  Message: string;
-  Clusters: number;
-  Hosts: number;
-  VMs: number;
-  Metrics: number;
-  Duration: number;
+  success: boolean;
+  message: string;
+  clusters: number;
+  hosts: number;
+  vms: number;
+  metrics: number;
+  duration: number;
 }
 
 export interface TaskInfo {
-  ID: number;
-  Type: TaskType;
-  Name: string;
-  Status: TaskStatus;
-  Progress: number;
-  Message?: string;
-  Result?: string;
-  Error?: string;
-  CreatedAt: string;
-  StartedAt?: string;
-  CompletedAt?: string;
+  id: number;
+  type: string;              // 任务类型
+  name: string;
+  status: string;            // 任务状态
+  progress: number;          // 进度 (0-100)
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
   // 任务关联信息（扩展字段）
-  ConnectionID?: number;    // 关联的连接ID
-  ConnectionName?: string;  // 连接名称
-  Platform?: PlatformType;  // 平台类型: vcenter, h3c-uis
-  // VM选择信息
-  TotalVMs?: number;        // 虚拟机总数
-  SelectedVMs?: string;     // 选中的VM列表(JSON数组字符串)
+  connectionId?: number;     // 关联的连接ID
+  connectionName?: string;   // 连接名称
+  host?: string;             // 主机名
+  platform?: string;         // 平台类型: vcenter, h3c-uis
+  selectedVMs?: string[];    // 选中的VM列表
+  vmCount?: number;          // 虚拟机总数
+  collectedVMCount?: number; // 已采集的VM数量
+  currentStep?: string;      // 当前执行步骤
+  analysisResults?: Record<string, boolean>;  // 分析结果状态
 }
 
 export interface TaskLogEntry {
-  Timestamp: string;
-  Level: 'info' | 'warning' | 'error';
-  Message: string;
+  timestamp: string;
+  level: 'info' | 'warning' | 'error';
+  message: string;
 }
 
 // ==================== 资源查询 ====================
 
 export interface ClusterListItem {
-  ID: number;
-  Name: string;
-  Datacenter: string;
-  TotalCPU: number;
-  TotalMemoryGB: number;
-  NumHosts: number;
-  NumVMs: number;
-  Status: string;
-  CollectedAt: string;
+  id: number;
+  name: string;
+  datacenter: string;
+  totalCpu: number;
+  totalMemoryGB: number;
+  numHosts: number;
+  numVMs: number;
+  status: string;
+  collectedAt: string;
 }
 
 export interface HostListItem {
-  ID: number;
-  Name: string;
-  Datacenter: string;
-  IPAddress: string;
-  CPUCores: number;
-  CPUMHz: number;
-  MemoryGB: number;
-  NumVMs: number;
-  PowerState: string;
-  OverallStatus: string;
-  CollectedAt: string;
+  id: number;
+  name: string;
+  datacenter: string;
+  ipAddress: string;
+  cpuCores: number;
+  cpuMhz: number;
+  memoryGb: number;
+  numVMs: number;
+  powerState: string;
+  overallStatus: string;
+  collectedAt: string;
 }
 
 export interface VMListItem {
-  ID: number;
-  Name: string;
-  Datacenter: string;
-  UUID: string;
-  CPUCount: number;
-  MemoryGB: number;
-  PowerState: string;
-  IPAddress: string;
-  GuestOS: string;
-  HostName: string;
-  OverallStatus: string;
-  CollectedAt: string;
+  id: number;
+  name: string;
+  datacenter: string;
+  uuid: string;
+  cpuCount: number;
+  memoryGb: number;
+  powerState: string;
+  connectionState: string;
+  ipAddress: string;
+  guestOs: string;
+  hostName: string;
+  overallStatus: string;
+  collectedAt: string;
 }
 
 export interface MetricPoint {
-  Timestamp: number;
+  timestamp: number;
   Value: number;
 }
 
 export interface MetricsData {
-  VMID: number;
-  VMName: string;
-  MetricType: string;
-  StartTime: string;
-  EndTime: string;
-  Data: MetricPoint[];
+  vmId: number;
+  vmName: string;
+  metricType: string;
+  startTime: string;
+  endTime: string;
+  data: MetricPoint[];
 }
 
 export interface EntityDetail {
-  Type: EntityType;
-  ID: number;
-  Name: string;
-  Attributes: Record<string, any>;
+  type: entityType;
+  id: number;
+  name: string;
+  attributes: Record<string, any>;
 }
 
 // ==================== 分析服务 ====================
 
 export interface ZombieVMConfig {
-  analysis_days?: number;
-  cpu_threshold?: number;
-  memory_threshold?: number;
-  min_confidence?: number;
+  analysisDays?: number;
+  cpuThreshold?: number;
+  memoryThreshold?: number;
+  minConfidence?: number;
 }
 
 export interface ZombieVMResult {
-  VMName: string;
-  Datacenter: string;
-  Host: string;
-  CPUCount: number;
-  MemoryMB: number;
-  CPUUsage: number;
-  MemoryUsage: number;
-  Confidence: number;
-  DaysLowUsage: number;
-  Evidence: string[];
-  Recommendation: string;
+  vmName: string;
+  datacenter: string;
+  host: string;
+  cpuCount: number;
+  memoryMb: number;
+  cpuUsage: number;
+  memoryUsage: number;
+  confidence: number;
+  daysLowUsage: number;
+  evidence: string[];
+  recommendation: string;
 }
 
 export interface RightSizeConfig {
-  analysis_days?: number;
-  buffer_ratio?: number;
+  analysisDays?: number;
+  bufferRatio?: number;
 }
 
 export interface RightSizeResult {
-  VMName: string;
-  Datacenter: string;
-  CurrentCPU: number;
-  CurrentMemoryMB: number;
-  RecommendedCPU: number;
-  RecommendedMemoryMB: number;
-  AdjustmentType: 'none' | 'up' | 'down';
-  RiskLevel: 'low' | 'medium' | 'high';
-  EstimatedSaving: string;
-  Confidence: number;
+  vmName: string;
+  datacenter: string;
+  currentCpu: number;
+  currentMemoryMb: number;
+  recommendedCpu: number;
+  recommendedMemoryMb: number;
+  adjustmentType: 'none' | 'up' | 'down';
+  riskLevel: 'low' | 'medium' | 'high';
+  estimatedSaving: string;
+  confidence: number;
 }
 
 export interface TidalConfig {
-  analysis_days?: number;
-  min_stability?: number;
+  analysisDays?: number;
+  minStability?: number;
 }
 
 export interface TidalResult {
-  VMName: string;
-  Datacenter: string;
-  Pattern: 'daily' | 'weekly' | 'none';
-  StabilityScore: number;
-  PeakHours: number[];
-  PeakDays: number[];
-  Recommendation: string;
-  EstimatedSaving: string;
+  vmName: string;
+  datacenter: string;
+  pattern: 'daily' | 'weekly' | 'none';
+  stabilityScore: number;
+  peakHours: number[];
+  peakDays: number[];
+  recommendation: string;
+  estimatedSaving: string;
 }
 
 export interface HealthScoreResult {
-  ConnectionID: number;
-  ConnectionName: string;
-  OverallScore: number;
-  HealthLevel: 'excellent' | 'good' | 'fair' | 'poor';
-  ResourceBalance: number;
-  OvercommitRisk: number;
-  HotspotConcentration: number;
-  TotalClusters: number;
-  TotalHosts: number;
-  TotalVMs: number;
-  RiskItems: string[];
-  Recommendations: string[];
+  connectionId: number;
+  connectionName: string;
+  overallScore: number;
+  healthLevel: 'excellent' | 'good' | 'fair' | 'poor';
+  resourceBalance: number;
+  overcommitRisk: number;
+  hotspotConcentration: number;
+  clusterCount: number;
+  hostCount: number;
+  vmCount: number;
+  riskItems: string[];
+  recommendations: string[];
 }
 
 export interface AnalysisRequest {
-  connection_id: number;
-  analysis_types: string[];
+  connectionId: number;
+  analysisTypes: string[];
   config: Record<string, any>;
 }
 
 export interface AnalysisResponse {
-  Status: string;
+  status: string;
   Results: Record<string, any>;
 }
 
 export interface AnalysisSummary {
-  ConnectionID: number;
-  TotalVMs: number;
-  ZombieVMs: number;
-  RightSizeVMs: number;
-  TidalVMs: number;
-  HealthScore: number;
-  TotalSavings: string;
-  LastAnalyzed: string;
-  RiskDistribution: Record<string, number>;
+  connectionId: number;
+  vmCount: number;
+  zombieVMs: number;
+  rightSizeVMs: number;
+  tidalVMs: number;
+  healthScore: number;
+  totalSavings: string;
+  lastAnalyzed: string;
+  riskDistribution: Record<string, number>;
 }
 
 // ==================== 报告服务 ====================
 
 export interface ReportRequest {
   title: string;
-  connection_id: number;
-  report_types: string[];
+  connectionId: number;
+  reportTypes: string[];
 }
 
 export interface ReportResponse {
-  Success: boolean;
-  Message: string;
+  success: boolean;
+  message: string;
   Files: string[];
 }
 
 export interface ReportListItem {
-  ID: number;
-  Type: string;
-  Name: string;
-  ConnectionID: number;
-  Status: string;
-  Format: string;
-  FilePath: string;
-  FileSize: number;
-  CreatedAt: string;
+  id: number;
+  type: string;
+  name: string;
+  connectionId: number;
+  status: string;
+  format: string;
+  filePath: string;
+  fileSize: number;
+  createdAt: string;
 }
 
 export interface ReportDetail {
-  ID: number;
-  Type: string;
-  Name: string;
-  ConnectionID: number;
-  Status: string;
-  Format: string;
-  FilePath: string;
-  FileSize: number;
-  CreatedAt: string;
-  Sections?: ReportSection[];
+  id: number;
+  type: string;
+  name: string;
+  connectionId: number;
+  status: string;
+  format: string;
+  filePath: string;
+  fileSize: number;
+  createdAt: string;
+  sections?: ReportSection[];
 }
 
 export interface ReportSection {
-  Title: string;
-  Type: string;
-  Content?: string;
-  Data?: Record<string, any>;
+  title: string;
+  type: string;
+  content?: string;
+  data?: Record<string, any>;
 }
 
 export interface ExportReportRequest {
-  report_id: number;
+  reportId: number;
   format: string;
-  output_dir?: string;
+  outputDir?: string;
 }
 
 // ==================== 系统配置 ====================
 
 export interface SystemSettings {
   // 分析配置
-  default_analysis_days: number;
-  default_cpu_threshold: number;
-  default_memory_threshold: number;
-  default_buffer_ratio: number;
+  defaultAnalysisDays: number;
+  defaultCpuThreshold: number;
+  defaultMemoryThreshold: number;
+  defaultBufferRatio: number;
 
   // 采集配置
-  default_metrics_days: number;
-  collection_concurrency: number;
+  defaultMetricsDays: number;
+  collectionConcurrency: number;
 
   // 报告配置
-  default_report_format: string;
-  report_output_dir: string;
+  defaultReportFormat: string;
+  reportOutputDir: string;
 
   // 界面配置
   theme: string;
   language: string;
-  auto_refresh_interval: number;
+  autoRefreshInterval: number;
 }
 
 // ==================== 告警服务 ====================
 
 export interface AlertListItem {
-  ID: number;
-  TargetType: string;
-  TargetKey: string;
-  TargetName: string;
-  AlertType: AlertType;
-  Severity: AlertSeverity;
-  Title: string;
-  Message: string;
-  Acknowledged: boolean;
-  AcknowledgedAt?: string;
-  CreatedAt: string;
+  id: number;
+  targetType: string;
+  targetKey: string;
+  targetName: string;
+  alertType: alertType;
+  severity: AlertSeverity;
+  title: string;
+  message: string;
+  acknowledged: boolean;
+  acknowledgedAt?: string;
+  createdAt: string;
 }
 
 export interface MarkAlertRequest {
@@ -379,19 +387,19 @@ export interface MarkAlertRequest {
 }
 
 export interface AlertStats {
-  Total: number;
-  Unacknowledged: number;
-  BySeverity: Record<string, number>;
-  ByType: Record<string, number>;
+  total: number;
+  unacknowledged: number;
+  bySeverity: Record<string, number>;
+  byType: Record<string, number>;
 }
 
 // ==================== 仪表盘 ====================
 
 export interface DashboardStats {
-  health_score: number;
-  zombie_count: number;
-  total_savings: string;
-  total_vms: number;
+  healthScore: number;
+  zombieCount: number;
+  totalSavings: string;
+  vmCount: number;
 }
 
 // ==================== API 响应包装 ====================
@@ -406,10 +414,10 @@ export interface APIResponse<T = any> {
 // ==================== 创建告警 ====================
 
 export interface CreateAlertRequest {
-  target_type: string;
-  target_key: string;
-  target_name: string;
-  alert_type: string;
+  targetType: string;
+  targetKey: string;
+  targetName: string;
+  alertType: string;
   severity: string;
   title: string;
   message: string;

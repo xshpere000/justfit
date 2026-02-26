@@ -22,7 +22,7 @@
           <el-col :span="8">
             <el-form-item label="选择连接">
               <el-select
-                v-model="config.connection_id"
+                v-model="config.connectionId"
                 placeholder="请选择连接"
                 style="width: 100%"
               >
@@ -38,7 +38,7 @@
           <el-col :span="8">
             <el-form-item label="分析天数">
               <el-input-number
-                v-model="config.analysis_days"
+                v-model="config.analysisDays"
                 :min="7"
                 :max="90"
                 style="width: 100%"
@@ -48,13 +48,13 @@
           <el-col :span="8">
             <el-form-item label="缓冲比例">
               <el-slider
-                v-model="config.buffer_ratio"
+                v-model="config.bufferRatio"
                 :min="1.0"
                 :max="2.0"
                 :step="0.1"
                 :show-tooltip="false"
               />
-              <span class="form-tip">{{ config.buffer_ratio.toFixed(1) }}x</span>
+              <span class="form-tip">{{ config.bufferRatio.toFixed(1) }}x</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -110,37 +110,37 @@
       </template>
 
       <el-table :data="results" stripe max-height="500">
-        <el-table-column prop="vm_name" label="虚拟机名称" min-width="180" />
+        <el-table-column prop="vmName" label="虚拟机名称" min-width="180" />
         <el-table-column prop="datacenter" label="数据中心" width="120" />
         <el-table-column label="当前配置" width="150">
           <template #default="{ row }">
-            <div>{{ row.current_cpu }}核 / {{ row.current_memory_mb }}MB</div>
+            <div>{{ row.currentCpu }}核 / {{ row.currentMemoryMb }}MB</div>
           </template>
         </el-table-column>
         <el-table-column label="推荐配置" width="150">
           <template #default="{ row }">
             <div class="recommended">
-              <span class="cpu-value">{{ row.recommended_cpu }}核</span>
+              <span class="cpu-value">{{ row.recommendedCpu }}核</span>
               /
-              <span class="mem-value">{{ row.recommended_memory_mb }}MB</span>
+              <span class="mem-value">{{ row.recommendedMemoryMb }}MB</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="adjustment_type" label="调整类型" width="100">
+        <el-table-column prop="adjustmentType" label="调整类型" width="100">
           <template #default="{ row }">
-            <el-tag :type="getAdjustmentType(row.adjustment_type)">
-              {{ getAdjustmentText(row.adjustment_type) }}
+            <el-tag :type="getAdjustmentType(row.adjustmentType)">
+              {{ getAdjustmentText(row.adjustmentType) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="risk_level" label="风险等级" width="100">
+        <el-table-column prop="riskLevel" label="风险等级" width="100">
           <template #default="{ row }">
-            <el-tag :type="getRiskLevelType(row.risk_level)">
-              {{ row.risk_level }}
+            <el-tag :type="getRiskLevelType(row.riskLevel)">
+              {{ row.riskLevel }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="estimated_saving" label="预计节省" width="120" />
+        <el-table-column prop="estimatedSaving" label="预计节省" width="120" />
         <el-table-column prop="confidence" label="置信度" width="100">
           <template #default="{ row }">
             <el-progress
@@ -180,9 +180,9 @@ import { getRiskLevelType } from '@/utils/format'
 const connectionStore = useConnectionStore()
 
 const config = reactive<RightSizeConfig>({
-  connection_id: undefined,
-  analysis_days: 30,
-  buffer_ratio: 1.2
+  connectionId: undefined,
+  analysisDays: 30,
+  bufferRatio: 1.2
 })
 
 const analyzing = ref(false)
@@ -190,18 +190,18 @@ const analyzed = ref(false)
 const results = ref<RightSizeResult[]>([])
 
 const canAnalyze = computed(() => {
-  return config.connection_id && config.connection_id > 0 && !analyzing.value
+  return config.connectionId && config.connectionId > 0 && !analyzing.value
 })
 
 const totalSavedCPU = computed(() => {
   return results.value.reduce((sum, r) => {
-    return sum + (r.current_cpu - r.recommended_cpu)
+    return sum + (r.currentCpu - r.recommendedCpu)
   }, 0)
 })
 
 const totalSavedMemoryMB = computed(() => {
   return results.value.reduce((sum, r) => {
-    return sum + (r.current_memory_mb - r.recommended_memory_mb)
+    return sum + (r.currentMemoryMb - r.recommendedMemoryMb)
   }, 0)
 })
 
@@ -213,7 +213,7 @@ const averageConfidence = computed(() => {
 })
 
 async function handleAnalyze() {
-  if (!config.connection_id) {
+  if (!config.connectionId) {
     ElMessage.warning('请选择连接')
     return
   }
@@ -223,7 +223,7 @@ async function handleAnalyze() {
   results.value = []
 
   try {
-    const data = await AnalysisAPI.analyzeRightSize(config.connection_id, config)
+    const data = await AnalysisAPI.analyzeRightSize(config.connectionId, config)
     results.value = data
     analyzed.value = true
 

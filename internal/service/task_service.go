@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	applogger "justfit/internal/logger"
 	"justfit/internal/analyzer"
 	"justfit/internal/etl"
 	"justfit/internal/storage"
@@ -16,6 +17,7 @@ import (
 type CollectionExecutor struct {
 	collector *etl.Collector
 	repos     *storage.Repositories
+	log       applogger.Logger
 }
 
 // NewCollectionExecutor 创建采集任务执行器
@@ -23,6 +25,7 @@ func NewCollectionExecutor(collector *etl.Collector, repos *storage.Repositories
 	return &CollectionExecutor{
 		collector: collector,
 		repos:     repos,
+		log:       applogger.With(applogger.Str("component", "CollectionExecutor")),
 	}
 }
 
@@ -31,7 +34,7 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 	// 从配置中提取参数
 	// 支持 float64 (JSON 解码) 和 uint (直接传值) 两种类型
 	var connectionID uint
-	switch v := t.Config["connection_id"].(type) {
+	switch v := t.Config["connectionId"].(type) {
 	case float64:
 		connectionID = uint(v)
 	case uint:
@@ -40,17 +43,17 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 		return &task.TaskResult{
 			Success: false,
 			Message: "无效的 connection_id 配置",
-		}, fmt.Errorf("无效的 connection_id 配置，期望 float64 或 uint 类型，实际得到 %T", t.Config["connection_id"])
+		}, fmt.Errorf("无效的 connection_id 配置，期望 float64 或 uint 类型，实际得到 %T", t.Config["connectionId"])
 	}
 
 	// 获取数据类型配置
-	dataTypes, _ := t.Config["data_types"].([]string)
+	dataTypes, _ := t.Config["dataTypes"].([]string)
 	if len(dataTypes) == 0 {
 		dataTypes = []string{"clusters", "hosts", "vms"}
 	}
 
 	// 获取采集天数配置
-	metricsDaysFloat, ok := t.Config["metrics_days"].(float64)
+	metricsDaysFloat, ok := t.Config["metricsDays"].(float64)
 	metricsDays := 7
 	if ok {
 		metricsDays = int(metricsDaysFloat)
@@ -70,11 +73,9 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 		Password:     password,
 	}
 
-	progressCh <- 20
-
 	// 执行采集
 	result, err := e.collector.Collect(ctx, config)
-	progressCh <- 80
+	progressCh <- 30  // 基础数据采集完成
 
 	if err != nil {
 		return &task.TaskResult{
@@ -93,7 +94,18 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 		// 获取用户选择的虚拟机列表
 		selectedVMs := getSelectedVMsFromConfig(t.Config)
 
-		metricStats, metricErr := e.collector.CollectMetrics(ctx, connectionID, metricsDays, password, selectedVMs)
+		// 计算进度范围：30% → 90%（60%范围给性能指标采集）
+		startProgress := 30.0
+		endProgress := 90.0
+
+		metricStats, metricErr := e.collector.CollectMetrics(ctx, connectionID, metricsDays, password, selectedVMs,
+			func(current, total int, message string) {
+				// 计算当前进度：30% + (完成比例 * 60%)
+				if total > 0 {
+					progress := startProgress + (float64(current)/float64(total))*float64(endProgress-startProgress)
+					progressCh <- progress
+				}
+			})
 		if metricStats != nil {
 			metricCount = metricStats.CollectedMetricCount
 			metricScope = metricStats.Scope
@@ -105,15 +117,18 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 		err = metricErr
 		if err != nil {
 			// 性能指标采集失败不影响基础数据采集结果
-			fmt.Printf("采集性能指标失败: %v\n", err)
+			e.log.Warn("采集性能指标失败", applogger.Uint("taskID", t.ID), applogger.Err(err))
 		}
 	}
 
+	// 保存快照：90% → 100%
+	progressCh <- 95  // 开始保存快照
+
 	if snapshotErr := e.captureTaskVMSnapshots(t.ID, connectionID, getSelectedVMsFromConfig(t.Config)); snapshotErr != nil {
-		fmt.Printf("保存任务虚拟机快照失败 task=%d: %v\n", t.ID, snapshotErr)
+		e.log.Warn("保存任务虚拟机快照失败", applogger.Uint("taskID", t.ID), applogger.Err(snapshotErr))
 	}
 
-	progressCh <- 100
+	progressCh <- 100  // 全部完成
 
 	return &task.TaskResult{
 		Success: true,
@@ -146,6 +161,7 @@ func containsString(slice []string, item string) bool {
 type AnalysisExecutor struct {
 	analyzer *analyzer.Engine
 	repos    *storage.Repositories
+	log      applogger.Logger
 }
 
 // NewAnalysisExecutor 创建分析任务执行器
@@ -153,57 +169,60 @@ func NewAnalysisExecutor(analyzer *analyzer.Engine, repos *storage.Repositories)
 	return &AnalysisExecutor{
 		analyzer: analyzer,
 		repos:    repos,
+		log:      applogger.With(applogger.Str("component", "AnalysisExecutor")),
 	}
 }
 
 // Execute 执行分析任务
 func (e *AnalysisExecutor) Execute(ctx context.Context, t *task.Task, progressCh chan<- float64) (*task.TaskResult, error) {
-	fmt.Printf("[AnalysisExecutor.Execute] 开始执行分析任务: taskID=%d, config=%+v\n", t.ID, t.Config)
+	log := e.log.With(applogger.Uint("taskID", t.ID))
+
+	log.Info("开始执行分析任务", applogger.Any("config", t.Config))
 
 	// 从配置中提取参数
-	analysisType, ok := t.Config["analysis_type"].(string)
+	analysisType, ok := t.Config["analysisType"].(string)
 	if !ok {
-		fmt.Printf("[AnalysisExecutor.Execute] 错误：无效的 analysis_type 配置\n")
+		log.Warn("无效的 analysis_type 配置")
 		return &task.TaskResult{
 			Success: false,
 			Message: "无效的 analysis_type 配置",
 		}, fmt.Errorf("无效的 analysis_type 配置")
 	}
-	fmt.Printf("[AnalysisExecutor.Execute] 分析类型: %s\n", analysisType)
+	log.Debug("分析类型", applogger.String("type", analysisType))
 
 	// 支持 float64 (JSON 解码) 和 uint (直接传值) 两种类型
 	var connectionID uint
-	switch v := t.Config["connection_id"].(type) {
+	switch v := t.Config["connectionId"].(type) {
 	case float64:
 		connectionID = uint(v)
 	case uint:
 		connectionID = v
 	default:
-		fmt.Printf("[AnalysisExecutor.Execute] 错误：无效的 connection_id 配置, type=%T\n", t.Config["connection_id"])
+		log.Warn("无效的 connection_id 配置", applogger.String("type", fmt.Sprintf("%T", t.Config["connectionId"])))
 		return &task.TaskResult{
 			Success: false,
 			Message: "无效的 connection_id 配置",
-		}, fmt.Errorf("无效的 connection_id 配置，期望 float64 或 uint 类型，实际得到 %T", t.Config["connection_id"])
+		}, fmt.Errorf("无效的 connection_id 配置，期望 float64 或 uint 类型，实际得到 %T", t.Config["connectionId"])
 	}
-	fmt.Printf("[AnalysisExecutor.Execute] 连接ID: %d\n", connectionID)
+	log.Debug("连接ID", applogger.Uint("id", connectionID))
 
 	progressCh <- 10
 
 	var result interface{}
 	var err error
 
-	fmt.Printf("[AnalysisExecutor.Execute] 开始调用具体分析方法: %s\n", analysisType)
+	log.Debug("开始调用具体分析方法", applogger.String("type", analysisType))
 	switch analysisType {
-	case "zombie_vm":
+	case "zombie":
 		result, err = e.executeZombieVMAnalysis(connectionID, t.Config, progressCh)
-	case "right_size":
+	case "rightsize":
 		result, err = e.executeRightSizeAnalysis(connectionID, t.Config, progressCh)
 	case "tidal":
 		result, err = e.executeTidalAnalysis(connectionID, t.Config, progressCh)
-	case "health_score":
+	case "health":
 		result, err = e.executeHealthScoreAnalysis(connectionID, progressCh)
 	default:
-		fmt.Printf("[AnalysisExecutor.Execute] 错误：不支持的分析类型: %s\n", analysisType)
+		log.Warn("不支持的分析类型", applogger.String("type", analysisType))
 		return &task.TaskResult{
 			Success: false,
 			Message: fmt.Sprintf("不支持的分析类型: %s", analysisType),
@@ -213,18 +232,18 @@ func (e *AnalysisExecutor) Execute(ctx context.Context, t *task.Task, progressCh
 	progressCh <- 100
 
 	if err != nil {
-		fmt.Printf("[AnalysisExecutor.Execute] 分析执行失败: %v\n", err)
+		log.Error("分析执行失败", applogger.Err(err))
 		return &task.TaskResult{
 			Success: false,
 			Message: fmt.Sprintf("分析失败: %v", err),
 		}, err
 	}
-	fmt.Printf("[AnalysisExecutor.Execute] 分析执行成功: result type=%T\n", result)
+	log.Info("分析执行成功", applogger.String("resultType", fmt.Sprintf("%T", result)))
 
 	if saveErr := e.saveTaskAnalysisResult(t.ID, analysisType, result); saveErr != nil {
-		fmt.Printf("[AnalysisExecutor] 保存任务分析结果失败 task=%d type=%s: %v\n", t.ID, analysisType, saveErr)
+		log.Error("保存任务分析结果失败", applogger.Uint("taskID", t.ID), applogger.String("type", analysisType), applogger.Err(saveErr))
 	} else {
-		fmt.Printf("[AnalysisExecutor] 保存任务分析结果成功 task=%d type=%s\n", t.ID, analysisType)
+		log.Info("保存任务分析结果成功", applogger.Uint("taskID", t.ID), applogger.String("type", analysisType))
 	}
 
 	return &task.TaskResult{
@@ -238,13 +257,19 @@ func (e *AnalysisExecutor) Execute(ctx context.Context, t *task.Task, progressCh
 }
 
 func (e *CollectionExecutor) captureTaskVMSnapshots(taskID, connectionID uint, selectedVMs []string) error {
-	fmt.Printf("[captureTaskVMSnapshots] 开始捕获任务快照, taskID=%d, connectionID=%d, 选中VM数=%d\n", taskID, connectionID, len(selectedVMs))
+	log := e.log.With(
+		applogger.Uint("taskID", taskID),
+		applogger.Uint("connectionID", connectionID),
+		applogger.Int("selectedVMs", len(selectedVMs)))
+
+	log.Info("开始捕获任务快照")
+
 	vms, err := e.repos.VM.ListByConnectionID(connectionID)
 	if err != nil {
-		fmt.Printf("[captureTaskVMSnapshots] 获取虚拟机列表失败: %v\n", err)
+		log.Error("获取虚拟机列表失败", applogger.Err(err))
 		return fmt.Errorf("获取虚拟机列表失败: %w", err)
 	}
-	fmt.Printf("[captureTaskVMSnapshots] 数据库中有 %d 台虚拟机\n", len(vms))
+	log.Debug("数据库中的虚拟机数量", applogger.Int("count", len(vms)))
 
 	// 如果用户选择了虚拟机，只保存选中的
 	var filteredVMs []storage.VM
@@ -258,97 +283,117 @@ func (e *CollectionExecutor) captureTaskVMSnapshots(taskID, connectionID uint, s
 				filteredVMs = append(filteredVMs, vm)
 			}
 		}
-		fmt.Printf("[captureTaskVMSnapshots] 过滤后 %d 台虚拟机（用户选择）\n", len(filteredVMs))
+		log.Debug("过滤后的虚拟机数量", applogger.Int("count", len(filteredVMs)))
 	} else {
 		filteredVMs = vms
-		fmt.Printf("[captureTaskVMSnapshots] 保存所有 %d 台虚拟机\n", len(filteredVMs))
+		log.Debug("保存所有虚拟机", applogger.Int("count", len(filteredVMs)))
 	}
 
 	snapshots := make([]storage.TaskVMSnapshot, 0, len(filteredVMs))
 	for _, vm := range filteredVMs {
 		snapshots = append(snapshots, storage.TaskVMSnapshot{
-			TaskID:        taskID,
-			ConnectionID:  connectionID,
-			VMKey:         vm.VMKey,
-			UUID:          vm.UUID,
-			Name:          vm.Name,
-			Datacenter:    vm.Datacenter,
-			CpuCount:      vm.CpuCount,
-			MemoryMB:      vm.MemoryMB,
-			PowerState:    vm.PowerState,
-			IPAddress:     vm.IPAddress,
-			GuestOS:       vm.GuestOS,
-			HostName:      vm.HostName,
-			OverallStatus: vm.OverallStatus,
-			CollectedAt:   vm.CollectedAt,
+			TaskID:         taskID,
+			ConnectionID:   connectionID,
+			VMKey:          vm.VMKey,
+			UUID:           vm.UUID,
+			Name:           vm.Name,
+			Datacenter:     vm.Datacenter,
+			CpuCount:       vm.CpuCount,
+			MemoryMB:       vm.MemoryMB,
+			PowerState:     vm.PowerState,
+			ConnectionState: vm.ConnectionState,
+			IPAddress:      vm.IPAddress,
+			GuestOS:        vm.GuestOS,
+			HostName:       vm.HostName,
+			OverallStatus:  vm.OverallStatus,
+			CollectedAt:    vm.CollectedAt,
 		})
 	}
 
 	err = e.repos.TaskVMSnapshot.ReplaceByTaskID(taskID, snapshots)
 	if err != nil {
-		fmt.Printf("[captureTaskVMSnapshots] 保存快照失败: %v\n", err)
+		log.Error("保存快照失败", applogger.Err(err))
 		return err
 	}
-	fmt.Printf("[captureTaskVMSnapshots] 快照保存成功, taskID=%d, 数量=%d\n", taskID, len(snapshots))
+	log.Info("快照保存成功", applogger.Uint("taskID", taskID), applogger.Int("count", len(snapshots)))
 	return nil
 }
 
 func (e *AnalysisExecutor) saveTaskAnalysisResult(taskID uint, analysisType string, result interface{}) error {
-	fmt.Printf("[saveTaskAnalysisResult] 开始保存: taskID=%d, analysisType=%s\n", taskID, analysisType)
+	log := e.log.With(
+		applogger.Uint("taskID", taskID),
+		applogger.String("analysisType", analysisType))
+
+	log.Debug("开始保存任务分析结果")
+
 	payload, err := json.Marshal(result)
 	if err != nil {
-		fmt.Printf("[saveTaskAnalysisResult] 序列化失败: %v\n", err)
+		log.Error("序列化分析结果失败", applogger.Err(err))
 		return fmt.Errorf("序列化分析结果失败: %w", err)
 	}
-	fmt.Printf("[saveTaskAnalysisResult] 序列化成功，数据大小=%d bytes\n", len(payload))
+	log.Debug("序列化成功", applogger.Int("bytes", len(payload)))
 
-	record := &storage.TaskAnalysisResult{
-		TaskID:       taskID,
-		AnalysisType: analysisType,
-		Data:         string(payload),
+	record := &storage.TaskAnalysisJob{
+		TaskID:  taskID,
+		JobType: analysisType,
+		Status:  "completed",
+		Result:  string(payload),
 	}
 
-	if err := e.repos.TaskAnalysis.Create(record); err != nil {
-		fmt.Printf("[saveTaskAnalysisResult] 数据库保存失败: %v\n", err)
+	// 计算结果数量
+	if m, ok := result.(map[string]interface{}); ok {
+		if count, ok := m["count"].(float64); ok {
+			record.ResultCount = int(count)
+		}
+	}
+
+	if err := e.repos.TaskAnalysisJob.Create(record); err != nil {
+		log.Error("数据库保存失败", applogger.Err(err))
 		return err
 	}
-	fmt.Printf("[saveTaskAnalysisResult] 数据库保存成功: id=%d\n", record.ID)
+	log.Info("数据库保存成功", applogger.Uint("id", record.ID))
 	return nil
 }
 
 // executeZombieVMAnalysis 执行僵尸VM分析
 func (e *AnalysisExecutor) executeZombieVMAnalysis(connectionID uint, config map[string]interface{}, progressCh chan<- float64) (interface{}, error) {
-	fmt.Printf("[executeZombieVMAnalysis] 开始执行僵尸VM分析, connectionID=%d\n", connectionID)
+	log := e.log.With(
+		applogger.Uint("connectionID", connectionID),
+		applogger.String("analysis", "zombie"))
+
+	log.Info("开始执行僵尸VM分析")
+
 	zombieConfig := parseZombieVMConfig(config)
-	fmt.Printf("[executeZombieVMAnalysis] 配置: analysisDays=%d, cpuThreshold=%f, memoryThreshold=%f\n",
-		zombieConfig.AnalysisDays, zombieConfig.CPUThreshold, zombieConfig.MemoryThreshold)
+	log.Debug("僵尸VM配置",
+		applogger.Int("analysisDays", zombieConfig.AnalysisDays),
+		applogger.Float64("cpuThreshold", zombieConfig.CPUThreshold),
+		applogger.Float64("memoryThreshold", zombieConfig.MemoryThreshold))
 
 	progressCh <- 30
 
-	fmt.Printf("[executeZombieVMAnalysis] 调用 analyzer.DetectZombieVMs\n")
 	results, err := e.analyzer.DetectZombieVMs(connectionID, zombieConfig)
 	if err != nil {
-		fmt.Printf("[executeZombieVMAnalysis] 分析失败: %v\n", err)
+		log.Error("僵尸VM分析失败", applogger.Err(err))
 		return nil, err
 	}
-	fmt.Printf("[executeZombieVMAnalysis] 分析完成，找到 %d 个僵尸VM\n", len(results))
+	log.Info("僵尸VM分析完成", applogger.Int("count", len(results)))
 
 	progressCh <- 80
 
-	// 转换结果
+	// 转换结果（使用驼峰命名）
 	output := make([]map[string]interface{}, len(results))
 	for i, r := range results {
 		output[i] = map[string]interface{}{
-			"vm_name":        r.VMName,
-			"datacenter":     r.Datacenter,
-			"host":           r.Host,
-			"cpu_count":      r.CPUCount,
-			"memory_mb":      r.MemoryMB,
-			"cpu_usage":      r.CPUUsage,
-			"memory_usage":   r.MemoryUsage,
-			"confidence":     r.Confidence,
-			"days_low_usage": r.DaysLowUsage,
-			"evidence":       r.Evidence,
+			"vmName":        r.VMName,
+			"datacenter":    r.Datacenter,
+			"host":          r.Host,
+			"cpuCount":      r.CPUCount,
+			"memoryMb":      r.MemoryMB,
+			"cpuUsage":      r.CPUUsage,
+			"memoryUsage":   r.MemoryUsage,
+			"confidence":    r.Confidence,
+			"daysLowUsage":  r.DaysLowUsage,
+			"evidence":      r.Evidence,
 			"recommendation": r.Recommendation,
 		}
 	}
@@ -372,20 +417,20 @@ func (e *AnalysisExecutor) executeRightSizeAnalysis(connectionID uint, config ma
 
 	progressCh <- 80
 
-	// 转换结果
+	// 转换结果（使用驼峰命名）
 	output := make([]map[string]interface{}, len(results))
 	for i, r := range results {
 		output[i] = map[string]interface{}{
-			"vm_name":               r.VMName,
-			"datacenter":            r.Datacenter,
-			"current_cpu":           r.CurrentCPU,
-			"current_memory_mb":     r.CurrentMemoryMB,
-			"recommended_cpu":       r.RecommendedCPU,
-			"recommended_memory_mb": r.RecommendedMemoryMB,
-			"adjustment_type":       r.AdjustmentType,
-			"risk_level":            r.RiskLevel,
-			"estimated_saving":      r.EstimatedSaving,
-			"confidence":            r.Confidence,
+			"vmName":               r.VMName,
+			"datacenter":           r.Datacenter,
+			"currentCpu":           r.CurrentCPU,
+			"currentMemoryMb":      r.CurrentMemoryMB,
+			"recommendedCpu":       r.RecommendedCPU,
+			"recommendedMemoryMb":  r.RecommendedMemoryMB,
+			"adjustmentType":       r.AdjustmentType,
+			"riskLevel":            r.RiskLevel,
+			"estimatedSaving":      r.EstimatedSaving,
+			"confidence":           r.Confidence,
 		}
 	}
 
@@ -408,18 +453,18 @@ func (e *AnalysisExecutor) executeTidalAnalysis(connectionID uint, config map[st
 
 	progressCh <- 80
 
-	// 转换结果
+	// 转换结果（使用驼峰命名）
 	output := make([]map[string]interface{}, len(results))
 	for i, r := range results {
 		output[i] = map[string]interface{}{
-			"vm_name":          r.VMName,
-			"datacenter":       r.Datacenter,
-			"pattern":          string(r.Pattern),
-			"stability_score":  r.StabilityScore,
-			"peak_hours":       r.PeakHours,
-			"peak_days":        r.PeakDays,
-			"recommendation":   r.Recommendation,
-			"estimated_saving": r.EstimatedSaving,
+			"vmName":          r.VMName,
+			"datacenter":      r.Datacenter,
+			"pattern":         string(r.Pattern),
+			"stabilityScore":  r.StabilityScore,
+			"peakHours":       r.PeakHours,
+			"peakDays":        r.PeakDays,
+			"recommendation":  r.Recommendation,
+			"estimatedSaving": r.EstimatedSaving,
 		}
 	}
 
@@ -441,18 +486,18 @@ func (e *AnalysisExecutor) executeHealthScoreAnalysis(connectionID uint, progres
 	progressCh <- 80
 
 	return map[string]interface{}{
-		"connection_id":         result.ConnectionID,
-		"connection_name":       result.ConnectionName,
-		"overall_score":         result.OverallScore,
-		"health_level":          result.HealthLevel,
-		"resource_balance":      result.ResourceBalance,
-		"overcommit_risk":       result.OvercommitRisk,
-		"hotspot_concentration": result.HotspotConcentration,
-		"total_clusters":        result.TotalClusters,
-		"total_hosts":           result.TotalHosts,
-		"total_vms":             result.TotalVMs,
-		"risk_items":            result.RiskItems,
-		"recommendations":       result.Recommendations,
+		"connectionId":         result.ConnectionID,
+		"connectionName":       result.ConnectionName,
+		"overallScore":         result.OverallScore,
+		"healthLevel":          result.HealthLevel,
+		"resourceBalance":      result.ResourceBalance,
+		"overcommitRisk":       result.OvercommitRisk,
+		"hotspotConcentration": result.HotspotConcentration,
+		"clusterCount":        result.ClusterCount,
+		"hostCount":           result.HostCount,
+		"vmCount":              result.VMCount,
+		"riskItems":            result.RiskItems,
+		"recommendations":      result.Recommendations,
 	}, nil
 }
 
@@ -460,16 +505,16 @@ func (e *AnalysisExecutor) executeHealthScoreAnalysis(connectionID uint, progres
 func parseZombieVMConfig(config map[string]interface{}) *analyzer.ZombieVMConfig {
 	result := analyzer.DefaultZombieVMConfig()
 
-	if v, ok := config["analysis_days"].(float64); ok {
+	if v, ok := config["analysisDays"].(float64); ok {
 		result.AnalysisDays = int(v)
 	}
-	if v, ok := config["cpu_threshold"].(float64); ok {
+	if v, ok := config["cpuThreshold"].(float64); ok {
 		result.CPUThreshold = v
 	}
-	if v, ok := config["memory_threshold"].(float64); ok {
+	if v, ok := config["memoryThreshold"].(float64); ok {
 		result.MemoryThreshold = v
 	}
-	if v, ok := config["min_confidence"].(float64); ok {
+	if v, ok := config["minConfidence"].(float64); ok {
 		result.MinConfidence = v
 	}
 
@@ -480,10 +525,10 @@ func parseZombieVMConfig(config map[string]interface{}) *analyzer.ZombieVMConfig
 func parseRightSizeConfig(config map[string]interface{}) *analyzer.RightSizeConfig {
 	result := analyzer.DefaultRightSizeConfig()
 
-	if v, ok := config["analysis_days"].(float64); ok {
+	if v, ok := config["analysisDays"].(float64); ok {
 		result.AnalysisDays = int(v)
 	}
-	if v, ok := config["buffer_ratio"].(float64); ok {
+	if v, ok := config["bufferRatio"].(float64); ok {
 		result.BufferRatio = v
 	}
 
@@ -494,10 +539,10 @@ func parseRightSizeConfig(config map[string]interface{}) *analyzer.RightSizeConf
 func parseTidalConfig(config map[string]interface{}) *analyzer.TidalConfig {
 	result := analyzer.DefaultTidalConfig()
 
-	if v, ok := config["analysis_days"].(float64); ok {
+	if v, ok := config["analysisDays"].(float64); ok {
 		result.AnalysisDays = int(v)
 	}
-	if v, ok := config["min_stability"].(float64); ok {
+	if v, ok := config["minStability"].(float64); ok {
 		result.MinStability = v
 	}
 
@@ -506,7 +551,7 @@ func parseTidalConfig(config map[string]interface{}) *analyzer.TidalConfig {
 
 // getSelectedVMsFromConfig 从配置中获取用户选择的虚拟机列表
 func getSelectedVMsFromConfig(config map[string]interface{}) []string {
-	v, ok := config["selected_vms"]
+	v, ok := config["selectedVMs"]
 	if !ok {
 		return []string{}
 	}

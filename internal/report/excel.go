@@ -19,16 +19,16 @@ type ExcelGenerator struct {
 
 // excelStyles Excel 样式缓存
 type excelStyles struct {
-	header     int
-	title      int
-	subtitle   int
-	normal     int
-	warning    int
-	danger     int
-	success    int
-	border     int
-	number     int
-	percent    int
+	header   int
+	title    int
+	subtitle int
+	normal   int
+	warning  int
+	danger   int
+	success  int
+	border   int
+	number   int
+	percent  int
 }
 
 // NewExcelGenerator 创建 Excel 生成器
@@ -450,7 +450,7 @@ func (g *ExcelGenerator) createRightSizeSheet() error {
 				for _, r := range rows {
 					g.setRowValue(sheet, row, r)
 					// 根据风险等级设置样式
-					if risk, ok := r["risk_level"].(string); ok {
+					if risk, ok := r["riskLevel"].(string); ok {
 						style := g.styles.normal
 						if risk == "高" {
 							style = g.styles.danger
@@ -533,12 +533,12 @@ func (g *ExcelGenerator) createHealthSheet() error {
 		if section.Type == "health_summary" {
 			if m, ok := section.Data.(map[string]interface{}); ok {
 				// 评分大字显示
-				if score, ok := m["overall_score"].(float64); ok {
+				if score, ok := m["overallScore"].(float64); ok {
 					g.file.SetCellValue(sheet, fmt.Sprintf("A%d", row), "总体评分")
 					g.file.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), g.styles.subtitle)
 
 					scoreStyle, _ := g.file.NewStyle(&excelize.Style{
-						Font: &excelize.Font{Bold: true, Size: 36, Color: getHealthColor(score)},
+						Font:      &excelize.Font{Bold: true, Size: 36, Color: getHealthColor(score)},
 						Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
 					})
 					g.file.SetCellValue(sheet, fmt.Sprintf("B%d", row), fmt.Sprintf("%.0f", score))
@@ -549,7 +549,7 @@ func (g *ExcelGenerator) createHealthSheet() error {
 
 				// 详细指标
 				for key, value := range m {
-					if key == "overall_score" {
+					if key == "overallScore" {
 						continue
 					}
 					label := getMetricLabel(key)
@@ -682,17 +682,17 @@ func getHealthColor(score float64) string {
 // getMetricLabel 获取指标标签
 func getMetricLabel(key string) string {
 	labels := map[string]string{
-		"total_vms":        "虚拟机总数",
-		"total_hosts":      "主机总数",
-		"total_clusters":   "集群总数",
-		"zombie_vms":       "僵尸 VM 数量",
-		"overallocated":    "超配 VM 数量",
-		"underutilized":    "低利用率 VM 数量",
-		"health_score":     "健康评分",
-		"resource_balance": "资源均衡度",
-		"overcommit_risk":  "超配风险",
-		"hotspot_level":    "热点集中度",
-		"overall_score":    "总体评分",
+		"vmCount":         "虚拟机总数",
+		"hostCount":       "主机总数",
+		"clusterCount":    "集群总数",
+		"zombieVMs":       "僵尸 VM 数量",
+		"overallocated":   "超配 VM 数量",
+		"underutilized":   "低利用率 VM 数量",
+		"healthScore":     "健康评分",
+		"resourceBalance": "资源均衡度",
+		"overcommitRisk":  "超配风险",
+		"hotspotLevel":    "热点集中度",
+		"overallScore":    "总体评分",
 	}
 	if label, ok := labels[key]; ok {
 		return label
@@ -703,10 +703,10 @@ func getMetricLabel(key string) string {
 // getMetricRemark 获取指标备注
 func getMetricRemark(key string) string {
 	remarks := map[string]string{
-		"zombie_vms":    "建议关机或删除",
+		"zombieVMs":     "建议关机或删除",
 		"overallocated": "建议降配",
 		"underutilized": "建议合并或优化",
-		"health_score":  "满分100分",
+		"healthScore":   "满分100分",
 	}
 	if remark, ok := remarks[key]; ok {
 		return remark

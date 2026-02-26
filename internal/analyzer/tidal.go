@@ -23,15 +23,15 @@ const (
 type TidalResult struct {
 	VMAnalysisResult
 	Pattern        TidalPattern `json:"pattern"`
-	StabilityScore float64      `json:"stability_score"` // 稳定性评分 0-100
-	PeakHours      []int        `json:"peak_hours"`      // 高峰时段 (0-23)
-	PeakDays       []int        `json:"peak_days"`       // 高峰日期 (0-6, 0=周日)
-	TroughHours    []int        `json:"trough_hours"`    // 低谷时段
-	TroughDays     []int        `json:"trough_days"`     // 低谷日期
+	StabilityScore float64      `json:"stabilityScore"` // 稳定性评分 0-100
+	PeakHours      []int        `json:"peakHours"`      // 高峰时段 (0-23)
+	PeakDays       []int        `json:"peakDays"`       // 高峰日期 (0-6, 0=周日)
+	TroughHours    []int        `json:"troughHours"`    // 低谷时段
+	TroughDays     []int        `json:"troughDays"`     // 低谷日期
 
 	// 推荐
 	Recommendation  string `json:"recommendation"`
-	EstimatedSaving string `json:"estimated_saving"`
+	EstimatedSaving string `json:"estimatedSaving"`
 }
 
 // TidalConfig 潮汐分析配置

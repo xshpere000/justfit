@@ -18,13 +18,13 @@
                      <el-tag :type="getStatusType(task.status)" size="small">{{ getStatusLabel(task.status) }}</el-tag>
                    </div>
                    <div class="task-actions-top">
-                      <el-button link type="danger" size="small" @click="taskStore.deleteTask(task.id)"><el-icon><Delete /></el-icon></el-button>
+                      <el-button link type="danger" size="small" @click="handleDeleteTask(task.id)"><el-icon><Delete /></el-icon></el-button>
                    </div>
                 </div>
                 <div class="task-meta">
                    <span class="meta-item"><el-icon><Monitor /></el-icon> {{ task.platform || '未知' }}</span>
                    <span class="meta-item"><el-icon><Connection /></el-icon> {{ task.connectionName || '-' }}</span>
-                   <span class="meta-item"><el-icon><Clock /></el-icon> {{ formatDate(task.created_at) }}</span>
+                   <span class="meta-item"><el-icon><Clock /></el-icon> {{ formatDate(task.createdAt) }}</span>
                 </div>
                 <div class="task-progress" v-if="task.status === 'running'">
                    <div class="progress-label">进度 {{ task.progress }}%</div>
@@ -44,16 +44,31 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useTaskStore } from '@/stores/task'
 import { Monitor, Connection, Clock, Delete } from '@element-plus/icons-vue'
 
 const taskStore = useTaskStore()
 
 // 初始化时从后端同步任务
-taskStore.syncTasksFromBackend()
+onMounted(async () => {
+  console.log('[Tasks.vue] onMounted 初始化开始')
+  try {
+    await taskStore.syncTasksFromBackend()
+    console.log('[Tasks.vue] 任务列表同步成功, 任务数量:', taskStore.tasks.length)
+  } catch (error) {
+    console.error('[Tasks.vue] 任务列表同步失败:', error)
+  }
+})
 
-function refreshList() {
-  taskStore.syncTasksFromBackend()
+async function refreshList() {
+  console.log('[Tasks.vue] refreshList 刷新任务列表')
+  try {
+    await taskStore.syncTasksFromBackend()
+    console.log('[Tasks.vue] 刷新成功, 任务数量:', taskStore.tasks.length)
+  } catch (error) {
+    console.error('[Tasks.vue] 刷新失败:', error)
+  }
 }
 
 function formatDate(dateStr?: string) {
@@ -81,6 +96,16 @@ function getStatusLabel(status: string) {
         'paused': '暂停'
     }
     return map[status] || status
+}
+
+async function handleDeleteTask(id: number) {
+  console.log('[Tasks.vue] handleDeleteTask 删除任务, taskId:', id)
+  try {
+    await taskStore.deleteTask(id)
+    console.log('[Tasks.vue] 删除任务成功, taskId:', id)
+  } catch (e: any) {
+    console.error('[Tasks.vue] 删除任务失败:', e)
+  }
 }
 </script>
 

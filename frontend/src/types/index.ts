@@ -17,11 +17,11 @@ export interface ApiResponse<T = any> {
 
 export interface PageParams {
   page?: number
-  page_size?: number
+  pageSize?: number
 }
 
 export interface PageResponse<T = any> extends ApiResponse<T[]> {
   total: number
   page: number
-  page_size: number
+  pageSize: number
 }

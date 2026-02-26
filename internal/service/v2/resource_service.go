@@ -180,39 +180,39 @@ func (s *ResourceService) ListVMsPaged(connectionID uint, page, size int, keywor
 
 // GetDashboardStats 获取仪表盘统计数据
 type DashboardStats struct {
-	HealthScore  float64 `json:"health_score"`
-	ZombieCount  int64   `json:"zombie_count"`
-	TotalSavings string  `json:"total_savings"`
-	TotalVMs     int64   `json:"total_vms"`
-	TotalHosts   int64   `json:"total_hosts"`
-	TotalClusters int64  `json:"total_clusters"`
+	HealthScore  float64 `json:"healthScore"`
+	ZombieCount  int64   `json:"zombieCount"`
+	TotalSavings string  `json:"totalSavings"`
+	VMCount      int64   `json:"vmCount"`
+	HostCount    int64   `json:"hostCount"`
+	ClusterCount int64  `json:"clusterCount"`
 }
 
 func (s *ResourceService) GetDashboardStats() (*DashboardStats, error) {
 	s.log.Debug("获取仪表盘统计")
 
 	// 获取 VM 总数
-	var totalVMs int64
-	if err := s.repos.DB().Model(&storage.VM{}).Count(&totalVMs).Error; err != nil {
+	var vmCount int64
+	if err := s.repos.DB().Model(&storage.VM{}).Count(&vmCount).Error; err != nil {
 		s.log.Error("统计 VM 失败", logger.Err(err))
 	}
 
 	// 获取 Host 总数
-	var totalHosts int64
-	if err := s.repos.DB().Model(&storage.Host{}).Count(&totalHosts).Error; err != nil {
+	var hostCount int64
+	if err := s.repos.DB().Model(&storage.Host{}).Count(&hostCount).Error; err != nil {
 		s.log.Error("统计 Host 失败", logger.Err(err))
 	}
 
 	// 获取 Cluster 总数
-	var totalClusters int64
-	if err := s.repos.DB().Model(&storage.Cluster{}).Count(&totalClusters).Error; err != nil {
+	var clusterCount int64
+	if err := s.repos.DB().Model(&storage.Cluster{}).Count(&clusterCount).Error; err != nil {
 		s.log.Error("统计 Cluster 失败", logger.Err(err))
 	}
 
 	// 获取最新健康评分
 	var latestHealth storage.AnalysisResult
 	var healthScore float64 = 0
-	s.repos.DB().Where("analysis_type = ?", "health_score").Order("created_at desc").First(&latestHealth)
+	s.repos.DB().Where("analysis_type = ?", "health").Order("created_at desc").First(&latestHealth)
 
 	if latestHealth.ID > 0 {
 		// 解析 Data 字段获取健康评分
@@ -224,7 +224,7 @@ func (s *ResourceService) GetDashboardStats() (*DashboardStats, error) {
 	// 统计僵尸 VM 数量
 	var zombieCount int64
 	s.repos.DB().Model(&storage.AnalysisResult{}).
-		Where("analysis_type = ? AND created_at > ?", "zombie_vm", time.Now().AddDate(0, 0, -7)).
+		Where("analysis_type = ? AND created_at > ?", "zombie", time.Now().AddDate(0, 0, -7)).
 		Count(&zombieCount)
 
 	// 计算节省
@@ -239,8 +239,8 @@ func (s *ResourceService) GetDashboardStats() (*DashboardStats, error) {
 		HealthScore:   healthScore,
 		ZombieCount:   zombieCount,
 		TotalSavings:  savings,
-		TotalVMs:      totalVMs,
-		TotalHosts:    totalHosts,
-		TotalClusters: totalClusters,
+		VMCount:   vmCount,
+		HostCount:    hostCount,
+		ClusterCount: clusterCount,
 	}, nil
 }

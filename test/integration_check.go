@@ -252,8 +252,8 @@ func (a *TestApp) TestReportGeneration() error {
 				Title: "数据汇总",
 				Type:  "summary",
 				Data: map[string]interface{}{
-					"total_vms":   100,
-					"total_hosts": 10,
+					"vmCount":     100,
+					"hostCount":   10,
 				},
 			},
 		},
@@ -287,7 +287,7 @@ func (a *TestApp) TestAlertManagement() error {
 		TargetType:  "vm",
 		TargetKey:   "vm-123",
 		TargetName:  "test-vm",
-		AlertType:   "zombie_vm",
+		AlertType:   "zombie",
 		Severity:    "warning",
 		Title:       "测试告警",
 		Message:     "这是一个测试告警",
@@ -481,7 +481,7 @@ func (a *TestApp) TestDatabaseOperations() error {
 
 	// 创建分析结果
 	analysisResult := &storage.AnalysisResult{
-		AnalysisType:   "zombie_vm",
+		AnalysisType:   "zombie",
 		TargetType:     "vm",
 		TargetKey:      vm.VMKey,
 		TargetName:     vm.Name,

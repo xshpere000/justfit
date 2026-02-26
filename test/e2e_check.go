@@ -180,13 +180,13 @@ func main() {
 	// 生成测试报告
 	fmt.Println("\n5. 生成测试报告...")
 	report := map[string]interface{}{
-		"timestamp":    time.Now().Format(time.RFC3339),
-		"connection":   "H3C UIS 测试环境",
-		"vm_count":     len(vms),
-		"zombie_vms":   len(zombieResults),
-		"rightsize_vms": len(rightSizeResults),
-		"tidal_vms":    len(tidalResults),
-		"health_score": healthResult.OverallScore,
+		"timestamp":     time.Now().Format(time.RFC3339),
+		"connection":    "H3C UIS 测试环境",
+		"vmCount":       len(vms),
+		"zombieVMs":     len(zombieResults),
+		"rightSizeVMs":  len(rightSizeResults),
+		"tidalVMs":      len(tidalResults),
+		"healthScore":   healthResult.OverallScore,
 	}
 
 	reportData, _ := json.MarshalIndent(report, "", "  ")

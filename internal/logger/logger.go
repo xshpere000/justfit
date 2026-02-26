@@ -271,6 +271,11 @@ func With(fields ...Field) Logger {
 	return Get().With(fields...)
 }
 
+// SetGlobal 设置全局日志器
+func SetGlobal(log Logger) {
+	global = log
+}
+
 // SetLevel 设置全局日志级别
 func SetLevel(level Level) {
 	Get().SetLevel(level)
