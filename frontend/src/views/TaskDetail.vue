@@ -65,7 +65,7 @@
     </div>
 
     <!-- 任务已完成状态 -->
-    <div v-else-if="task?.status === 'completed'">
+    <div v-else-if="task?.status === 'completed'" class="completed-state">
       <!-- Tab 导航 -->
       <el-tabs v-model="activeTab" class="task-tabs">
         <el-tab-pane label="概览" name="overview">
@@ -163,15 +163,12 @@
                   placeholder="搜索虚拟机"
                   prefix-icon="Search"
                   clearable
-                  style="width: 300px"
+                  class="search-input"
                   @input="handleVMSearch"
                 />
-                <div class="table-stats">
-                  共 {{ vmTotal }} 台虚拟机
-                </div>
               </div>
-              <div class="table-wrapper">
-                <el-table :data="vmList" stripe :loading="vmListLoading" height="400">
+              <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
+                <el-table :data="vmList" stripe :loading="vmListLoading" :height="listTableHeight" class="detail-table">
                   <el-table-column prop="name" label="虚拟机名称" min-width="180" />
                 <el-table-column prop="cpuCount" label="CPU" width="100">
                   <template #default="{ row }">
@@ -190,17 +187,21 @@
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="datacenter" label="数据中心" width="150" />
-                <el-table-column prop="hostName" label="主机" width="150" />
+                <el-table-column prop="datacenter" label="数据中心" width="150" show-overflow-tooltip />
+                <el-table-column prop="hostName" label="主机" width="150" show-overflow-tooltip />
               </el-table>
             </div>
             <div class="table-pagination">
+              <span class="logs-total">
+                共 {{ vmTotal }} 条
+              </span>
               <el-pagination
                 v-model:current-page="vmCurrentPage"
                 v-model:page-size="vmPageSize"
-                :page-sizes="[20, 50, 100, 200]"
+                :page-sizes="vmPageSizes"
                 :total="vmTotal"
-                layout="total, sizes, prev, pager, next, jumper"
+                :layout="vmPaginationLayout"
+                :small="isCompactWindow"
                 @current-change="handleVMPageChange"
                 @size-change="handleVMSizeChange"
               />
@@ -211,21 +212,48 @@
 
         <el-tab-pane label="僵尸VM" name="zombie">
           <div class="analysis-content" v-if="hasAnalysisResults.zombie">
-            <el-table :data="analysisData.zombie" stripe v-loading="analysisLoading.zombie">
-              <el-table-column prop="vmName" label="虚拟机" min-width="180" />
-              <el-table-column prop="datacenter" label="数据中心" min-width="140" />
-              <el-table-column prop="cpuUsage" label="CPU使用率" width="120">
-                <template #default="{ row }">{{ row.cpuUsage.toFixed(1) }}%</template>
-              </el-table-column>
-              <el-table-column prop="memoryUsage" label="内存使用率" width="120">
-                <template #default="{ row }">{{ row.memoryUsage.toFixed(1) }}%</template>
-              </el-table-column>
-              <el-table-column prop="confidence" label="置信度" width="100">
-                <template #default="{ row }">{{ row.confidence.toFixed(0) }}%</template>
-              </el-table-column>
-              <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
-            </el-table>
-            <el-empty v-if="!analysisLoading.zombie && analysisData.zombie.length === 0" description="暂无分析结果" />
+            <div class="analysis-toolbar">
+              <el-input
+                v-model="zombieSearch"
+                placeholder="搜索虚拟机"
+                clearable
+                class="search-input"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </div>
+            <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
+              <el-table :data="pagedZombieData" stripe v-loading="analysisLoading.zombie" :height="listTableHeight" class="detail-table">
+                <el-table-column prop="vmName" label="虚拟机" min-width="180" />
+                <el-table-column prop="datacenter" label="数据中心" min-width="140" />
+                <el-table-column prop="cpuUsage" label="CPU使用率" width="120">
+                  <template #default="{ row }">{{ row.cpuUsage.toFixed(1) }}%</template>
+                </el-table-column>
+                <el-table-column prop="memoryUsage" label="内存使用率" width="120">
+                  <template #default="{ row }">{{ row.memoryUsage.toFixed(1) }}%</template>
+                </el-table-column>
+                <el-table-column prop="confidence" label="置信度" width="100">
+                  <template #default="{ row }">{{ row.confidence.toFixed(0) }}%</template>
+                </el-table-column>
+                <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
+              </el-table>
+            </div>
+            <div class="logs-pagination" v-if="filteredZombieData.length > 0">
+              <span class="logs-total">
+                共 {{ filteredZombieData.length }} 条
+              </span>
+              <el-pagination
+                v-model:current-page="zombieCurrentPage"
+                v-model:page-size="analysisPageSize"
+                :page-sizes="logsPageSizes"
+                :total="filteredZombieData.length"
+                :layout="logsPaginationLayout"
+                :small="isCompactWindow"
+              />
+            </div>
+            <el-empty v-if="!analysisLoading.zombie && filteredZombieData.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
@@ -238,20 +266,47 @@
 
         <el-tab-pane label="Right Size" name="rightsize">
           <div class="analysis-content" v-if="hasAnalysisResults.rightsize">
-            <el-table :data="analysisData.rightsize" stripe v-loading="analysisLoading.rightsize">
-              <el-table-column prop="vmName" label="虚拟机" min-width="180" />
-              <el-table-column prop="datacenter" label="数据中心" min-width="140" />
-              <el-table-column prop="currentCpu" label="当前CPU" width="110" />
-              <el-table-column prop="recommendedCpu" label="建议CPU" width="110" />
-              <el-table-column prop="currentMemoryMb" label="当前内存" width="130">
-                <template #default="{ row }">{{ formatMemory(row.currentMemoryMb) }}</template>
-              </el-table-column>
-              <el-table-column prop="recommendedMemoryMb" label="建议内存" width="130">
-                <template #default="{ row }">{{ formatMemory(row.recommendedMemoryMb) }}</template>
-              </el-table-column>
-              <el-table-column prop="estimatedSaving" label="预计节省" min-width="120" />
-            </el-table>
-            <el-empty v-if="!analysisLoading.rightsize && analysisData.rightsize.length === 0" description="暂无分析结果" />
+            <div class="analysis-toolbar">
+              <el-input
+                v-model="rightsizeSearch"
+                placeholder="搜索虚拟机"
+                clearable
+                class="search-input"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </div>
+            <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
+              <el-table :data="pagedRightsizeData" stripe v-loading="analysisLoading.rightsize" :height="listTableHeight" class="detail-table">
+                <el-table-column prop="vmName" label="虚拟机" min-width="180" />
+                <el-table-column prop="datacenter" label="数据中心" min-width="140" />
+                <el-table-column prop="currentCpu" label="当前CPU" width="110" />
+                <el-table-column prop="recommendedCpu" label="建议CPU" width="110" />
+                <el-table-column prop="currentMemoryMb" label="当前内存" width="130">
+                  <template #default="{ row }">{{ formatMemory(row.currentMemoryMb) }}</template>
+                </el-table-column>
+                <el-table-column prop="recommendedMemoryMb" label="建议内存" width="130">
+                  <template #default="{ row }">{{ formatMemory(row.recommendedMemoryMb) }}</template>
+                </el-table-column>
+                <el-table-column prop="estimatedSaving" label="预计节省" min-width="120" />
+              </el-table>
+            </div>
+            <div class="logs-pagination" v-if="filteredRightsizeData.length > 0">
+              <span class="logs-total">
+                共 {{ filteredRightsizeData.length }} 条
+              </span>
+              <el-pagination
+                v-model:current-page="rightsizeCurrentPage"
+                v-model:page-size="analysisPageSize"
+                :page-sizes="logsPageSizes"
+                :total="filteredRightsizeData.length"
+                :layout="logsPaginationLayout"
+                :small="isCompactWindow"
+              />
+            </div>
+            <el-empty v-if="!analysisLoading.rightsize && filteredRightsizeData.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
@@ -264,21 +319,48 @@
 
         <el-tab-pane label="潮汐检测" name="tidal">
           <div class="analysis-content" v-if="hasAnalysisResults.tidal">
-            <el-table :data="analysisData.tidal" stripe v-loading="analysisLoading.tidal">
-              <el-table-column prop="vmName" label="虚拟机" min-width="180" />
-              <el-table-column prop="pattern" label="模式" width="120" />
-              <el-table-column prop="stabilityScore" label="稳定性" width="100">
-                <template #default="{ row }">{{ row.stabilityScore.toFixed(0) }}%</template>
-              </el-table-column>
-              <el-table-column label="高峰时段" min-width="160">
-                <template #default="{ row }">{{ (row.peakHours || []).join(', ') || '-' }}</template>
-              </el-table-column>
-              <el-table-column label="高峰日期" min-width="160">
-                <template #default="{ row }">{{ (row.peakDays || []).join(', ') || '-' }}</template>
-              </el-table-column>
-              <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
-            </el-table>
-            <el-empty v-if="!analysisLoading.tidal && analysisData.tidal.length === 0" description="暂无分析结果" />
+            <div class="analysis-toolbar">
+              <el-input
+                v-model="tidalSearch"
+                placeholder="搜索虚拟机"
+                clearable
+                class="search-input"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </div>
+            <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
+              <el-table :data="pagedTidalData" stripe v-loading="analysisLoading.tidal" :height="listTableHeight" class="detail-table">
+                <el-table-column prop="vmName" label="虚拟机" min-width="180" />
+                <el-table-column prop="pattern" label="模式" width="120" />
+                <el-table-column prop="stabilityScore" label="稳定性" width="100">
+                  <template #default="{ row }">{{ row.stabilityScore.toFixed(0) }}%</template>
+                </el-table-column>
+                <el-table-column label="高峰时段" min-width="160">
+                  <template #default="{ row }">{{ (row.peakHours || []).join(', ') || '-' }}</template>
+                </el-table-column>
+                <el-table-column label="高峰日期" min-width="160">
+                  <template #default="{ row }">{{ (row.peakDays || []).join(', ') || '-' }}</template>
+                </el-table-column>
+                <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
+              </el-table>
+            </div>
+            <div class="logs-pagination" v-if="filteredTidalData.length > 0">
+              <span class="logs-total">
+                共 {{ filteredTidalData.length }} 条
+              </span>
+              <el-pagination
+                v-model:current-page="tidalCurrentPage"
+                v-model:page-size="analysisPageSize"
+                :page-sizes="logsPageSizes"
+                :total="filteredTidalData.length"
+                :layout="logsPaginationLayout"
+                :small="isCompactWindow"
+              />
+            </div>
+            <el-empty v-if="!analysisLoading.tidal && filteredTidalData.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
@@ -323,56 +405,62 @@
         <el-tab-pane label="执行日志" name="logs">
           <div class="analysis-content">
             <!-- 工具栏：搜索和刷新 -->
-            <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <div class="logs-toolbar">
               <el-input
                 v-model="logsSearchText"
                 placeholder="搜索日志内容..."
                 clearable
-                style="width: 300px;"
+                class="search-input"
                 @input="onLogsSearchChange"
               >
                 <template #prefix>
                   <el-icon><Search /></el-icon>
                 </template>
               </el-input>
-              <el-button size="small" :disabled="!task?.id" @click="manualRefreshLogs" :loading="logsLoading">
-                刷新日志
-              </el-button>
+              <div class="logs-actions">
+                <el-button size="small" :disabled="!task?.id" @click="manualRefreshLogs" :loading="logsLoading">
+                  刷新日志
+                </el-button>
+              </div>
             </div>
 
             <el-empty v-if="!task?.id" description="该任务没有后端任务ID，无法查询执行日志" />
 
             <!-- 日志表格区域 -->
-            <div v-else>
-              <el-table
-                :data="paginatedLogs"
-                stripe
-                v-loading="logsLoading"
-                height="450"
-                :default-sort="{ prop: 'timestamp', order: 'descending' }"
-              >
-                <el-table-column prop="timestamp" label="时间" width="180" sortable />
-                <el-table-column prop="level" label="级别" width="100">
-                  <template #default="{ row }">
-                    <el-tag :type="getLogLevelType(row.level)" size="small">
-                      {{ row.level }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="message" label="内容" min-width="400" show-overflow-tooltip />
-              </el-table>
+            <div v-else class="logs-content">
+              <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
+                <el-table
+                  :data="paginatedLogs"
+                  stripe
+                  v-loading="logsLoading"
+                  :height="listTableHeight"
+                  class="detail-table"
+                  :default-sort="{ prop: 'timestamp', order: 'descending' }"
+                >
+                  <el-table-column prop="timestamp" label="时间" width="180" sortable />
+                  <el-table-column prop="level" label="级别" width="100">
+                    <template #default="{ row }">
+                      <el-tag :type="getLogLevelType(row.level)" size="small">
+                        {{ row.level }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="message" label="内容" min-width="400" show-overflow-tooltip />
+                </el-table>
+              </div>
 
               <!-- 分页 -->
-              <div style="margin-top: 12px; display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
-                <span style="color: var(--el-text-color-secondary); font-size: 14px;">
+              <div class="logs-pagination">
+                <span class="logs-total">
                   共 {{ logsTotal }} 条
                 </span>
                 <el-pagination
                   v-model:current-page="logsCurrentPage"
                   v-model:page-size="logsPageSize"
-                  :page-sizes="[10, 15, 30, 50, 100]"
+                  :page-sizes="logsPageSizes"
                   :total="logsTotal"
-                  layout="sizes, prev, pager, next, jumper"
+                  :layout="logsPaginationLayout"
+                  :small="isCompactWindow"
                 />
               </div>
             </div>
@@ -425,11 +513,18 @@ const taskId = computed(() => route.params.id as string)
 
 const activeTab = ref('overview')
 const vmSearch = ref('')
+const zombieSearch = ref('')
+const rightsizeSearch = ref('')
+const tidalSearch = ref('')
 const vmList = ref<any[]>([])
 const vmListLoading = ref(false)
 const vmTotal = ref(0)
 const vmCurrentPage = ref(1)
 const vmPageSize = ref(50)
+const zombieCurrentPage = ref(1)
+const rightsizeCurrentPage = ref(1)
+const tidalCurrentPage = ref(1)
+const analysisPageSize = ref(20)
 const taskLogs = ref<any[]>([])
 const allLogs = ref<any[]>([])  // 存储所有日志（用于过滤）
 const logsLoading = ref(false)
@@ -437,9 +532,22 @@ const logsTotal = ref(0)
 const logsCurrentPage = ref(1)
 const logsPageSize = ref(30)
 const logsSearchText = ref('')
+const windowHeight = ref(window.innerHeight)
+const windowWidth = ref(window.innerWidth)
 const pollTimer = ref<number | null>(null)
 const pollTimeout = ref<number | null>(null)
 let vmSearchTimer: number | null = null
+
+const isCompactWindow = computed(() => windowHeight.value <= 700 || windowWidth.value <= 1100)
+const listTableHeight = computed(() => (isCompactWindow.value ? 500 : 800))
+const vmPaginationLayout = computed(() =>
+  isCompactWindow.value ? 'sizes, prev, pager, next' : 'sizes, prev, pager, next, jumper'
+)
+const logsPaginationLayout = computed(() =>
+  isCompactWindow.value ? 'sizes, prev, pager, next' : 'sizes, prev, pager, next, jumper'
+)
+const vmPageSizes = computed(() => (isCompactWindow.value ? [10, 20, 50, 100] : [20, 50, 100, 200]))
+const logsPageSizes = computed(() => (isCompactWindow.value ? [10, 20, 30, 50] : [10, 15, 30, 50, 100]))
 
 const analysisLoading = reactive({
   zombie: false,
@@ -492,15 +600,54 @@ const completedAnalyses = computed(() => {
   return Object.values(results).filter(v => v).length
 })
 
+function matchByKeyword(row: any, keyword: string, fields: string[]) {
+  if (!keyword) return true
+  const q = keyword.toLowerCase().trim()
+  return fields.some((field) => String(row?.[field] ?? '').toLowerCase().includes(q))
+}
+
+const filteredZombieData = computed(() => {
+  return analysisData.zombie.filter((row) => matchByKeyword(row, zombieSearch.value, ['vmName', 'datacenter', 'recommendation']))
+})
+
+const filteredRightsizeData = computed(() => {
+  return analysisData.rightsize.filter((row) => matchByKeyword(row, rightsizeSearch.value, ['vmName', 'datacenter', 'estimatedSaving']))
+})
+
+const filteredTidalData = computed(() => {
+  return analysisData.tidal.filter((row) => matchByKeyword(row, tidalSearch.value, ['vmName', 'pattern', 'recommendation']))
+})
+
+const pagedZombieData = computed(() => {
+  const start = (zombieCurrentPage.value - 1) * analysisPageSize.value
+  return filteredZombieData.value.slice(start, start + analysisPageSize.value)
+})
+
+const pagedRightsizeData = computed(() => {
+  const start = (rightsizeCurrentPage.value - 1) * analysisPageSize.value
+  return filteredRightsizeData.value.slice(start, start + analysisPageSize.value)
+})
+
+const pagedTidalData = computed(() => {
+  const start = (tidalCurrentPage.value - 1) * analysisPageSize.value
+  return filteredTidalData.value.slice(start, start + analysisPageSize.value)
+})
+
 // 初始化任务数据
 async function initTaskData() {
   // 重置状态
   stopPolling()
   activeTab.value = 'overview'
   vmSearch.value = ''
+  zombieSearch.value = ''
+  rightsizeSearch.value = ''
+  tidalSearch.value = ''
   vmList.value = []
   vmTotal.value = 0
   vmCurrentPage.value = 1
+  zombieCurrentPage.value = 1
+  rightsizeCurrentPage.value = 1
+  tidalCurrentPage.value = 1
   taskLogs.value = []
   allLogs.value = []
   analysisData.zombie = []
@@ -553,12 +700,31 @@ async function initTaskData() {
 }
 
 onMounted(async () => {
+  window.addEventListener('resize', handleWindowResize)
   await initTaskData()
 })
 
 // 监听 taskId 变化，重新加载数据
 watch(taskId, () => {
   initTaskData()
+})
+
+watch(zombieSearch, () => {
+  zombieCurrentPage.value = 1
+})
+
+watch(rightsizeSearch, () => {
+  rightsizeCurrentPage.value = 1
+})
+
+watch(tidalSearch, () => {
+  tidalCurrentPage.value = 1
+})
+
+watch(analysisPageSize, () => {
+  zombieCurrentPage.value = 1
+  rightsizeCurrentPage.value = 1
+  tidalCurrentPage.value = 1
 })
 
 // 监听标签页切换，刷新对应的数据
@@ -606,8 +772,14 @@ watch(activeTab, async (newTab) => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', handleWindowResize)
   stopPolling()
 })
+
+function handleWindowResize() {
+  windowHeight.value = window.innerHeight
+  windowWidth.value = window.innerWidth
+}
 
 async function loadVMList() {
   await loadTaskVMs()
@@ -1351,11 +1523,39 @@ function getPowerStateText(state: string) {
 
 <style scoped lang="scss">
 .task-detail-page {
+  height: 100%;
   min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: $spacing-lg;
   padding: $spacing-xl;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.completed-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  :deep(.el-tabs__content) {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  :deep(.el-tab-pane) {
+    height: 100%;
+    min-height: 0;
+  }
 }
 
 .task-header {
@@ -1564,6 +1764,11 @@ function getPowerStateText(state: string) {
 }
 
 .vms-content {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
   .vm-list-placeholder {
     padding: 60px 0;
     display: flex;
@@ -1573,19 +1778,21 @@ function getPowerStateText(state: string) {
 
   .table-toolbar {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
-    margin-bottom: $spacing-md;
+    margin-bottom: 12px;
+    gap: $spacing-sm;
 
-    .table-stats {
-      font-size: 13px;
-      color: $text-color-secondary;
+    .search-input {
+      width: 300px;
+      max-width: 100%;
     }
+
   }
 
   .table-wrapper {
     border: 1px solid $border-color-light;
-    border-radius: 4px;
+    border-radius: 8px;
     overflow: hidden;
   }
 
@@ -1593,14 +1800,120 @@ function getPowerStateText(state: string) {
     display: flex;
     justify-content: flex-end;
     margin-top: $spacing-md;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+
+    :deep(.el-pagination) {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+
+    .logs-total {
+      color: var(--el-text-color-secondary);
+      font-size: 13px;
+    }
   }
 }
 
 .analysis-content {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  .table-wrapper {
+    border: 1px solid $border-color-light;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  :deep(.el-table) {
+    border: none;
+  }
+
+  :deep(.el-table th) {
+    padding: 8px 0;
+  }
+
+  :deep(.el-table td) {
+    padding: 7px 0;
+  }
+
   .placeholder {
     padding: $spacing-xl;
     text-align: center;
     color: $text-color-secondary;
+  }
+
+  .analysis-toolbar {
+    margin-bottom: 12px;
+
+    .search-input {
+      width: 300px;
+      max-width: 100%;
+    }
+  }
+
+  .logs-toolbar {
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: $spacing-sm;
+
+    .search-input {
+      width: 300px;
+      max-width: 100%;
+    }
+
+    .logs-actions {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+    }
+  }
+
+  .logs-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .table-pagination {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: $spacing-md;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    :deep(.el-pagination) {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+  }
+
+  .logs-pagination {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+
+    :deep(.el-pagination) {
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+
+    .logs-total {
+      color: var(--el-text-color-secondary);
+      font-size: 13px;
+    }
   }
 }
 
@@ -1612,5 +1925,49 @@ function getPowerStateText(state: string) {
   display: flex;
   justify-content: center;
   padding: $spacing-xl 0;
+}
+
+@media (max-width: 1024px), (max-height: 640px) {
+  .task-detail-page {
+    padding: $spacing-md;
+    gap: $spacing-md;
+  }
+
+  .task-header {
+    .header-left .task-title h1 {
+      font-size: 18px;
+      margin-bottom: 0;
+    }
+  }
+
+  .vms-content {
+    .table-toolbar {
+      flex-wrap: wrap;
+      align-items: flex-start;
+
+      .search-input {
+        width: 300px;
+        max-width: 100%;
+      }
+    }
+
+    .table-pagination {
+      :deep(.el-pagination__total) {
+        margin-right: 0;
+      }
+    }
+  }
+
+  .analysis-content {
+    .logs-toolbar {
+      flex-wrap: wrap;
+      align-items: flex-start;
+
+      .search-input {
+        width: 300px;
+        max-width: 100%;
+      }
+    }
+  }
 }
 </style>
