@@ -18,6 +18,7 @@ export interface Task {
   connectionId?: number
   connectionName?: string
   platform?: string
+  host?: string
   selectedVMs?: string[]
   vmCount?: number
   collectedVMCount?: number

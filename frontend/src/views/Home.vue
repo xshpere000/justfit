@@ -47,10 +47,11 @@
       </div>
 
       <div class="task-grid-container">
-        <el-scrollbar>
-          <div v-if="filteredTasks.length > 0" class="task-grid">
+        <template v-if="filteredTasks.length > 0">
+          <el-scrollbar class="task-scrollbar">
+            <div class="task-grid">
             <div
-              v-for="task in filteredTasks"
+              v-for="task in pagedTasks"
               :key="task.id"
               class="task-card"
               :class="'status--' + task.status"
@@ -61,7 +62,7 @@
                   {{ task.platform === 'vcenter' ? 'vCenter' : 'UIS' }}
                 </div>
                 <div class="task-actions" @click.stop>
-                   <el-dropdown trigger="click" @command="cmd => handleTaskCommand(cmd, task)">
+                   <el-dropdown trigger="click" @command="(cmd: string) => handleTaskCommand(cmd, task)">
                     <el-icon class="more-icon"><MoreFilled /></el-icon>
                     <template #dropdown>
                       <el-dropdown-menu>
@@ -130,31 +131,37 @@
                 </div>
               </div>
             </div>
+            </div>
+          </el-scrollbar>
+
+          <div class="task-pagination">
+            <el-pagination
+              v-model:current-page="currentPage"
+              :page-size="pageSize"
+              :total="filteredTasks.length"
+              layout="total, prev, pager, next"
+              background
+              small
+            />
           </div>
-           <!-- 空状态 -->
-          <div v-else class="empty-state">
-            <el-empty description="没有找到相关任务" :image-size="120" />
-            <el-button type="primary" plain @click="startNewTask" v-if="tasks.length === 0">创建一个新任务</el-button>
-          </div>
-        </el-scrollbar>
+        </template>
+
+        <!-- 空状态 -->
+        <div v-else class="empty-state">
+          <el-empty description="没有找到相关任务" :image-size="120" />
+          <el-button type="primary" plain @click="startNewTask" v-if="tasks.length === 0">创建一个新任务</el-button>
+        </div>
       </div>
     </div>
 
-    <!-- 版本信息 -->
-    <div class="version-info">
-      <span class="version-text">JustFit v{{ appVersion }}</span>
-      <span v-if="isDevVersion" class="dev-badge">开发版</span>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { VersionApi } from '@/api/connection'
-import type { AppVersionInfo } from '@/types/api'
 import {
   Search,
   Plus,
@@ -174,10 +181,8 @@ const taskStore = useTaskStore()
 
 const searchQuery = ref('')
 const filterStatus = ref<'all' | 'running' | 'completed'>('all')
-
-// 版本信息
-const appVersion = ref('')
-const isDevVersion = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(8)
 
 const features = [
   {
@@ -223,22 +228,7 @@ onMounted(async () => {
   } catch (error) {
     console.error('[Home.vue] 任务列表同步失败:', error)
   }
-
-  // 获取应用版本信息
-  await loadAppVersion()
 })
-
-// 加载应用版本
-async function loadAppVersion() {
-  try {
-    const versionInfo: AppVersionInfo = await VersionApi.getAppVersion()
-    appVersion.value = versionInfo.version
-    isDevVersion.value = versionInfo.isDevelopment
-    console.log('[Home.vue] 应用版本:', versionInfo)
-  } catch (error) {
-    console.error('[Home.vue] 获取版本信息失败:', error)
-  }
-}
 
 const tasks = computed(() => {
   const result = taskStore.tasks
@@ -268,6 +258,23 @@ const filteredTasks = computed(() => {
 
   // 3. 排序 (最新的在前)
   return [...result].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+})
+
+const pagedTasks = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredTasks.value.slice(start, end)
+})
+
+watch([searchQuery, filterStatus], () => {
+  currentPage.value = 1
+})
+
+watch(filteredTasks, (list) => {
+  const maxPage = Math.max(1, Math.ceil(list.length / pageSize.value))
+  if (currentPage.value > maxPage) {
+    currentPage.value = maxPage
+  }
 })
 
 function formatTime(isoString: string | undefined): string {
@@ -393,6 +400,7 @@ async function handleTaskCommand(cmd: string, task: Task) {
     .banner-text {
       flex: 1;
       z-index: 2;
+      padding-left: 36px;
 
       .banner-tag {
         display: inline-block;
@@ -489,12 +497,20 @@ async function handleTaskCommand(cmd: string, task: Task) {
   .task-grid-container {
     flex: 1;
     min-height: 0; // 确保 Grid 在 Flex 中正确滚动
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    .task-scrollbar {
+      flex: 1;
+      min-height: 0;
+    }
 
     :deep(.el-scrollbar) {
       height: 100%;
 
       .el-scrollbar__view {
-        min-height: 100%;
+        min-height: auto;
       }
     }
 
@@ -624,41 +640,20 @@ async function handleTaskCommand(cmd: string, task: Task) {
         }
       }
     }
+
+    .task-pagination {
+      flex: 0 0 auto;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #ebeef5;
+      display: flex;
+      justify-content: flex-end;
+    }
   }
 }
 
 .empty-state {
     padding: 60px 0;
     text-align: center;
-}
-
-.version-info {
-  position: fixed;
-  bottom: 12px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  font-size: 12px;
-  color: #909399;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  z-index: 100;
-
-  .version-text {
-    font-weight: 500;
-  }
-
-  .dev-badge {
-    padding: 2px 8px;
-    background: #fef0f0;
-    color: #f56c6c;
-    border-radius: 10px;
-    font-size: 10px;
-    font-weight: 600;
-  }
 }
 </style>

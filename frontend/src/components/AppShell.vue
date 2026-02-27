@@ -8,6 +8,7 @@
           <!-- Logo 和标题 -->
           <div class="logo" @click="goHome">
             <img src="@/assets/images/logo.png" alt="JustFit Logo" class="logo-image" />
+            <span class="version-text">v{{ appVersion }}<template v-if="isDevVersion"> 开发版</template></span>
           </div>
 
           <!-- 返回按钮 -->
@@ -82,8 +83,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
 import { useConnectionStore } from '@/stores/connection'
+import { useTaskStore } from '@/stores/task'
 import { useAppStore } from '@/stores/app'
+import { VersionApi } from '@/api/connection'
+import type { AppVersionInfo } from '@/types/api'
 import {
   DataAnalysis,
   ArrowLeft,
@@ -102,7 +107,12 @@ const router = useRouter()
 const isMaximized = ref(false)
 const route = useRoute()
 const connectionStore = useConnectionStore()
+const taskStore = useTaskStore()
 const appStore = useAppStore()
+
+// 版本信息
+const appVersion = ref('')
+const isDevVersion = ref(false)
 
 const currentRouteTitle = computed(() => route.meta?.title || '首页')
 
@@ -138,8 +148,26 @@ function toggleMaximize() {
   isMaximized.value = !isMaximized.value
 }
 
-function closeWindow() {
-  Runtime.Quit()
+async function closeWindow() {
+  try {
+    const hasRunningTasks = taskStore.hasRunningTasks
+    const message = hasRunningTasks
+      ? '当前有任务正在运行，关闭应用可能中断任务。确定要关闭应用吗？'
+      : '确定要关闭应用吗？'
+
+    await ElMessageBox.confirm(
+      message,
+      '退出确认',
+      {
+        type: hasRunningTasks ? 'error' : 'warning',
+        confirmButtonText: '确定关闭',
+        cancelButtonText: '取消'
+      }
+    )
+    Runtime.Quit()
+  } catch {
+    // 用户取消关闭
+  }
 }
 
 
@@ -149,6 +177,15 @@ onMounted(async () => {
     await connectionStore.fetchConnections()
   } catch (error) {
     console.error('Failed to load connections:', error)
+  }
+
+  // 获取应用版本信息
+  try {
+    const versionInfo: AppVersionInfo = await VersionApi.getAppVersion()
+    appVersion.value = versionInfo.version
+    isDevVersion.value = versionInfo.isDevelopment
+  } catch (error) {
+    console.error('Failed to load app version:', error)
   }
 })
 </script>
@@ -200,6 +237,13 @@ onMounted(async () => {
         width: 28px;
         height: 28px;
         object-fit: contain;
+      }
+
+      .version-text {
+        margin-left: 4px;
+        font-size: 12px;
+        color: $text-color-secondary;
+        font-weight: 400;
       }
 
       .app-name {
@@ -265,14 +309,10 @@ onMounted(async () => {
 
         .el-icon {
           font-size: 12px;
-          opacity: 0;
+          opacity: 1;
           transition: opacity 0.2s;
           position: absolute;
           color: #fff;
-        }
-
-        &:hover .el-icon {
-          opacity: 1;
         }
 
         &--close {
