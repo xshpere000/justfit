@@ -69,41 +69,41 @@ func (e *Error) Is(target error) bool {
 
 const (
 	// 通用错误 (1xxx)
-	CodeInternalError   = "INTERNAL_ERROR"
-	CodeInvalidInput    = "INVALID_INPUT"
-	CodeInvalidConfig   = "INVALID_CONFIG"
-	CodeNotFound        = "NOT_FOUND"
-	CodeAlreadyExists   = "ALREADY_EXISTS"
-	CodeTimeout         = "TIMEOUT"
-	CodeCancelled       = "CANCELLED"
+	CodeInternalError = "INTERNAL_ERROR"
+	CodeInvalidInput  = "INVALID_INPUT"
+	CodeInvalidConfig = "INVALID_CONFIG"
+	CodeNotFound      = "NOT_FOUND"
+	CodeAlreadyExists = "ALREADY_EXISTS"
+	CodeTimeout       = "TIMEOUT"
+	CodeCancelled     = "CANCELLED"
 
 	// 连接错误 (2xxx)
-	CodeConnectionNotFound   = "CONN_NOT_FOUND"
-	CodeConnectionFailed     = "CONN_FAILED"
-	CodeConnectionTimeout    = "CONN_TIMEOUT"
-	CodeInvalidCredentials   = "INVALID_CREDENTIALS"
-	CodeConnectionRefused    = "CONN_REFUSED"
+	CodeConnectionNotFound = "CONN_NOT_FOUND"
+	CodeConnectionFailed   = "CONN_FAILED"
+	CodeConnectionTimeout  = "CONN_TIMEOUT"
+	CodeInvalidCredentials = "INVALID_CREDENTIALS"
+	CodeConnectionRefused  = "CONN_REFUSED"
 
 	// 任务错误 (3xxx)
-	CodeTaskNotFound       = "TASK_NOT_FOUND"
-	CodeTaskFailed         = "TASK_FAILED"
-	CodeTaskCancelled      = "TASK_CANCELLED"
-	CodeTaskTimeout        = "TASK_TIMEOUT"
-	CodeInvalidTaskConfig  = "INVALID_TASK_CONFIG"
+	CodeTaskNotFound      = "TASK_NOT_FOUND"
+	CodeTaskFailed        = "TASK_FAILED"
+	CodeTaskCancelled     = "TASK_CANCELLED"
+	CodeTaskTimeout       = "TASK_TIMEOUT"
+	CodeInvalidTaskConfig = "INVALID_TASK_CONFIG"
 
 	// 数据错误 (4xxx)
-	CodeDataNotFound       = "DATA_NOT_FOUND"
-	CodeDataInvalid        = "DATA_INVALID"
-	CodeDataCorrupted      = "DATA_CORRUPTED"
-	CodeDatabaseError      = "DATABASE_ERROR"
+	CodeDataNotFound  = "DATA_NOT_FOUND"
+	CodeDataInvalid   = "DATA_INVALID"
+	CodeDataCorrupted = "DATA_CORRUPTED"
+	CodeDatabaseError = "DATABASE_ERROR"
 
 	// 分析错误 (5xxx)
-	CodeAnalysisFailed     = "ANALYSIS_FAILED"
+	CodeAnalysisFailed        = "ANALYSIS_FAILED"
 	CodeInvalidAnalysisConfig = "INVALID_ANALYSIS_CONFIG"
-	CodeInsufficientData   = "INSUFFICIENT_DATA"
+	CodeInsufficientData      = "INSUFFICIENT_DATA"
 
 	// 采集错误 (6xxx)
-	CodeCollectionFailed   = "COLLECTION_FAILED"
+	CodeCollectionFailed     = "COLLECTION_FAILED"
 	CodePlatformNotSupported = "PLATFORM_NOT_SUPPORTED"
 )
 
@@ -121,17 +121,17 @@ var (
 	ErrCancelled     = New(CodeCancelled, "操作已取消")
 
 	// 连接错误
-	ErrConnectionNotFound = New(CodeConnectionNotFound, "连接不存在")
-	ErrConnectionFailed   = New(CodeConnectionFailed, "连接失败")
-	ErrConnectionTimeout  = New(CodeConnectionTimeout, "连接超时")
-	ErrInvalidCredentials = New(CodeInvalidCredentials, "凭据无效")
+	ErrConnectionNotFound   = New(CodeConnectionNotFound, "连接不存在")
+	ErrConnectionFailed     = New(CodeConnectionFailed, "连接失败")
+	ErrConnectionTimeout    = New(CodeConnectionTimeout, "连接超时")
+	ErrInvalidCredentials   = New(CodeInvalidCredentials, "凭据无效")
 	ErrConnectionTestFailed = New(CodeConnectionFailed, "连接测试失败")
 
 	// 任务错误
-	ErrTaskNotFound      = New(CodeTaskNotFound, "任务不存在")
-	ErrTaskFailed        = New(CodeTaskFailed, "任务执行失败")
-	ErrTaskCancelled     = New(CodeTaskCancelled, "任务已取消")
-	ErrTaskTimeout       = New(CodeTaskTimeout, "任务执行超时")
+	ErrTaskNotFound  = New(CodeTaskNotFound, "任务不存在")
+	ErrTaskFailed    = New(CodeTaskFailed, "任务执行失败")
+	ErrTaskCancelled = New(CodeTaskCancelled, "任务已取消")
+	ErrTaskTimeout   = New(CodeTaskTimeout, "任务执行超时")
 
 	// 数据错误
 	ErrDataNotFound  = New(CodeDataNotFound, "数据不存在")
@@ -143,8 +143,8 @@ var (
 	ErrInsufficientData = New(CodeInsufficientData, "数据不足")
 
 	// 资源错误
-	ErrVMNotFound     = New(CodeDataNotFound, "虚拟机不存在")
-	ErrHostNotFound   = New(CodeDataNotFound, "主机不存在")
+	ErrVMNotFound      = New(CodeDataNotFound, "虚拟机不存在")
+	ErrHostNotFound    = New(CodeDataNotFound, "主机不存在")
 	ErrClusterNotFound = New(CodeDataNotFound, "集群不存在")
 )
 

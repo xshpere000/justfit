@@ -55,10 +55,10 @@ func TestError_Is(t *testing.T) {
 // TestPredefinedErrors 测试预定义错误
 func TestPredefinedErrors(t *testing.T) {
 	tests := []struct {
-		name   string
-		err    *apperrors.Error
-		code   string
-		msg    string
+		name string
+		err  *apperrors.Error
+		code string
+		msg  string
 	}{
 		{"ErrInternal", apperrors.ErrInternal, "INTERNAL_ERROR", "内部错误"},
 		{"ErrInvalidInput", apperrors.ErrInvalidInput, "INVALID_INPUT", "输入参数无效"},

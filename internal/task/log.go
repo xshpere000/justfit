@@ -29,12 +29,12 @@ type LogEntry struct {
 
 // Logger 任务日志记录器
 type Logger struct {
-	mu       sync.Mutex
-	logDir   string
-	file     *os.File
-	entries  []LogEntry
- maxSize  int
- enabled  bool
+	mu      sync.Mutex
+	logDir  string
+	file    *os.File
+	entries []LogEntry
+	maxSize int
+	enabled bool
 }
 
 // NewLogger 创建日志记录器

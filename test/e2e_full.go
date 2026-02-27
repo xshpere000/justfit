@@ -129,7 +129,18 @@ func main() {
 
 	// 4.4 采集性能指标
 	fmt.Println("   4.4 采集性能指标...")
-	metricStats, err := collector.CollectMetrics(nil, connectionID, 7, password)
+	// 创建临时任务用于关联指标数据
+	tempTask := &storage.AssessmentTask{
+		Name:         "E2E完整测试任务",
+		ConnectionID: connectionID,
+		Status:       "running",
+	}
+	repos.Task.Create(tempTask)
+	defer func() {
+		repos.Task.Delete(tempTask.ID) // 测试结束后清理
+	}()
+
+	metricStats, err := collector.CollectMetrics(nil, tempTask.ID, connectionID, 7, password)
 	if err != nil {
 		log.Printf("   ⚠ 采集性能指标失败: %v\n", err)
 	} else {
@@ -165,10 +176,10 @@ func main() {
 	// 5.1 僵尸 VM 检测
 	fmt.Println("   5.1 僵尸 VM 检测...")
 	zombieConfig := &analyzer.ZombieVMConfig{
-		AnalysisDays:     7,
-		CPUThreshold:     5.0,
-		MemoryThreshold:  10.0,
-		MinConfidence:    60.0,
+		AnalysisDays:    7,
+		CPUThreshold:    5.0,
+		MemoryThreshold: 10.0,
+		MinConfidence:   60.0,
 	}
 	zombieResults, err := analysisEngine.DetectZombieVMs(connectionID, zombieConfig)
 	if err != nil {
@@ -239,17 +250,17 @@ func main() {
 	// 6. 生成报告
 	fmt.Println("\n6. 生成测试报告...")
 	report := map[string]interface{}{
-		"timestamp":       time.Now().Format(time.RFC3339),
-		"connection_id":   connectionID,
-		"connection_name": conn.Name,
-		"vm_count":        len(vms),
-		"zombieVMs":      len(zombieResults),
-		"rightsize_vms":   len(rightSizeResults),
-		"tidal_vms":       len(tidalResults),
-		"healthScore":    healthResult.OverallScore,
-		"health_level":    healthResult.HealthLevel,
+		"timestamp":        time.Now().Format(time.RFC3339),
+		"connection_id":    connectionID,
+		"connection_name":  conn.Name,
+		"vm_count":         len(vms),
+		"zombieVMs":        len(zombieResults),
+		"rightsize_vms":    len(rightSizeResults),
+		"tidal_vms":        len(tidalResults),
+		"healthScore":      healthResult.OverallScore,
+		"health_level":     healthResult.HealthLevel,
 		"resource_balance": healthResult.ResourceBalance,
-		"overcommit_risk": healthResult.OvercommitRisk,
+		"overcommit_risk":  healthResult.OvercommitRisk,
 	}
 
 	reportData, _ := json.MarshalIndent(report, "", "  ")

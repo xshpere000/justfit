@@ -7,8 +7,8 @@ declare module '*.vue' {
 }
 
 // SCSS 变量类型声明
-declare namespace '*scss' {
-    export const var: any
+declare module '*scss' {
+    export const variables: any
     export const spacing: any
     export const color: any
 }

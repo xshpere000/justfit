@@ -22,7 +22,7 @@ func TestCrypto_EncryptDecrypt(t *testing.T) {
 			name:      "简单字符串",
 			plaintext: "Hello, World!",
 		},
-			{
+		{
 			name:      "中文字符串",
 			plaintext: "这是一个测试",
 		},

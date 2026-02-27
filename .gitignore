@@ -74,12 +74,11 @@ frontend/package.json.md5
 # IDE / 编辑器
 # =============================================================================
 
-# VSCode（保留共享配置）
+# VSCode（不保留配置）
 .vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
-!.vscode/launch.json
-!.vscode/tasks.json
+
+# claude code（不保留配置）
+.claude/*
 
 # JetBrains
 .idea/

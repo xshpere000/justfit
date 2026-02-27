@@ -237,9 +237,12 @@ export const useTaskStore = defineStore('task', () => {
   function startPolling(interval: number = 2000) {
     stopPolling()
     pollInterval = setInterval(async () => {
-      if (hasRunningTasks.value) {
-        await syncTasksFromBackend()
-      }
+      // 始终同步任务列表，即使没有运行中的任务
+      // 这样可以确保：
+      // 1. 新创建的任务状态能及时更新
+      // 2. 任务从 pending 变成 running 时能立即反映
+      // 3. 任务完成或失败时能及时更新
+      await syncTasksFromBackend()
     }, interval)
   }
 

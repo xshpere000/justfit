@@ -144,11 +144,11 @@
         <el-table-column prop="confidence" label="置信度" width="100">
           <template #default="{ row }">
             <el-progress
-              :percentage="row.confidence * 100"
+              :percentage="row.confidence"
               :color="'#409EFF'"
               :show-text="false"
             />
-            <span class="progress-text">{{ (row.confidence * 100).toFixed(0) }}%</span>
+            <span class="progress-text">{{ row.confidence.toFixed(0) }}%</span>
           </template>
         </el-table-column>
       </el-table>

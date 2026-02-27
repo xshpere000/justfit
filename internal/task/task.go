@@ -131,11 +131,6 @@ func (s *Scheduler) RegisterExecutor(taskType TaskType, executor Executor) {
 
 // Create 创建新任务
 func (s *Scheduler) Create(taskType TaskType, name string, config map[string]interface{}) (*Task, error) {
-	s.log.Info("[DEBUG] Create 方法被调用",
-		applogger.String("taskType", string(taskType)),
-		applogger.String("name", name),
-		applogger.Any("config_keys", getConfigKeys(config)))
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

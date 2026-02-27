@@ -15,7 +15,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { useTaskStore } from '@/stores/task'
 import { VersionApi } from '@/api/connection'
 import VersionUpgradeDialog from '@/components/VersionUpgradeDialog.vue'
-import type { VersionCheckResult } from '@/api/types'
+import type { VersionCheckResult } from '@/types/api'
 
 const taskStore = useTaskStore()
 

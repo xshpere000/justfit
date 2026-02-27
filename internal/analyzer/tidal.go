@@ -51,7 +51,7 @@ func DefaultTidalConfig() *TidalConfig {
 }
 
 // DetectTidalPattern 检测潮汐模式
-func (e *Engine) DetectTidalPattern(connectionID uint, config *TidalConfig) ([]TidalResult, error) {
+func (e *Engine) DetectTidalPattern(taskID, connectionID uint, config *TidalConfig) ([]TidalResult, error) {
 	if config == nil {
 		config = DefaultTidalConfig()
 	}
@@ -73,8 +73,8 @@ func (e *Engine) DetectTidalPattern(connectionID uint, config *TidalConfig) ([]T
 			continue
 		}
 
-		// 获取 CPU 指标
-		cpuMetrics, err := e.repos.Metric.ListByVMAndType(vm.ID, "cpu", startTime, endTime)
+		// 获取 CPU 指标（使用 TaskID 过滤）
+		cpuMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
 		if err != nil || len(cpuMetrics) == 0 {
 			continue
 		}

@@ -28,9 +28,9 @@ const (
 
 // ConsoleOutput 控制台输出
 type ConsoleOutput struct {
-	mu     sync.Mutex
-	writer io.Writer
-	format Format
+	mu       sync.Mutex
+	writer   io.Writer
+	format   Format
 	useColor bool
 }
 
@@ -252,5 +252,5 @@ func NewNullOutput() *NullOutput {
 }
 
 func (o *NullOutput) Write(entry *Entry) error { return nil }
-func (o *NullOutput) Sync() error           { return nil }
-func (o *NullOutput) Close() error          { return nil }
+func (o *NullOutput) Sync() error              { return nil }
+func (o *NullOutput) Close() error             { return nil }

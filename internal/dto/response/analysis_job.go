@@ -7,8 +7,8 @@ import "time"
 type TaskAnalysisJobResponse struct {
 	ID          uint       `json:"id"`
 	TaskID      uint       `json:"taskId"`
-	JobType     string     `json:"jobType"`     // zombie, rightsize, tidal, health
-	Status      string     `json:"status"`       // pending, running, completed, failed
+	JobType     string     `json:"jobType"` // zombie, rightsize, tidal, health
+	Status      string     `json:"status"`  // pending, running, completed, failed
 	Progress    int        `json:"progress"`
 	Error       string     `json:"error,omitempty"`
 	ResultCount int        `json:"resultCount"`
@@ -19,6 +19,6 @@ type TaskAnalysisJobResponse struct {
 
 // TaskAnalysisJobListResponse 分析子任务列表响应
 type TaskAnalysisJobListResponse struct {
-	Total int                        `json:"total"`
-	Items []TaskAnalysisJobResponse   `json:"items"`
+	Total int                       `json:"total"`
+	Items []TaskAnalysisJobResponse `json:"items"`
 }

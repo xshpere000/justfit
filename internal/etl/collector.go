@@ -229,7 +229,7 @@ func (c *Collector) Collect(ctx context.Context, config *CollectionConfig) (*Col
 
 // CollectMetrics 采集性能指标
 // selectedVMs: 用户选择的虚拟机 vmKey 列表，为空则采集所有符合条件的虚拟机
-func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days int, passwordOverride string, selectedVMs []string, progressCb ProgressCallback) (*MetricsCollectionStats, error) {
+func (c *Collector) CollectMetrics(ctx context.Context, taskID uint, connectionID uint, days int, passwordOverride string, selectedVMs []string, progressCb ProgressCallback) (*MetricsCollectionStats, error) {
 	stats := &MetricsCollectionStats{Scope: "poweredOn only"}
 	reasonCounts := make(map[string]int)
 
@@ -330,7 +330,7 @@ func (c *Collector) CollectMetrics(ctx context.Context, connectionID uint, days 
 				return
 			}
 
-			if err := c.processor.ProcessVMMetrics(vmKey, metrics); err != nil {
+			if err := c.processor.ProcessVMMetrics(taskID, vmKey, metrics); err != nil {
 				mu.Lock()
 				stats.FailedVMCount++
 				stats.FailedMetricCount += 6

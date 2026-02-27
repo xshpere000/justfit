@@ -71,7 +71,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Warning } from '@element-plus/icons-vue'
 import { VersionApi } from '@/api/connection'
-import type { VersionCheckResult } from '@/api/types'
+import type { VersionCheckResult } from '@/types/api'
 
 const props = defineProps<{
   modelValue: boolean

@@ -1,5 +1,0 @@
-{
-    "go.formatTool": "goimports",
-    "go.useLanguageServer": false,
-    "claudeCodeChat.permissions.yoloMode": true
-}

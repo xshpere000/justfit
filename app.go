@@ -654,7 +654,17 @@ type CollectionResult struct {
 	Duration int64  `json:"duration"` // 毫秒
 }
 
-// CollectData 采集数据
+// CollectData 快速采集（不创建任务记录）
+// 用途：Collection 页面的"开始采集"按钮，即时查看资源状态
+// 特点：
+//   - 不创建 AssessmentTask 记录
+//   - 采集的数据不持久化（仅用于实时展示）
+//   - taskID = 0（表示无任务上下文的临时采集）
+//   - 立即返回结果，不使用任务调度器
+//
+// 与评估任务（CreateCollectTask）的区别：
+//   - 评估任务会创建持久化任务记录，数据长期存储用于分析
+//   - 快速采集是一次性操作，数据临时展示
 func (a *App) CollectData(config CollectionConfig) (*CollectionResult, error) {
 	// 尝试加载连接凭据(密码)
 	var password string
@@ -682,14 +692,14 @@ func (a *App) CollectData(config CollectionConfig) (*CollectionResult, error) {
 	// 如果需要采集性能指标
 	metricCount := 0
 	if contains(config.DataTypes, "metrics") && config.MetricsDays > 0 {
-		// 采集性能指标（CollectData 不支持 selectedVMs，传空切片）
-		metricStats, metricErr := a.collector.CollectMetrics(a.ctx, config.ConnectionID, config.MetricsDays, password, nil, nil)
+		// 手动采集不关联任务，传递 taskID=0
+		metricStats, metricErr := a.collector.CollectMetrics(a.ctx, 0, config.ConnectionID, config.MetricsDays, password, nil, nil)
 		if metricStats != nil {
 			metricCount = metricStats.CollectedMetricCount
 		}
 		if metricErr != nil {
 			// 性能指标采集失败不影响基础数据采集结果
-			a.log.Warn("采集性能指标失败", applogger.Err(err))
+			a.log.Warn("采集性能指标失败", applogger.Err(metricErr))
 		}
 	}
 
@@ -1054,21 +1064,21 @@ func (a *App) executeAnalysisJob(taskID uint, jobID uint, jobType string, connec
 			MemoryThreshold: cfg.MemoryThreshold,
 			MinConfidence:   cfg.MinConfidence,
 		}
-		result, err = a.analyzer.DetectZombieVMs(connectionID, &analyzerConfig)
+		result, err = a.analyzer.DetectZombieVMs(taskID, connectionID, &analyzerConfig)
 	case "rightsize":
 		cfg := parseRightSizeConfigFromMap(config)
 		analyzerConfig := analyzer.RightSizeConfig{
 			AnalysisDays: cfg.AnalysisDays,
 			BufferRatio:  cfg.BufferRatio,
 		}
-		result, err = a.analyzer.AnalyzeRightSize(connectionID, &analyzerConfig)
+		result, err = a.analyzer.AnalyzeRightSize(taskID, connectionID, &analyzerConfig)
 	case "tidal":
 		cfg := parseTidalConfigFromMap(config)
 		analyzerConfig := analyzer.TidalConfig{
 			AnalysisDays: cfg.AnalysisDays,
 			MinStability: cfg.MinStability,
 		}
-		result, err = a.analyzer.DetectTidalPattern(connectionID, &analyzerConfig)
+		result, err = a.analyzer.DetectTidalPattern(taskID, connectionID, &analyzerConfig)
 	case "health":
 		healthConfig := &analyzer.HealthConfig{}
 		result, err = a.analyzer.AnalyzeHealthScore(connectionID, healthConfig)
@@ -1540,7 +1550,7 @@ func (a *App) GetTaskAnalysisResult(taskID uint, analysisType string) (interface
 
 	// 蛇形转驼峰映射表
 	snakeToCamel := map[string]string{
-		"zombie":    "zombieVm",
+		"zombie":    "zombieVM",
 		"rightsize": "rightSize",
 		"tidal":     "tidal",
 		"health":    "healthScore",
@@ -1721,6 +1731,11 @@ func (a *App) DeleteTask(id uint) error {
 	// 先停止任务（如果正在运行）
 	_ = a.taskScheduler.Cancel(id)
 
+	// 删除相关的指标数据
+	if err := a.repos.Metric.DeleteByTaskID(id); err != nil {
+		log.Warn("删除任务指标数据失败", applogger.Err(err))
+	}
+
 	// 删除相关的快照数据
 	if err := a.repos.TaskVMSnapshot.DeleteByTaskID(id); err != nil {
 		log.Warn("删除任务快照失败", applogger.Err(err))
@@ -1748,20 +1763,32 @@ type TaskLogEntry struct {
 	Message   string `json:"message"`
 }
 
-// GetTaskLogs 获取任务日志
+// GetTaskLogs 获取任务日志（从数据库读取）
 func (a *App) GetTaskLogs(id uint, limit int) ([]TaskLogEntry, error) {
-	if a.taskLogger == nil {
-		return []TaskLogEntry{}, nil
+	// 从数据库读取日志
+	logs, _, err := a.repos.TaskLog.ListByTaskID(id, limit, 0)
+	if err != nil {
+		return []TaskLogEntry{}, err
 	}
 
-	entries := a.taskLogger.GetEntries(id, limit)
+	result := make([]TaskLogEntry, len(logs))
+	for i, log := range logs {
+		// 使用 Category 作为级别
+		level := log.Category
+		if level == "" {
+			level = "info"
+		}
 
-	result := make([]TaskLogEntry, len(entries))
-	for i, e := range entries {
+		// 组合标题和消息作为显示内容
+		message := log.Message
+		if log.Title != "" {
+			message = fmt.Sprintf("[%s] %s", log.Title, log.Message)
+		}
+
 		result[i] = TaskLogEntry{
-			Timestamp: e.Timestamp.Format("2006-01-02 15:04:05"),
-			Level:     string(e.Level),
-			Message:   e.Message,
+			Timestamp: log.CreatedAt.Format("2006-01-02 15:04:05"),
+			Level:     level,
+			Message:   message,
 		}
 	}
 
@@ -1806,7 +1833,7 @@ func (a *App) DetectZombieVMs(connectionID uint, config ZombieVMConfig) ([]Zombi
 		zombieConfig = analyzer.DefaultZombieVMConfig()
 	}
 
-	results, err := a.analyzer.DetectZombieVMs(connectionID, zombieConfig)
+	results, err := a.analyzer.DetectZombieVMs(0, connectionID, zombieConfig)
 	if err != nil {
 		return nil, fmt.Errorf("检测僵尸 VM 失败: %w", err)
 	}
@@ -1863,7 +1890,7 @@ func (a *App) AnalyzeRightSize(connectionID uint, config RightSizeConfig) ([]Rig
 		rightSizeConfig = analyzer.DefaultRightSizeConfig()
 	}
 
-	results, err := a.analyzer.AnalyzeRightSize(connectionID, rightSizeConfig)
+	results, err := a.analyzer.AnalyzeRightSize(0, connectionID, rightSizeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("Right Size 分析失败: %w", err)
 	}
@@ -1917,7 +1944,7 @@ func (a *App) DetectTidalPattern(connectionID uint, config TidalConfig) ([]Tidal
 		tidalConfig = analyzer.DefaultTidalConfig()
 	}
 
-	results, err := a.analyzer.DetectTidalPattern(connectionID, tidalConfig)
+	results, err := a.analyzer.DetectTidalPattern(0, connectionID, tidalConfig)
 	if err != nil {
 		return nil, fmt.Errorf("潮汐检测失败: %w", err)
 	}
@@ -2352,7 +2379,7 @@ type MetricsData struct {
 }
 
 // GetMetrics 获取指标数据
-func (a *App) GetMetrics(vmID uint, metricType string, days int) (*MetricsData, error) {
+func (a *App) GetMetrics(taskID, vmID uint, metricType string, days int) (*MetricsData, error) {
 	// 获取 VM 信息
 	vm, err := a.repos.VM.GetByID(vmID)
 	if err != nil {
@@ -2362,7 +2389,8 @@ func (a *App) GetMetrics(vmID uint, metricType string, days int) (*MetricsData, 
 	endTime := time.Now()
 	startTime := endTime.AddDate(0, 0, -days)
 
-	metrics, err := a.repos.Metric.ListByVMAndType(vmID, metricType, startTime, endTime)
+	// 使用带 TaskID 的查询方法
+	metrics, err := a.repos.Metric.ListByTaskAndVMAndType(taskID, vmID, metricType, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("获取指标失败: %w", err)
 	}

@@ -6,7 +6,6 @@ toolchain go1.24.5
 
 require (
 	github.com/glebarez/sqlite v1.11.0
-	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vmware/govmomi v0.52.0
 	github.com/wailsapp/wails/v2 v2.11.0

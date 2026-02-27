@@ -32,7 +32,7 @@ func TestGenerateJSON(t *testing.T) {
 	})
 
 	data := &ReportData{
-		Title:       "测试报告",
+		Title:        "测试报告",
 		ConnectionID: 1,
 		Metadata: map[string]interface{}{
 			"author": "test",
@@ -73,7 +73,7 @@ func TestGenerateHTML(t *testing.T) {
 	})
 
 	data := &ReportData{
-		Title:       "测试 HTML 报告",
+		Title:        "测试 HTML 报告",
 		ConnectionID: 1,
 		Sections: []ReportSection{
 			{
@@ -85,10 +85,10 @@ func TestGenerateHTML(t *testing.T) {
 				Title: "数据汇总",
 				Type:  "summary",
 				Data: map[string]interface{}{
-					"vmCount":       100,
-					"hostCount":     10,
-					"zombieVMs":     5,
-					"healthScore":   85.5,
+					"vmCount":     100,
+					"hostCount":   10,
+					"zombieVMs":   5,
+					"healthScore": 85.5,
 				},
 			},
 			{
@@ -207,8 +207,8 @@ func TestRenderSummary(t *testing.T) {
 		{
 			name: "基本统计数据",
 			data: map[string]interface{}{
-				"vmCount":     100,
-				"hostCount":   10,
+				"vmCount":   100,
+				"hostCount": 10,
 			},
 			contains: []string{"100", "10", "虚拟机总数", "主机总数"},
 		},
@@ -322,7 +322,7 @@ func TestGenerateWithRealData(t *testing.T) {
 
 	// 模拟真实的分析报告数据
 	data := &ReportData{
-		Title:       "JustFit 资源评估报告",
+		Title:        "JustFit 资源评估报告",
 		ConnectionID: 1,
 		Metadata: map[string]interface{}{
 			"platform":      "vCenter",
@@ -338,12 +338,12 @@ func TestGenerateWithRealData(t *testing.T) {
 				Title: "资源概况",
 				Type:  "summary",
 				Data: map[string]interface{}{
-					"vmCount":         150,
-					"hostCount":       8,
-					"clusterCount":    2,
-					"zombieVMs":       12,
-					"overallocated":    25,
-					"healthScore":     78.5,
+					"vmCount":       150,
+					"hostCount":     8,
+					"clusterCount":  2,
+					"zombieVMs":     12,
+					"overallocated": 25,
+					"healthScore":   78.5,
 				},
 			},
 			{
@@ -351,17 +351,17 @@ func TestGenerateWithRealData(t *testing.T) {
 				Type:  "table",
 				Data: []map[string]interface{}{
 					{
-						"vm_name":    "test-vm-001",
-						"cpu_usage":  "0.5%",
-						"memory_usage": "2.3%",
-						"confidence": "95%",
+						"vm_name":        "test-vm-001",
+						"cpu_usage":      "0.5%",
+						"memory_usage":   "2.3%",
+						"confidence":     "95%",
 						"recommendation": "建议关闭",
 					},
 					{
-						"vm_name":    "test-vm-002",
-						"cpu_usage":  "1.2%",
-						"memory_usage": "3.1%",
-						"confidence": "88%",
+						"vm_name":        "test-vm-002",
+						"cpu_usage":      "1.2%",
+						"memory_usage":   "3.1%",
+						"confidence":     "88%",
 						"recommendation": "建议关闭",
 					},
 				},

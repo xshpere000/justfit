@@ -6,14 +6,14 @@ import "time"
 // AlertResponse 告警响应
 type AlertResponse struct {
 	ID             uint       `json:"id"`
-	TargetType     string     `json:"targetType"`     // cluster, host, vm
-	TargetKey      string     `json:"targetKey"`      // 目标唯一标识
-	TargetName     string     `json:"targetName"`     // 目标名称
-	AlertType      string     `json:"alertType"`      // zombie, overprovisioned, etc.
-	Severity       string     `json:"severity"`       // info, warning, critical
+	TargetType     string     `json:"targetType"` // cluster, host, vm
+	TargetKey      string     `json:"targetKey"`  // 目标唯一标识
+	TargetName     string     `json:"targetName"` // 目标名称
+	AlertType      string     `json:"alertType"`  // zombie, overprovisioned, etc.
+	Severity       string     `json:"severity"`   // info, warning, critical
 	Title          string     `json:"title"`
 	Message        string     `json:"message"`
-	Data           string     `json:"data,omitempty"`  // JSON 字符串
+	Data           string     `json:"data,omitempty"` // JSON 字符串
 	Acknowledged   bool       `json:"acknowledged"`
 	AcknowledgedAt *time.Time `json:"acknowledgedAt,omitempty"`
 	CreatedAt      time.Time  `json:"createdAt"`
@@ -21,15 +21,15 @@ type AlertResponse struct {
 
 // AlertListItem 告警列表项
 type AlertListItem struct {
-	ID             uint       `json:"id"`
-	TargetType     string     `json:"targetType"`
-	TargetName     string     `json:"targetName"`
-	AlertType      string     `json:"alertType"`
-	Severity       string     `json:"severity"`
-	Title          string     `json:"title"`
-	Message        string     `json:"message"`
-	Acknowledged   bool       `json:"acknowledged"`
-	CreatedAt      time.Time  `json:"createdAt"`
+	ID           uint      `json:"id"`
+	TargetType   string    `json:"targetType"`
+	TargetName   string    `json:"targetName"`
+	AlertType    string    `json:"alertType"`
+	Severity     string    `json:"severity"`
+	Title        string    `json:"title"`
+	Message      string    `json:"message"`
+	Acknowledged bool      `json:"acknowledged"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // AlertStats 告警统计

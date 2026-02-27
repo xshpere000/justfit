@@ -92,6 +92,7 @@ wails build -platform windows/amd64 -o JustFit_0.0.2_amd64-portable.exe -upx
 ### v0.0.1 (2026-02-20)
 
 基础版本发布，包含：
+
 - 多平台连接（vCenter）
 - 数据采集与存储
 - 四大分析功能

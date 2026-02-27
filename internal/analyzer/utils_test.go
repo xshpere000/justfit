@@ -132,8 +132,8 @@ func TestNormalizeCPU(t *testing.T) {
 		{2, 2},
 		{3, 4},
 		{5, 8},
-		{9, 12},   // 修正：实际标准值是 12
-		{17, 24},  // 修正：实际标准值是 24
+		{9, 12},  // 修正：实际标准值是 12
+		{17, 24}, // 修正：实际标准值是 24
 		{129, 128},
 		{130, 128},
 	}
@@ -169,14 +169,14 @@ func TestNormalizeMemory(t *testing.T) {
 
 func TestCalculateZombieConfidence(t *testing.T) {
 	tests := []struct {
-		name         string
-		cpu          float64
-		memory       float64
-		diskIO       float64
-		network      float64
-		lowDays      int
-		totalDays    int
-		minExpected  float64
+		name        string
+		cpu         float64
+		memory      float64
+		diskIO      float64
+		network     float64
+		lowDays     int
+		totalDays   int
+		minExpected float64
 	}{
 		{
 			name:        "完全僵尸机",

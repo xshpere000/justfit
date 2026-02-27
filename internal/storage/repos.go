@@ -258,25 +258,12 @@ func (r *MetricRepository) BatchCreate(metrics []VMMetric) error {
 	return r.db.CreateInBatches(metrics, 100).Error
 }
 
-// 保持向后兼容
-func (r *MetricRepository) BatchCreateOld(metrics []Metric) error {
-	if len(metrics) == 0 {
-		return nil
-	}
-	converted := make([]VMMetric, len(metrics))
-	for i, m := range metrics {
-		converted[i] = VMMetric{
-			Model:      m.Model,
-			VMID:       m.VMID,
-			VM:         m.VM,
-			MetricType: m.MetricType,
-			Timestamp:  m.Timestamp,
-			Value:      m.Value,
-		}
-	}
-	return r.db.CreateInBatches(converted, 100).Error
+// DeleteByTaskID 删除指定任务的所有指标数据
+func (r *MetricRepository) DeleteByTaskID(taskID uint) error {
+	return r.db.Where("task_id = ?", taskID).Delete(&VMMetric{}).Error
 }
 
+// DeleteByVMID 删除指定虚拟机的所有指标数据
 func (r *MetricRepository) DeleteByVMID(vmID uint) error {
 	return r.db.Where("vm_id = ?", vmID).Delete(&VMMetric{}).Error
 }
@@ -285,6 +272,26 @@ func (r *MetricRepository) DeleteByTimeRange(before time.Time) error {
 	return r.db.Where("timestamp < ?", before).Delete(&VMMetric{}).Error
 }
 
+// ListByTaskAndVMAndType 查询指定任务、虚拟机和类型的指标
+// taskID 为 0 时查询所有任务的数据
+func (r *MetricRepository) ListByTaskAndVMAndType(taskID, vmID uint, metricType string, startTime, endTime time.Time) ([]VMMetric, error) {
+	var metrics []VMMetric
+	query := r.db.Where("vm_id = ? AND metric_type = ?", vmID, metricType)
+	// taskID 为 0 时不过滤任务（查询所有数据）
+	if taskID != 0 {
+		query = query.Where("task_id = ?", taskID)
+	}
+	if !startTime.IsZero() {
+		query = query.Where("timestamp >= ?", startTime)
+	}
+	if !endTime.IsZero() {
+		query = query.Where("timestamp <= ?", endTime)
+	}
+	err := query.Order("timestamp ASC").Find(&metrics).Error
+	return metrics, err
+}
+
+// ListByVMAndType 查询指定虚拟机和类型的指标（所有任务）
 func (r *MetricRepository) ListByVMAndType(vmID uint, metricType string, startTime, endTime time.Time) ([]VMMetric, error) {
 	var metrics []VMMetric
 	query := r.db.Where("vm_id = ? AND metric_type = ?", vmID, metricType)
@@ -351,7 +358,9 @@ func (r *TaskRepository) ListByStatus(status string, limit, offset int) ([]Asses
 
 func (r *TaskRepository) GetMaxID() (uint, error) {
 	var maxID uint
-	err := r.db.Model(&AssessmentTask{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error
+	// 使用 Unscoped() 包含软删除的记录，确保 taskCounter 正确同步
+	// 场景：如果有软删除的任务，其 ID 仍占用，需要跳过这些 ID
+	err := r.db.Model(&AssessmentTask{}).Unscoped().Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error
 	return maxID, err
 }
 
@@ -517,8 +526,8 @@ func (r *TaskAnalysisJobRepository) UpdateStatus(id uint, status string, progres
 
 func (r *TaskAnalysisJobRepository) UpdateResult(id uint, status string, result string, resultCount int) error {
 	return r.db.Model(&TaskAnalysisJob{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":      status,
-		"result":      result,
+		"status":       status,
+		"result":       result,
 		"result_count": resultCount,
 	}).Error
 }
@@ -804,16 +813,16 @@ func NewAnalysisResultRepository() *AnalysisResultRepository {
 // Create 创建分析结果 (转换为 AnalysisFinding 存储)
 func (r *AnalysisResultRepository) Create(result *AnalysisResult) error {
 	finding := &AnalysisFinding{
-		JobType:       result.AnalysisType,
-		TargetType:    result.TargetType,
-		TargetKey:     result.TargetKey,
-		TargetName:    result.TargetName,
-		Severity:      "info", // 默认严重级别
-		Category:      result.AnalysisType,
-		Title:         result.TargetName,
-		Description:   result.Data,
-		Action:        result.Recommendation,
-		Reason:        result.SavedAmount,
+		JobType:     result.AnalysisType,
+		TargetType:  result.TargetType,
+		TargetKey:   result.TargetKey,
+		TargetName:  result.TargetName,
+		Severity:    "info", // 默认严重级别
+		Category:    result.AnalysisType,
+		Title:       result.TargetName,
+		Description: result.Data,
+		Action:      result.Recommendation,
+		Reason:      result.SavedAmount,
 	}
 	return r.db.Create(finding).Error
 }
@@ -826,16 +835,16 @@ func (r *AnalysisResultRepository) BatchCreate(results []AnalysisResult) error {
 	findings := make([]AnalysisFinding, len(results))
 	for i, r := range results {
 		findings[i] = AnalysisFinding{
-			JobType:       r.AnalysisType,
-			TargetType:    r.TargetType,
-			TargetKey:     r.TargetKey,
-			TargetName:    r.TargetName,
-			Severity:      "info",
-			Category:      r.AnalysisType,
-			Title:         r.TargetName,
-			Description:   r.Data,
-			Action:        r.Recommendation,
-			Reason:        r.SavedAmount,
+			JobType:     r.AnalysisType,
+			TargetType:  r.TargetType,
+			TargetKey:   r.TargetKey,
+			TargetName:  r.TargetName,
+			Severity:    "info",
+			Category:    r.AnalysisType,
+			Title:       r.TargetName,
+			Description: r.Data,
+			Action:      r.Recommendation,
+			Reason:      r.SavedAmount,
 		}
 	}
 	return r.db.CreateInBatches(findings, 100).Error
@@ -862,15 +871,15 @@ func NewAlertRepository() *AlertRepository {
 // Create 创建告警 (转换为 AnalysisFinding 存储)
 func (r *AlertRepository) Create(alert *Alert) error {
 	finding := &AnalysisFinding{
-		JobType:       alert.AlertType,
-		TargetType:    alert.TargetType,
-		TargetKey:     alert.TargetKey,
-		TargetName:    alert.TargetName,
-		Severity:      alert.Severity,
-		Category:      alert.AlertType,
-		Title:         alert.Title,
-		Description:   alert.Message,
-		Details:       alert.Data,
+		JobType:     alert.AlertType,
+		TargetType:  alert.TargetType,
+		TargetKey:   alert.TargetKey,
+		TargetName:  alert.TargetName,
+		Severity:    alert.Severity,
+		Category:    alert.AlertType,
+		Title:       alert.Title,
+		Description: alert.Message,
+		Details:     alert.Data,
 	}
 	return r.db.Create(finding).Error
 }
@@ -883,15 +892,15 @@ func (r *AlertRepository) BatchCreate(alerts []Alert) error {
 	findings := make([]AnalysisFinding, len(alerts))
 	for i, a := range alerts {
 		findings[i] = AnalysisFinding{
-			JobType:       a.AlertType,
-			TargetType:    a.TargetType,
-			TargetKey:     a.TargetKey,
-			TargetName:    a.TargetName,
-			Severity:      a.Severity,
-			Category:      a.AlertType,
-			Title:         a.Title,
-			Description:   a.Message,
-			Details:       a.Data,
+			JobType:     a.AlertType,
+			TargetType:  a.TargetType,
+			TargetKey:   a.TargetKey,
+			TargetName:  a.TargetName,
+			Severity:    a.Severity,
+			Category:    a.AlertType,
+			Title:       a.Title,
+			Description: a.Message,
+			Details:     a.Data,
 		}
 	}
 	return r.db.CreateInBatches(findings, 100).Error

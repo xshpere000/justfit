@@ -1,13 +1,14 @@
 /**
- * JustFit 前端类型定义
- * 与后端 API 对接的类型定义
+ * JustFit 前端类型定义统一入口
  */
 
-// 导入 API 官方类型定义
+// 导入 API 相关类型
 export * from './api'
-export * from './common'
 
-// =============== 通用类型 ===============
+// 从 common.ts 导入通用类型（只导出真正通用的，避免与 api.ts 冲突）
+export type { ReportData, ReportSection, ReportExportOptions } from './common'
+
+// =============== 其他通用类型 ===============
 
 export interface ApiResponse<T = any> {
   code?: number

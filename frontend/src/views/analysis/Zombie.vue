@@ -107,7 +107,7 @@
         </el-table-column>
         <el-table-column prop="confidence" label="置信度" width="100">
           <template #default="{ row }">
-            <el-tag :type="getConfidenceType(row.confidence)">{{ (row.confidence * 100).toFixed(0) }}%</el-tag>
+            <el-tag :type="getConfidenceType(row.confidence)">{{ row.confidence.toFixed(0) }}%</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="daysLowUsage" label="低载天数" width="100" />
@@ -184,7 +184,7 @@ const totalWastedMemory = computed(() => {
 
 const averageConfidence = computed(() => {
   if (results.value.length === 0) return 0
-  return (results.value.reduce((sum, r) => sum + (r.confidence || 0), 0) / results.value.length) * 100
+  return results.value.reduce((sum, r) => sum + (r.confidence || 0), 0) / results.value.length
 })
 
 async function handleAnalyze() {
@@ -220,8 +220,8 @@ async function handleAnalyze() {
 }
 
 function getConfidenceType(confidence: number): string {
-  if (confidence >= 0.8) return 'danger'
-  if (confidence >= 0.6) return 'warning'
+  if (confidence >= 80) return 'danger'
+  if (confidence >= 60) return 'warning'
   return 'info'
 }
 

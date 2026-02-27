@@ -97,7 +97,16 @@ func main() {
 
 	// 采集性能指标
 	fmt.Println("   3.4 采集性能指标...")
-	metricStats, err := collector.CollectMetrics(nil, 0, 7, password)
+	// 创建临时任务用于关联指标数据
+	tempTask := &storage.AssessmentTask{
+		Name:         "E2E测试任务",
+		ConnectionID: 0,
+		Status:       "running",
+	}
+	repos.Task.Create(tempTask)
+	defer repos.Task.Delete(tempTask.ID) // 测试结束后清理
+
+	metricStats, err := collector.CollectMetrics(nil, tempTask.ID, 0, 7, password)
 	if err != nil {
 		log.Printf("   ⚠ 采集性能指标失败: %v", err)
 	} else {
@@ -180,13 +189,13 @@ func main() {
 	// 生成测试报告
 	fmt.Println("\n5. 生成测试报告...")
 	report := map[string]interface{}{
-		"timestamp":     time.Now().Format(time.RFC3339),
-		"connection":    "H3C UIS 测试环境",
-		"vmCount":       len(vms),
-		"zombieVMs":     len(zombieResults),
-		"rightSizeVMs":  len(rightSizeResults),
-		"tidalVMs":      len(tidalResults),
-		"healthScore":   healthResult.OverallScore,
+		"timestamp":    time.Now().Format(time.RFC3339),
+		"connection":   "H3C UIS 测试环境",
+		"vmCount":      len(vms),
+		"zombieVMs":    len(zombieResults),
+		"rightSizeVMs": len(rightSizeResults),
+		"tidalVMs":     len(tidalResults),
+		"healthScore":  healthResult.OverallScore,
 	}
 
 	reportData, _ := json.MarshalIndent(report, "", "  ")

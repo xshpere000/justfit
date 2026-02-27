@@ -5,11 +5,11 @@ import (
 	"context"
 
 	"justfit/internal/appdir"
-	apperrors "justfit/internal/errors"
 	"justfit/internal/connector"
 	"justfit/internal/dto/mapper"
 	"justfit/internal/dto/request"
 	"justfit/internal/dto/response"
+	apperrors "justfit/internal/errors"
 	"justfit/internal/logger"
 	"justfit/internal/security"
 	"justfit/internal/storage"

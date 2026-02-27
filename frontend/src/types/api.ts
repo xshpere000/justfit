@@ -12,7 +12,7 @@ export type PlatformType = 'vcenter' | 'h3c-uis';
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 export type TaskType = 'collection' | 'analysis' | 'report';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
-export type alertType = 'zombieVm' | 'overprovisioned' | 'underprovisioned' | 'healthRisk';
+export type alertType = 'zombieVM' | 'overprovisioned' | 'underprovisioned' | 'healthRisk';
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
 
 // ==================== 连接管理 ====================
@@ -422,4 +422,22 @@ export interface CreateAlertRequest {
   title: string;
   message: string;
   data?: string;
+}
+
+// ==================== 版本管理 ====================
+
+export interface AppVersionInfo {
+  version: string;
+  storedVersion: string;
+  majorVersions: string[];
+  isDevelopment: boolean;
+}
+
+export interface VersionCheckResult {
+  needsRebuild: boolean;
+  currentVersion: string;
+  databaseSize: number;
+  hasData: boolean;
+  latestVersion: string;
+  message: string;
 }

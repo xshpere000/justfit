@@ -4,7 +4,7 @@ import * as ConnectionAPI from '@/api/connection'
 
 export const useConnectionStore = defineStore('connection', () => {
   // 状态
-  const connections = ref<main.ConnectionInfo[]>([])
+  const connections = ref<any[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 

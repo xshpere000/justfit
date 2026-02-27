@@ -23,11 +23,11 @@ type HealthScoreResult struct {
 	HotspotConcentration float64 `json:"hotspotConcentration"` // 热点集中度 0-100
 
 	// 详情
-	ClusterCount  int     `json:"clusterCount"`
-	HostCount     int     `json:"hostCount"`
-	VMCount       int     `json:"vmCount"`
-	CpuCoreCount  int64   `json:"cpuCoreCount"`
-	MemoryGB float64 `json:"memoryGb"`
+	ClusterCount int     `json:"clusterCount"`
+	HostCount    int     `json:"hostCount"`
+	VMCount      int     `json:"vmCount"`
+	CpuCoreCount int64   `json:"cpuCoreCount"`
+	MemoryGB     float64 `json:"memoryGb"`
 
 	AvgCPUUsage    float64 `json:"avgCpuUsage"`
 	AvgMemoryUsage float64 `json:"avgMemoryUsage"`

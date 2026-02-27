@@ -100,18 +100,19 @@ func buildVMKey(vm connector.VMInfo) string {
 }
 
 // ProcessVMMetrics 处理虚拟机性能指标
-func (p *Processor) ProcessVMMetrics(vmKey string, metrics *connector.VMMetrics) error {
+func (p *Processor) ProcessVMMetrics(taskID uint, vmKey string, metrics *connector.VMMetrics) error {
 	// 查找虚拟机
 	vm, err := p.repos.VM.GetByKey(vmKey)
 	if err != nil {
 		return fmt.Errorf("查找虚拟机失败: %w", err)
 	}
 
-	var allMetrics []storage.Metric
+	var allMetrics []storage.VMMetric
 
 	// 转换 CPU 指标
 	for _, sample := range metrics.CPU {
-		allMetrics = append(allMetrics, storage.Metric{
+		allMetrics = append(allMetrics, storage.VMMetric{
+			TaskID:     taskID,
 			VMID:       vm.ID,
 			MetricType: "cpu",
 			Timestamp:  sample.Timestamp,
@@ -121,7 +122,8 @@ func (p *Processor) ProcessVMMetrics(vmKey string, metrics *connector.VMMetrics)
 
 	// 转换内存指标
 	for _, sample := range metrics.Memory {
-		allMetrics = append(allMetrics, storage.Metric{
+		allMetrics = append(allMetrics, storage.VMMetric{
+			TaskID:     taskID,
 			VMID:       vm.ID,
 			MetricType: "memory",
 			Timestamp:  sample.Timestamp,
@@ -131,7 +133,8 @@ func (p *Processor) ProcessVMMetrics(vmKey string, metrics *connector.VMMetrics)
 
 	// 转换磁盘读指标
 	for _, sample := range metrics.DiskRead {
-		allMetrics = append(allMetrics, storage.Metric{
+		allMetrics = append(allMetrics, storage.VMMetric{
+			TaskID:     taskID,
 			VMID:       vm.ID,
 			MetricType: "disk_read",
 			Timestamp:  sample.Timestamp,
@@ -141,7 +144,8 @@ func (p *Processor) ProcessVMMetrics(vmKey string, metrics *connector.VMMetrics)
 
 	// 转换磁盘写指标
 	for _, sample := range metrics.DiskWrite {
-		allMetrics = append(allMetrics, storage.Metric{
+		allMetrics = append(allMetrics, storage.VMMetric{
+			TaskID:     taskID,
 			VMID:       vm.ID,
 			MetricType: "disk_write",
 			Timestamp:  sample.Timestamp,
@@ -151,7 +155,8 @@ func (p *Processor) ProcessVMMetrics(vmKey string, metrics *connector.VMMetrics)
 
 	// 转换网络接收指标
 	for _, sample := range metrics.NetRx {
-		allMetrics = append(allMetrics, storage.Metric{
+		allMetrics = append(allMetrics, storage.VMMetric{
+			TaskID:     taskID,
 			VMID:       vm.ID,
 			MetricType: "net_rx",
 			Timestamp:  sample.Timestamp,
@@ -161,7 +166,8 @@ func (p *Processor) ProcessVMMetrics(vmKey string, metrics *connector.VMMetrics)
 
 	// 转换网络发送指标
 	for _, sample := range metrics.NetTx {
-		allMetrics = append(allMetrics, storage.Metric{
+		allMetrics = append(allMetrics, storage.VMMetric{
+			TaskID:     taskID,
 			VMID:       vm.ID,
 			MetricType: "net_tx",
 			Timestamp:  sample.Timestamp,

@@ -8,8 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
-	applogger "justfit/internal/logger"
 	"justfit/internal/appdir"
+	applogger "justfit/internal/logger"
 	"justfit/internal/storage"
 )
 

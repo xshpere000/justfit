@@ -129,7 +129,7 @@ type VMInfo struct {
 	CpuCount        int32
 	MemoryMB        int32
 	PowerState      types.VirtualMachinePowerState
-	ConnectionState string                         // 连接状态: connected, disconnected, orphaned, notResponding
+	ConnectionState string // 连接状态: connected, disconnected, orphaned, notResponding
 	IPAddress       string
 	GuestOS         string
 	HostName        string
@@ -339,7 +339,11 @@ func (vc *VCenterClient) GetVMMetrics(datacenter, vmName, vmUUID string, startTi
 	}
 
 	// 获取可用的性能计数器
-	availMetrics, err := perfManager.AvailableMetric(vc.ctx, vm.Reference(), 300)
+	// 使用 20 秒实时间隔以获取所有指标(包括磁盘和网络)
+	// 注意: 实时数据通常只有最近 1-2 小时
+	// 如果需要长期历史数据,需要在 vCenter 中提高统计级别到级别 2+
+	realtimeInterval := int32(20)
+	availMetrics, err := perfManager.AvailableMetric(vc.ctx, vm.Reference(), realtimeInterval)
 	if err != nil {
 		return nil, fmt.Errorf("获取可用指标失败: %w", err)
 	}
@@ -355,7 +359,7 @@ func (vc *VCenterClient) GetVMMetrics(datacenter, vmName, vmUUID string, startTi
 		Entity:     vm.Reference(),
 		StartTime:  &startTime,
 		EndTime:    &endTime,
-		IntervalId: 300, // 5分钟间隔
+		IntervalId: realtimeInterval,
 		MetricId:   make([]types.PerfMetricId, 0),
 	}
 
@@ -373,7 +377,7 @@ func (vc *VCenterClient) GetVMMetrics(datacenter, vmName, vmUUID string, startTi
 			if validMetricIds[counterID] {
 				spec.MetricId = append(spec.MetricId, types.PerfMetricId{
 					CounterId: counterID,
-					Instance:  "*",
+					Instance:  "", // 空字符串获取聚合数据
 				})
 			}
 		}

@@ -240,7 +240,7 @@ func (a *TestApp) TestReportGeneration() error {
 
 	// 准备报告数据
 	reportData := &report.ReportData{
-		Title:       "测试报告",
+		Title:        "测试报告",
 		ConnectionID: 1,
 		Sections: []report.ReportSection{
 			{
@@ -252,8 +252,8 @@ func (a *TestApp) TestReportGeneration() error {
 				Title: "数据汇总",
 				Type:  "summary",
 				Data: map[string]interface{}{
-					"vmCount":     100,
-					"hostCount":   10,
+					"vmCount":   100,
+					"hostCount": 10,
 				},
 			},
 		},
@@ -284,13 +284,13 @@ func (a *TestApp) TestAlertManagement() error {
 
 	// 创建告警
 	alert := &storage.Alert{
-		TargetType:  "vm",
-		TargetKey:   "vm-123",
-		TargetName:  "test-vm",
-		AlertType:   "zombie",
-		Severity:    "warning",
-		Title:       "测试告警",
-		Message:     "这是一个测试告警",
+		TargetType:   "vm",
+		TargetKey:    "vm-123",
+		TargetName:   "test-vm",
+		AlertType:    "zombie",
+		Severity:     "warning",
+		Title:        "测试告警",
+		Message:      "这是一个测试告警",
 		Acknowledged: false,
 	}
 
@@ -469,8 +469,8 @@ func (a *TestApp) TestDatabaseOperations() error {
 	}
 	fmt.Printf("✓ 创建指标成功\n")
 
-	// 查询指标
-	metrics, err := a.repos.Metric.ListByVMAndType(vm.ID, "cpu", time.Now().Add(-1*time.Hour), time.Now())
+	// 查询指标（taskID=0 表示查询所有任务）
+	metrics, err := a.repos.Metric.ListByTaskAndVMAndType(0, vm.ID, "cpu", time.Now().Add(-1*time.Hour), time.Now())
 	if err != nil {
 		return fmt.Errorf("查询指标失败: %w", err)
 	}

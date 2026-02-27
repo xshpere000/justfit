@@ -36,19 +36,19 @@ func (rs *ResultStorage) SaveZombieVMResults(taskID uint, results []ZombieVMResu
 		}
 
 		findings[i] = storage.AnalysisFinding{
-			TaskID:       taskID,
-			JobType:      "zombie",
-			TargetType:   "vm",
-			TargetKey:    r.VMKey,
-			TargetName:   r.VMName,
-			Severity:     severity,
-			Category:     "zombie",
-			Title:        fmt.Sprintf("僵尸VM: %s", r.VMName),
-			Description:  fmt.Sprintf("该虚拟机在 %d 天内CPU使用率低于 %d%%，内存使用率低于 %d%%",
+			TaskID:     taskID,
+			JobType:    "zombie",
+			TargetType: "vm",
+			TargetKey:  r.VMKey,
+			TargetName: r.VMName,
+			Severity:   severity,
+			Category:   "zombie",
+			Title:      fmt.Sprintf("僵尸VM: %s", r.VMName),
+			Description: fmt.Sprintf("该虚拟机在 %d 天内CPU使用率低于 %d%%，内存使用率低于 %d%%",
 				r.DaysLowUsage, r.CPUUsage, r.MemoryUsage),
-			Action:       r.Recommendation,
-			Reason:       estimateResourceSaving(r.CPUCount, r.MemoryMB, 0, 0),
-			Details:      string(data),
+			Action:  r.Recommendation,
+			Reason:  estimateResourceSaving(r.CPUCount, r.MemoryMB, 0, 0),
+			Details: string(data),
 		}
 	}
 
@@ -76,24 +76,24 @@ func (rs *ResultStorage) SaveRightSizeResults(taskID uint, results []RightSizeRe
 		}
 
 		findings[i] = storage.AnalysisFinding{
-			TaskID:      taskID,
-			JobType:     "rightsize",
-			TargetType:  "vm",
-			TargetKey:   r.VMKey,
-			TargetName:  r.VMName,
-			Severity:    severity,
-			Category:    category,
-			Title:       fmt.Sprintf("资源配置优化: %s", r.VMName),
+			TaskID:     taskID,
+			JobType:    "rightsize",
+			TargetType: "vm",
+			TargetKey:  r.VMKey,
+			TargetName: r.VMName,
+			Severity:   severity,
+			Category:   category,
+			Title:      fmt.Sprintf("资源配置优化: %s", r.VMName),
 			Description: fmt.Sprintf("%s: %d → %d vCPU, %d → %d MB RAM",
 				r.AdjustmentType,
 				r.CurrentCPU, r.RecommendedCPU,
 				r.CurrentMemoryMB, r.RecommendedMemoryMB),
-			Action:      fmt.Sprintf("建议调整配置为: %d vCPU, %d MB RAM", r.RecommendedCPU, r.RecommendedMemoryMB),
-			Reason:      r.EstimatedSaving,
-			SavingCPU:   r.CurrentCPU - r.RecommendedCPU,
+			Action:       fmt.Sprintf("建议调整配置为: %d vCPU, %d MB RAM", r.RecommendedCPU, r.RecommendedMemoryMB),
+			Reason:       r.EstimatedSaving,
+			SavingCPU:    r.CurrentCPU - r.RecommendedCPU,
 			SavingMemory: r.CurrentMemoryMB - r.RecommendedMemoryMB,
-			SavingCost:  r.EstimatedSaving,
-			Details:     string(data),
+			SavingCost:   r.EstimatedSaving,
+			Details:      string(data),
 		}
 	}
 
@@ -116,19 +116,19 @@ func (rs *ResultStorage) SaveTidalResults(taskID uint, results []TidalResult) er
 		}
 
 		findings[i] = storage.AnalysisFinding{
-			TaskID:      taskID,
-			JobType:     "tidal",
-			TargetType:  "vm",
-			TargetKey:   r.VMKey,
-			TargetName:  r.VMName,
-			Severity:    severity,
-			Category:    "tidal_pattern",
-			Title:       fmt.Sprintf("潮汐模式: %s", r.VMName),
+			TaskID:     taskID,
+			JobType:    "tidal",
+			TargetType: "vm",
+			TargetKey:  r.VMKey,
+			TargetName: r.VMName,
+			Severity:   severity,
+			Category:   "tidal_pattern",
+			Title:      fmt.Sprintf("潮汐模式: %s", r.VMName),
 			Description: fmt.Sprintf("检测到潮汐模式，稳定度: %.0f%%。峰值时段: %s, 峰值日: %s",
 				r.StabilityScore, r.PeakHours, r.PeakDays),
-			Action:      r.Recommendation,
-			Reason:      r.EstimatedSaving,
-			Details:     string(data),
+			Action:  r.Recommendation,
+			Reason:  r.EstimatedSaving,
+			Details: string(data),
 		}
 	}
 
@@ -159,37 +159,37 @@ func (rs *ResultStorage) SaveHealthScoreResult(taskID uint, result HealthScoreRe
 
 	// 主评分记录
 	mainFinding := storage.AnalysisFinding{
-		TaskID:       taskID,
-		JobType:      "health",
-		TargetType:   "connection",
-		TargetKey:    fmt.Sprintf("%d", result.ConnectionID),
-		TargetName:   result.ConnectionName,
-		Severity:     severity,
-		Category:     "health_risk",
-		Title:        fmt.Sprintf("平台健康评分: %.0f", result.OverallScore),
-		Description:  fmt.Sprintf("健康度: %s, 资源平衡: %.0f, 过分配风险: %.0f",
+		TaskID:     taskID,
+		JobType:    "health",
+		TargetType: "connection",
+		TargetKey:  fmt.Sprintf("%d", result.ConnectionID),
+		TargetName: result.ConnectionName,
+		Severity:   severity,
+		Category:   "health_risk",
+		Title:      fmt.Sprintf("平台健康评分: %.0f", result.OverallScore),
+		Description: fmt.Sprintf("健康度: %s, 资源平衡: %.0f, 过分配风险: %.0f",
 			result.HealthLevel, result.ResourceBalance, result.OvercommitRisk),
-		Action:       action,
-		Reason:       fmt.Sprintf("总集群: %d, 总主机: %d, 总虚拟机: %d",
+		Action: action,
+		Reason: fmt.Sprintf("总集群: %d, 总主机: %d, 总虚拟机: %d",
 			result.ClusterCount, result.HostCount, result.VMCount),
-		Details:      string(data),
+		Details: string(data),
 	}
 	findings = append(findings, mainFinding)
 
 	// 风险项作为单独的发现
 	for _, risk := range result.RiskItems {
 		findings = append(findings, storage.AnalysisFinding{
-			TaskID:       taskID,
-			JobType:      "health",
-			TargetType:   "connection",
-			TargetKey:    fmt.Sprintf("%d", result.ConnectionID),
-			TargetName:   result.ConnectionName,
-			Severity:     "warning",
-			Category:     "health_risk",
-			Title:        fmt.Sprintf("风险: %s", risk),
-			Description:  risk,
-			Action:       action,
-			Details:      string(data),
+			TaskID:      taskID,
+			JobType:     "health",
+			TargetType:  "connection",
+			TargetKey:   fmt.Sprintf("%d", result.ConnectionID),
+			TargetName:  result.ConnectionName,
+			Severity:    "warning",
+			Category:    "health_risk",
+			Title:       fmt.Sprintf("风险: %s", risk),
+			Description: risk,
+			Action:      action,
+			Details:     string(data),
 		})
 	}
 
@@ -243,15 +243,15 @@ func (rs *ResultStorage) CreateAlert(targetType, targetKey, targetName, alertTyp
 	}
 
 	finding := storage.AnalysisFinding{
-		JobType:      alertType,
-		TargetType:   targetType,
-		TargetKey:    targetKey,
-		TargetName:   targetName,
-		Severity:     severity,
-		Category:     alertType,
-		Title:        title,
-		Description:  message,
-		Details:      string(dataJSON),
+		JobType:     alertType,
+		TargetType:  targetType,
+		TargetKey:   targetKey,
+		TargetName:  targetName,
+		Severity:    severity,
+		Category:    alertType,
+		Title:       title,
+		Description: message,
+		Details:     string(dataJSON),
 	}
 
 	return rs.repos.AnalysisFinding.Create(&finding)
@@ -263,15 +263,15 @@ func (rs *ResultStorage) CreateAlerts(alerts []storage.Alert) error {
 	findings := make([]storage.AnalysisFinding, len(alerts))
 	for i, a := range alerts {
 		findings[i] = storage.AnalysisFinding{
-			JobType:      a.AlertType,
-			TargetType:   a.TargetType,
-			TargetKey:    a.TargetKey,
-			TargetName:   a.TargetName,
-			Severity:     a.Severity,
-			Category:     a.AlertType,
-			Title:        a.Title,
-			Description:  a.Message,
-			Details:      a.Data,
+			JobType:     a.AlertType,
+			TargetType:  a.TargetType,
+			TargetKey:   a.TargetKey,
+			TargetName:  a.TargetName,
+			Severity:    a.Severity,
+			Category:    a.AlertType,
+			Title:       a.Title,
+			Description: a.Message,
+			Details:     a.Data,
 		}
 	}
 	return rs.repos.AnalysisFinding.BatchCreate(findings)

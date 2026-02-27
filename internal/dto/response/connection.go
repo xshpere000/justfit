@@ -19,13 +19,13 @@ type ConnectionResponse struct {
 
 // ConnectionListItem 连接列表项
 type ConnectionListItem struct {
-	ID        uint    `json:"id"`
-	Name      string  `json:"name"`
-	Platform  string  `json:"platform"`
-	Host      string  `json:"host"`
-	Status    string  `json:"status"`
-	VMCount   int     `json:"vmCount"`
-	LastSync  *string `json:"lastSync,omitempty"`
+	ID       uint    `json:"id"`
+	Name     string  `json:"name"`
+	Platform string  `json:"platform"`
+	Host     string  `json:"host"`
+	Status   string  `json:"status"`
+	VMCount  int     `json:"vmCount"`
+	LastSync *string `json:"lastSync,omitempty"`
 }
 
 // TestConnectionResponse 测试连接响应

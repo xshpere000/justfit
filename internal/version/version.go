@@ -53,8 +53,7 @@ func isDevelopmentVersion() bool {
 
 // containsStr 检查字符串是否包含子串
 func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (
-		s[:len(substr)] == substr ||
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr ||
 		s[len(s)-len(substr):] == substr ||
 		containsMiddle(s, substr)))
 }

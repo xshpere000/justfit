@@ -27,11 +27,11 @@ type ReportConfig struct {
 
 // ReportData 报告数据
 type ReportData struct {
-	Title       string                 `json:"title"`
-	GeneratedAt time.Time              `json:"generatedAt"`
-	ConnectionID uint                  `json:"connectionId"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Sections    []ReportSection        `json:"sections"`
+	Title        string                 `json:"title"`
+	GeneratedAt  time.Time              `json:"generatedAt"`
+	ConnectionID uint                   `json:"connectionId"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	Sections     []ReportSection        `json:"sections"`
 }
 
 // ReportSection 报告章节
@@ -292,8 +292,8 @@ func (g *Generator) renderSummary(data interface{}) string {
 
 	colors := map[string]string{
 		"zombieVMs":     "danger",
-		"overallocated":  "warning",
-		"underutilized":  "warning",
+		"overallocated": "warning",
+		"underutilized": "warning",
 		"healthScore":   "success",
 	}
 

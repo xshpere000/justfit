@@ -12,9 +12,9 @@ import (
 // Entry 日志条目
 type Entry struct {
 	// 基础字段
-	Timestamp time.Time              `json:"timestamp"`
-	Level     Level                  `json:"level"`
-	Message   string                 `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+	Level     Level     `json:"level"`
+	Message   string    `json:"message"`
 
 	// 上下文字段
 	Fields map[string]interface{} `json:"fields,omitempty"`
@@ -22,7 +22,7 @@ type Entry struct {
 	// 调用信息
 	File     string `json:"file,omitempty"`
 	Line     int    `json:"line,omitempty"`
-	Function  string `json:"function,omitempty"`
+	Function string `json:"function,omitempty"`
 
 	// 追踪信息
 	TraceID string `json:"traceId,omitempty"`

@@ -154,7 +154,7 @@ import { useRouter } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { VersionApi } from '@/api/connection'
-import type { AppVersionInfo } from '@/api/types'
+import type { AppVersionInfo } from '@/types/api'
 import {
   Search,
   Plus,

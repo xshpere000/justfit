@@ -115,11 +115,11 @@
         <el-table-column prop="stabilityScore" label="稳定性" width="120">
           <template #default="{ row }">
             <el-progress
-              :percentage="row.stabilityScore * 100"
+              :percentage="row.stabilityScore"
               :color="getStabilityColor(row.stabilityScore)"
               :show-text="false"
             />
-            <span class="progress-text">{{ (row.stabilityScore * 100).toFixed(0) }}%</span>
+            <span class="progress-text">{{ row.stabilityScore.toFixed(0) }}%</span>
           </template>
         </el-table-column>
         <el-table-column label="高峰时段" width="180">
@@ -202,7 +202,7 @@ const averageStability = computed(() => {
   return (
     results.value.reduce((sum, r) => sum + r.stabilityScore, 0) /
     results.value.length
-  ) * 100
+  )
 })
 
 async function handleAnalyze() {
@@ -233,8 +233,8 @@ async function handleAnalyze() {
 }
 
 function getStabilityColor(score: number): string {
-  if (score >= 0.8) return '#67C23A'
-  if (score >= 0.6) return '#409EFF'
+  if (score >= 80) return '#67C23A'
+  if (score >= 60) return '#409EFF'
   return '#E6A23C'
 }
 </script>

@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	applogger "justfit/internal/logger"
 	"justfit/internal/analyzer"
 	"justfit/internal/etl"
+	applogger "justfit/internal/logger"
 	"justfit/internal/storage"
 	"justfit/internal/task"
 )
@@ -75,7 +75,7 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 
 	// 执行采集
 	result, err := e.collector.Collect(ctx, config)
-	progressCh <- 30  // 基础数据采集完成
+	progressCh <- 30 // 基础数据采集完成
 
 	if err != nil {
 		return &task.TaskResult{
@@ -98,7 +98,7 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 		startProgress := 30.0
 		endProgress := 90.0
 
-		metricStats, metricErr := e.collector.CollectMetrics(ctx, connectionID, metricsDays, password, selectedVMs,
+		metricStats, metricErr := e.collector.CollectMetrics(ctx, t.ID, connectionID, metricsDays, password, selectedVMs,
 			func(current, total int, message string) {
 				// 计算当前进度：30% + (完成比例 * 60%)
 				if total > 0 {
@@ -122,13 +122,13 @@ func (e *CollectionExecutor) Execute(ctx context.Context, t *task.Task, progress
 	}
 
 	// 保存快照：90% → 100%
-	progressCh <- 95  // 开始保存快照
+	progressCh <- 95 // 开始保存快照
 
 	if snapshotErr := e.captureTaskVMSnapshots(t.ID, connectionID, getSelectedVMsFromConfig(t.Config)); snapshotErr != nil {
 		e.log.Warn("保存任务虚拟机快照失败", applogger.Uint("taskID", t.ID), applogger.Err(snapshotErr))
 	}
 
-	progressCh <- 100  // 全部完成
+	progressCh <- 100 // 全部完成
 
 	return &task.TaskResult{
 		Success: true,
@@ -214,11 +214,11 @@ func (e *AnalysisExecutor) Execute(ctx context.Context, t *task.Task, progressCh
 	log.Debug("开始调用具体分析方法", applogger.String("type", analysisType))
 	switch analysisType {
 	case "zombie":
-		result, err = e.executeZombieVMAnalysis(connectionID, t.Config, progressCh)
+		result, err = e.executeZombieVMAnalysis(t.ID, connectionID, t.Config, progressCh)
 	case "rightsize":
-		result, err = e.executeRightSizeAnalysis(connectionID, t.Config, progressCh)
+		result, err = e.executeRightSizeAnalysis(t.ID, connectionID, t.Config, progressCh)
 	case "tidal":
-		result, err = e.executeTidalAnalysis(connectionID, t.Config, progressCh)
+		result, err = e.executeTidalAnalysis(t.ID, connectionID, t.Config, progressCh)
 	case "health":
 		result, err = e.executeHealthScoreAnalysis(connectionID, progressCh)
 	default:
@@ -292,21 +292,21 @@ func (e *CollectionExecutor) captureTaskVMSnapshots(taskID, connectionID uint, s
 	snapshots := make([]storage.TaskVMSnapshot, 0, len(filteredVMs))
 	for _, vm := range filteredVMs {
 		snapshots = append(snapshots, storage.TaskVMSnapshot{
-			TaskID:         taskID,
-			ConnectionID:   connectionID,
-			VMKey:          vm.VMKey,
-			UUID:           vm.UUID,
-			Name:           vm.Name,
-			Datacenter:     vm.Datacenter,
-			CpuCount:       vm.CpuCount,
-			MemoryMB:       vm.MemoryMB,
-			PowerState:     vm.PowerState,
+			TaskID:          taskID,
+			ConnectionID:    connectionID,
+			VMKey:           vm.VMKey,
+			UUID:            vm.UUID,
+			Name:            vm.Name,
+			Datacenter:      vm.Datacenter,
+			CpuCount:        vm.CpuCount,
+			MemoryMB:        vm.MemoryMB,
+			PowerState:      vm.PowerState,
 			ConnectionState: vm.ConnectionState,
-			IPAddress:      vm.IPAddress,
-			GuestOS:        vm.GuestOS,
-			HostName:       vm.HostName,
-			OverallStatus:  vm.OverallStatus,
-			CollectedAt:    vm.CollectedAt,
+			IPAddress:       vm.IPAddress,
+			GuestOS:         vm.GuestOS,
+			HostName:        vm.HostName,
+			OverallStatus:   vm.OverallStatus,
+			CollectedAt:     vm.CollectedAt,
 		})
 	}
 
@@ -356,8 +356,9 @@ func (e *AnalysisExecutor) saveTaskAnalysisResult(taskID uint, analysisType stri
 }
 
 // executeZombieVMAnalysis 执行僵尸VM分析
-func (e *AnalysisExecutor) executeZombieVMAnalysis(connectionID uint, config map[string]interface{}, progressCh chan<- float64) (interface{}, error) {
+func (e *AnalysisExecutor) executeZombieVMAnalysis(taskID uint, connectionID uint, config map[string]interface{}, progressCh chan<- float64) (interface{}, error) {
 	log := e.log.With(
+		applogger.Uint("taskID", taskID),
 		applogger.Uint("connectionID", connectionID),
 		applogger.String("analysis", "zombie"))
 
@@ -371,7 +372,7 @@ func (e *AnalysisExecutor) executeZombieVMAnalysis(connectionID uint, config map
 
 	progressCh <- 30
 
-	results, err := e.analyzer.DetectZombieVMs(connectionID, zombieConfig)
+	results, err := e.analyzer.DetectZombieVMs(taskID, connectionID, zombieConfig)
 	if err != nil {
 		log.Error("僵尸VM分析失败", applogger.Err(err))
 		return nil, err
@@ -384,16 +385,16 @@ func (e *AnalysisExecutor) executeZombieVMAnalysis(connectionID uint, config map
 	output := make([]map[string]interface{}, len(results))
 	for i, r := range results {
 		output[i] = map[string]interface{}{
-			"vmName":        r.VMName,
-			"datacenter":    r.Datacenter,
-			"host":          r.Host,
-			"cpuCount":      r.CPUCount,
-			"memoryMb":      r.MemoryMB,
-			"cpuUsage":      r.CPUUsage,
-			"memoryUsage":   r.MemoryUsage,
-			"confidence":    r.Confidence,
-			"daysLowUsage":  r.DaysLowUsage,
-			"evidence":      r.Evidence,
+			"vmName":         r.VMName,
+			"datacenter":     r.Datacenter,
+			"host":           r.Host,
+			"cpuCount":       r.CPUCount,
+			"memoryMb":       r.MemoryMB,
+			"cpuUsage":       r.CPUUsage,
+			"memoryUsage":    r.MemoryUsage,
+			"confidence":     r.Confidence,
+			"daysLowUsage":   r.DaysLowUsage,
+			"evidence":       r.Evidence,
 			"recommendation": r.Recommendation,
 		}
 	}
@@ -405,12 +406,12 @@ func (e *AnalysisExecutor) executeZombieVMAnalysis(connectionID uint, config map
 }
 
 // executeRightSizeAnalysis 执行Right Size分析
-func (e *AnalysisExecutor) executeRightSizeAnalysis(connectionID uint, config map[string]interface{}, progressCh chan<- float64) (interface{}, error) {
+func (e *AnalysisExecutor) executeRightSizeAnalysis(taskID uint, connectionID uint, config map[string]interface{}, progressCh chan<- float64) (interface{}, error) {
 	rightSizeConfig := parseRightSizeConfig(config)
 
 	progressCh <- 30
 
-	results, err := e.analyzer.AnalyzeRightSize(connectionID, rightSizeConfig)
+	results, err := e.analyzer.AnalyzeRightSize(taskID, connectionID, rightSizeConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -421,16 +422,16 @@ func (e *AnalysisExecutor) executeRightSizeAnalysis(connectionID uint, config ma
 	output := make([]map[string]interface{}, len(results))
 	for i, r := range results {
 		output[i] = map[string]interface{}{
-			"vmName":               r.VMName,
-			"datacenter":           r.Datacenter,
-			"currentCpu":           r.CurrentCPU,
-			"currentMemoryMb":      r.CurrentMemoryMB,
-			"recommendedCpu":       r.RecommendedCPU,
-			"recommendedMemoryMb":  r.RecommendedMemoryMB,
-			"adjustmentType":       r.AdjustmentType,
-			"riskLevel":            r.RiskLevel,
-			"estimatedSaving":      r.EstimatedSaving,
-			"confidence":           r.Confidence,
+			"vmName":              r.VMName,
+			"datacenter":          r.Datacenter,
+			"currentCpu":          r.CurrentCPU,
+			"currentMemoryMb":     r.CurrentMemoryMB,
+			"recommendedCpu":      r.RecommendedCPU,
+			"recommendedMemoryMb": r.RecommendedMemoryMB,
+			"adjustmentType":      r.AdjustmentType,
+			"riskLevel":           r.RiskLevel,
+			"estimatedSaving":     r.EstimatedSaving,
+			"confidence":          r.Confidence,
 		}
 	}
 
@@ -441,12 +442,12 @@ func (e *AnalysisExecutor) executeRightSizeAnalysis(connectionID uint, config ma
 }
 
 // executeTidalAnalysis 执行潮汐分析
-func (e *AnalysisExecutor) executeTidalAnalysis(connectionID uint, config map[string]interface{}, progressCh chan<- float64) (interface{}, error) {
+func (e *AnalysisExecutor) executeTidalAnalysis(taskID uint, connectionID uint, config map[string]interface{}, progressCh chan<- float64) (interface{}, error) {
 	tidalConfig := parseTidalConfig(config)
 
 	progressCh <- 30
 
-	results, err := e.analyzer.DetectTidalPattern(connectionID, tidalConfig)
+	results, err := e.analyzer.DetectTidalPattern(taskID, connectionID, tidalConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -493,8 +494,8 @@ func (e *AnalysisExecutor) executeHealthScoreAnalysis(connectionID uint, progres
 		"resourceBalance":      result.ResourceBalance,
 		"overcommitRisk":       result.OvercommitRisk,
 		"hotspotConcentration": result.HotspotConcentration,
-		"clusterCount":        result.ClusterCount,
-		"hostCount":           result.HostCount,
+		"clusterCount":         result.ClusterCount,
+		"hostCount":            result.HostCount,
 		"vmCount":              result.VMCount,
 		"riskItems":            result.RiskItems,
 		"recommendations":      result.Recommendations,

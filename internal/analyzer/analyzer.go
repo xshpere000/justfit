@@ -33,13 +33,13 @@ type VMAnalysisResult struct {
 // ZombieVMResult 僵尸 VM 分析结果
 type ZombieVMResult struct {
 	VMAnalysisResult
-	CPUUsage       float64  `json:"cpuUsage"`      // 平均 CPU 使用率
-	MemoryUsage    float64  `json:"memoryUsage"`   // 平均内存使用率
+	CPUUsage       float64  `json:"cpuUsage"`     // 平均 CPU 使用率
+	MemoryUsage    float64  `json:"memoryUsage"`  // 平均内存使用率
 	DiskIORate     float64  `json:"diskIoRate"`   // 平均磁盘 I/O 速率
-	NetworkRate    float64  `json:"networkRate"`   // 平均网络速率
-	Confidence     float64  `json:"confidence"`     // 置信度 0-100
+	NetworkRate    float64  `json:"networkRate"`  // 平均网络速率
+	Confidence     float64  `json:"confidence"`   // 置信度 0-100
 	DaysLowUsage   int      `json:"daysLowUsage"` // 低负载天数
-	Evidence       []string `json:"evidence"`       // 证据列表
+	Evidence       []string `json:"evidence"`     // 证据列表
 	Recommendation string   `json:"recommendation"`
 }
 
@@ -66,7 +66,7 @@ func DefaultZombieVMConfig() *ZombieVMConfig {
 }
 
 // DetectZombieVMs 检测僵尸虚拟机
-func (e *Engine) DetectZombieVMs(connectionID uint, config *ZombieVMConfig) ([]ZombieVMResult, error) {
+func (e *Engine) DetectZombieVMs(taskID, connectionID uint, config *ZombieVMConfig) ([]ZombieVMResult, error) {
 	if config == nil {
 		config = DefaultZombieVMConfig()
 	}
@@ -88,14 +88,14 @@ func (e *Engine) DetectZombieVMs(connectionID uint, config *ZombieVMConfig) ([]Z
 			continue
 		}
 
-		// 获取 CPU 指标
-		cpuMetrics, err := e.repos.Metric.ListByVMAndType(vm.ID, "cpu", startTime, endTime)
+		// 获取 CPU 指标（使用 TaskID 过滤）
+		cpuMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
 		if err != nil || len(cpuMetrics) == 0 {
 			continue
 		}
 
-		// 获取内存指标
-		memMetrics, err := e.repos.Metric.ListByVMAndType(vm.ID, "memory", startTime, endTime)
+		// 获取内存指标（使用 TaskID 过滤）
+		memMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "memory", startTime, endTime)
 		if err != nil || len(memMetrics) == 0 {
 			continue
 		}
@@ -113,11 +113,11 @@ func (e *Engine) DetectZombieVMs(connectionID uint, config *ZombieVMConfig) ([]Z
 			avgMemoryPercent = (avgMemoryAbs / float64(vm.MemoryMB)) * 100
 		}
 
-		// 获取 I/O 指标（可选）
-		diskReadMetrics, _ := e.repos.Metric.ListByVMAndType(vm.ID, "disk_read", startTime, endTime)
-		diskWriteMetrics, _ := e.repos.Metric.ListByVMAndType(vm.ID, "disk_write", startTime, endTime)
-		netRxMetrics, _ := e.repos.Metric.ListByVMAndType(vm.ID, "net_rx", startTime, endTime)
-		netTxMetrics, _ := e.repos.Metric.ListByVMAndType(vm.ID, "net_tx", startTime, endTime)
+		// 获取 I/O 指标（使用 TaskID 过滤）
+		diskReadMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "disk_read", startTime, endTime)
+		diskWriteMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "disk_write", startTime, endTime)
+		netRxMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "net_rx", startTime, endTime)
+		netTxMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "net_tx", startTime, endTime)
 
 		avgDiskIO := (averageMetrics(diskReadMetrics) + averageMetrics(diskWriteMetrics)) / 2
 		avgNetwork := (averageMetrics(netRxMetrics) + averageMetrics(netTxMetrics)) / 2

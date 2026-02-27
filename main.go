@@ -59,10 +59,10 @@ func main() {
 	opts := &options.App{
 		Title:            "justfit",
 		Width:            1024,
-		Height:           768,
+		Height:           640,
 		MinWidth:         1024,
-		MinHeight:        768,
-		WindowStartState: options.Maximised,
+		MinHeight:        640,
+		WindowStartState: options.Normal, // 默认正常窗口，不是全屏
 		Frameless:        true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,

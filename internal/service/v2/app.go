@@ -6,11 +6,11 @@ import (
 	"context"
 	"time"
 
-	apperrors "justfit/internal/errors"
 	"justfit/internal/connector"
 	"justfit/internal/dto/mapper"
 	"justfit/internal/dto/request"
 	"justfit/internal/dto/response"
+	apperrors "justfit/internal/errors"
 	"justfit/internal/logger"
 	"justfit/internal/security"
 	"justfit/internal/storage"
@@ -44,12 +44,12 @@ func NewServices(
 
 // TaskService 任务服务
 type TaskService struct {
-	ctx          context.Context
-	repos        *storage.Repositories
+	ctx           context.Context
+	repos         *storage.Repositories
 	taskScheduler *task.Scheduler
-	taskLogger   *task.Logger
-	mapper       *mapper.TaskMapper
-	log          logger.Logger
+	taskLogger    *task.Logger
+	mapper        *mapper.TaskMapper
+	log           logger.Logger
 }
 
 // NewTaskService 创建任务服务
@@ -60,12 +60,12 @@ func NewTaskService(
 	taskLogger *task.Logger,
 ) *TaskService {
 	return &TaskService{
-		ctx:          ctx,
-		repos:        repos,
+		ctx:           ctx,
+		repos:         repos,
 		taskScheduler: taskScheduler,
-		taskLogger:   taskLogger,
-		mapper:       mapper.NewTaskMapper(),
-		log:          logger.With(logger.Str("service", "task")),
+		taskLogger:    taskLogger,
+		mapper:        mapper.NewTaskMapper(),
+		log:           logger.With(logger.Str("service", "task")),
 	}
 }
 
@@ -206,9 +206,9 @@ func (s *TaskService) CreateAnalysis(req *request.CreateAnalysisRequest) (uint, 
 
 	// 前端类型到后端类型的映射
 	typeMapping := map[string]string{
-		"zombie":     "zombie",
-		"rightsize":  "rightsize",
-		"health":     "health",
+		"zombie":    "zombie",
+		"rightsize": "rightsize",
+		"health":    "health",
 	}
 
 	backendType := req.AnalysisType
@@ -244,10 +244,10 @@ func (s *TaskService) CreateAnalysis(req *request.CreateAnalysisRequest) (uint, 
 
 // AlertService 告警服务
 type AlertService struct {
-	ctx   context.Context
-	repos *storage.Repositories
+	ctx    context.Context
+	repos  *storage.Repositories
 	mapper *mapper.AlertMapper
-	log   logger.Logger
+	log    logger.Logger
 }
 
 // NewAlertService 创建告警服务

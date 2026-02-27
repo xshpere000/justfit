@@ -11,7 +11,7 @@ import type { Task, CreateTaskParams } from '@/stores/task'
  */
 export function transformBackendTaskToFrontend(taskInfo: TaskInfo): Task {
   const task: Task = {
-    id: String(taskInfo.id),
+    id: taskInfo.id,
     type: mapBackendTypeToFrontend(taskInfo.type),
     name: taskInfo.name,
     status: mapBackendStatusToFrontend(taskInfo.status),

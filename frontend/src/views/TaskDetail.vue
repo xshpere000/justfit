@@ -164,7 +164,7 @@
                   prefix-icon="Search"
                   clearable
                   style="width: 300px"
-                  @input="handleVmSearch"
+                  @input="handleVMSearch"
                 />
                 <div class="table-stats">
                   共 {{ vmTotal }} 台虚拟机
@@ -201,8 +201,8 @@
                 :page-sizes="[20, 50, 100, 200]"
                 :total="vmTotal"
                 layout="total, sizes, prev, pager, next, jumper"
-                @current-change="handleVmPageChange"
-                @size-change="handleVmSizeChange"
+                @current-change="handleVMPageChange"
+                @size-change="handleVMSizeChange"
               />
             </div>
             </template>
@@ -215,13 +215,13 @@
               <el-table-column prop="vmName" label="虚拟机" min-width="180" />
               <el-table-column prop="datacenter" label="数据中心" min-width="140" />
               <el-table-column prop="cpuUsage" label="CPU使用率" width="120">
-                <template #default="{ row }">{{ row.cpuUsage }}%</template>
+                <template #default="{ row }">{{ row.cpuUsage.toFixed(1) }}%</template>
               </el-table-column>
               <el-table-column prop="memoryUsage" label="内存使用率" width="120">
-                <template #default="{ row }">{{ row.memoryUsage }}%</template>
+                <template #default="{ row }">{{ row.memoryUsage.toFixed(1) }}%</template>
               </el-table-column>
               <el-table-column prop="confidence" label="置信度" width="100">
-                <template #default="{ row }">{{ row.confidence }}%</template>
+                <template #default="{ row }">{{ row.confidence.toFixed(0) }}%</template>
               </el-table-column>
               <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
             </el-table>
@@ -267,7 +267,9 @@
             <el-table :data="analysisData.tidal" stripe v-loading="analysisLoading.tidal">
               <el-table-column prop="vmName" label="虚拟机" min-width="180" />
               <el-table-column prop="pattern" label="模式" width="120" />
-              <el-table-column prop="stabilityScore" label="稳定性" width="100" />
+              <el-table-column prop="stabilityScore" label="稳定性" width="100">
+                <template #default="{ row }">{{ row.stabilityScore.toFixed(0) }}%</template>
+              </el-table-column>
               <el-table-column label="高峰时段" min-width="160">
                 <template #default="{ row }">{{ (row.peakHours || []).join(', ') || '-' }}</template>
               </el-table-column>
@@ -291,11 +293,19 @@
           <div class="analysis-content" v-if="hasAnalysisResults.health">
             <el-card v-loading="analysisLoading.health">
               <el-descriptions :column="2" border>
-                <el-descriptions-item label="综合评分">{{ analysisData.health?.overallScore ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="综合评分">
+                  {{ analysisData.health?.overallScore !== undefined ? analysisData.health.overallScore.toFixed(0) + '%' : '-' }}
+                </el-descriptions-item>
                 <el-descriptions-item label="健康等级">{{ analysisData.health?.healthLevel ?? '-' }}</el-descriptions-item>
-                <el-descriptions-item label="资源均衡">{{ analysisData.health?.resourceBalance ?? '-' }}</el-descriptions-item>
-                <el-descriptions-item label="超配风险">{{ analysisData.health?.overcommitRisk ?? '-' }}</el-descriptions-item>
-                <el-descriptions-item label="热点集中">{{ analysisData.health?.hotspotConcentration ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="资源均衡">
+                  {{ analysisData.health?.resourceBalance !== undefined ? analysisData.health.resourceBalance.toFixed(0) + '%' : '-' }}
+                </el-descriptions-item>
+                <el-descriptions-item label="超配风险">
+                  {{ analysisData.health?.overcommitRisk !== undefined ? analysisData.health.overcommitRisk.toFixed(0) + '%' : '-' }}
+                </el-descriptions-item>
+                <el-descriptions-item label="热点集中">
+                  {{ analysisData.health?.hotspotConcentration !== undefined ? analysisData.health.hotspotConcentration.toFixed(0) + '%' : '-' }}
+                </el-descriptions-item>
                 <el-descriptions-item label="虚机数量">{{ analysisData.health?.vmCount ?? '-' }}</el-descriptions-item>
               </el-descriptions>
             </el-card>
@@ -312,17 +322,60 @@
 
         <el-tab-pane label="执行日志" name="logs">
           <div class="analysis-content">
-            <div style="margin-bottom: 12px; display: flex; justify-content: flex-end;">
-              <el-button size="small" :disabled="!task?.id" @click="loadTaskLogs">
+            <!-- 工具栏：搜索和刷新 -->
+            <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+              <el-input
+                v-model="logsSearchText"
+                placeholder="搜索日志内容..."
+                clearable
+                style="width: 300px;"
+                @input="onLogsSearchChange"
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+              <el-button size="small" :disabled="!task?.id" @click="manualRefreshLogs" :loading="logsLoading">
                 刷新日志
               </el-button>
             </div>
+
             <el-empty v-if="!task?.id" description="该任务没有后端任务ID，无法查询执行日志" />
-            <el-table v-else :data="taskLogs" stripe v-loading="logsLoading">
-              <el-table-column prop="timestamp" label="时间" width="180" />
-              <el-table-column prop="level" label="级别" width="100" />
-              <el-table-column prop="message" label="内容" min-width="300" show-overflow-tooltip />
-            </el-table>
+
+            <!-- 日志表格区域 -->
+            <div v-else>
+              <el-table
+                :data="paginatedLogs"
+                stripe
+                v-loading="logsLoading"
+                height="450"
+                :default-sort="{ prop: 'timestamp', order: 'descending' }"
+              >
+                <el-table-column prop="timestamp" label="时间" width="180" sortable />
+                <el-table-column prop="level" label="级别" width="100">
+                  <template #default="{ row }">
+                    <el-tag :type="getLogLevelType(row.level)" size="small">
+                      {{ row.level }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="message" label="内容" min-width="400" show-overflow-tooltip />
+              </el-table>
+
+              <!-- 分页 -->
+              <div style="margin-top: 12px; display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+                <span style="color: var(--el-text-color-secondary); font-size: 14px;">
+                  共 {{ logsTotal }} 条
+                </span>
+                <el-pagination
+                  v-model:current-page="logsCurrentPage"
+                  v-model:page-size="logsPageSize"
+                  :page-sizes="[10, 15, 30, 50, 100]"
+                  :total="logsTotal"
+                  layout="sizes, prev, pager, next, jumper"
+                />
+              </div>
+            </div>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -359,7 +412,8 @@ import {
   DataAnalysis,
   CircleCheck,
   CircleClose,
-  Loading
+  Loading,
+  Search
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -377,7 +431,12 @@ const vmTotal = ref(0)
 const vmCurrentPage = ref(1)
 const vmPageSize = ref(50)
 const taskLogs = ref<any[]>([])
+const allLogs = ref<any[]>([])  // 存储所有日志（用于过滤）
 const logsLoading = ref(false)
+const logsTotal = ref(0)
+const logsCurrentPage = ref(1)
+const logsPageSize = ref(30)
+const logsSearchText = ref('')
 const pollTimer = ref<number | null>(null)
 const pollTimeout = ref<number | null>(null)
 let vmSearchTimer: number | null = null
@@ -411,7 +470,16 @@ const analysisData = reactive<{
 
 const task = computed(() => taskStore.getTask(taskId.value))
 
-const analyses = [
+// 分析项类型定义
+interface AnalysisItem {
+  key: 'zombie' | 'rightsize' | 'tidal' | 'health'
+  title: string
+  description: string
+  icon: string
+  color: string
+}
+
+const analyses: AnalysisItem[] = [
   { key: 'zombie', title: '僵尸 VM 检测', description: '识别长期低负载的虚拟机', icon: 'Monitor', color: 'orange' },
   { key: 'rightsize', title: 'Right Sizing', description: '资源配置优化建议', icon: 'TrendCharts', color: 'blue' },
   { key: 'tidal', title: '潮汐模式', description: '发现周期性规律', icon: 'Coin', color: 'green' },
@@ -434,6 +502,7 @@ async function initTaskData() {
   vmTotal.value = 0
   vmCurrentPage.value = 1
   taskLogs.value = []
+  allLogs.value = []
   analysisData.zombie = []
   analysisData.rightsize = []
   analysisData.tidal = []
@@ -457,17 +526,15 @@ async function initTaskData() {
 
   console.log('[TaskDetail] 任务详情:', {
     id: task.value.id,
-    id: task.value.id,
     connectionId: task.value.connectionId,
     status: task.value.status,
     selectedVMs: task.value.selectedVMs?.length
   })
 
-  // 如果没有 id，尝试从后端同步任务信息
-  if (!task.value.id) {
-    console.log('[TaskDetail] 没有id，尝试从后端同步任务')
-    await syncTaskFromBackend()
-  }
+  // 始终从后端同步最新数据，确保显示的是最新状态
+  // 因为用户可能在任务列表停留了一段时间，此时任务状态可能已经变化
+  console.log('[TaskDetail] 从后端同步最新任务数据')
+  await syncTaskFromBackend()
 
   // 只有在任务已完成或有后端任务ID时才加载虚拟机列表
   // 任务进行中时，虚拟机列表会在任务完成后通过快照获取
@@ -492,6 +559,50 @@ onMounted(async () => {
 // 监听 taskId 变化，重新加载数据
 watch(taskId, () => {
   initTaskData()
+})
+
+// 监听标签页切换，刷新对应的数据
+watch(activeTab, async (newTab) => {
+  console.log('[TaskDetail] 切换标签页:', newTab)
+
+  if (!task.value?.id) {
+    return
+  }
+
+  // 每次切换标签时，先同步一次最新的任务状态
+  // 这样确保用户看到的数据是最新的
+  try {
+    const taskInfo = await ConnectionAPI.getTask(task.value.id)
+    if (task.value) {
+      task.value.status = taskInfo.status as any
+      task.value.progress = taskInfo.progress
+      task.value.error = taskInfo.error
+      task.value.startedAt = taskInfo.startedAt
+      task.value.completedAt = taskInfo.completedAt
+    }
+  } catch (error) {
+    console.error('[TaskDetail] 同步任务状态失败:', error)
+  }
+
+  // 根据切换到的标签页，刷新对应的数据
+  switch (newTab) {
+    case 'overview':
+      console.log('[TaskDetail] 切换到概览标签')
+      // 概览数据在 initTaskData 时已经加载
+      break
+    case 'vms':
+      console.log('[TaskDetail] 切换到虚拟机标签')
+      await loadVMList()
+      break
+    case 'logs':
+      console.log('[TaskDetail] 切换到执行日志标签')
+      await loadTaskLogs()  // 刷新日志
+      break
+    case 'analysis':
+      console.log('[TaskDetail] 切换到分析结果标签')
+      await loadAnalysisResultFromBackend(task.value.id)
+      break
+  }
 })
 
 onUnmounted(() => {
@@ -555,18 +666,18 @@ async function loadTaskVMs() {
   }
 }
 
-function handleVmPageChange(page: number) {
+function handleVMPageChange(page: number) {
   vmCurrentPage.value = page
   loadTaskVMs()
 }
 
-function handleVmSizeChange(size: number) {
+function handleVMSizeChange(size: number) {
   vmPageSize.value = size
   vmCurrentPage.value = 1
   loadTaskVMs()
 }
 
-function handleVmSearch() {
+function handleVMSearch() {
   vmCurrentPage.value = 1
   if (vmSearchTimer) {
     clearTimeout(vmSearchTimer)
@@ -591,6 +702,8 @@ function pollTaskStatus(id: number) {
   console.log('[TaskDetail] pollTaskStatus 开始轮询任务状态, taskId:', id)
   stopPolling()
 
+  let logRefreshCounter = 0  // 日志刷新计数器：任务运行中每 5 次轮询（10秒）刷新一次日志
+
   pollTimer.value = window.setInterval(async () => {
     try {
       const taskInfo = await ConnectionAPI.getTask(id)
@@ -608,11 +721,19 @@ function pollTaskStatus(id: number) {
           task.value.completedAt = taskInfo.completedAt
         }
 
-        if (taskInfo.status === 'completed') {
+        // 任务运行中时，每 5 次轮询刷新一次日志（每 10 秒）
+        if (taskInfo.status === 'running') {
+          logRefreshCounter++
+          if (logRefreshCounter >= 5) {
+            console.log('[TaskDetail] pollTaskStatus 自动刷新日志, taskId:', id)
+            await loadTaskLogs()  // 静默刷新，不显示提示
+            logRefreshCounter = 0
+          }
+        } else if (taskInfo.status === 'completed') {
           console.log('[TaskDetail] pollTaskStatus 任务完成, 停止轮询, taskId:', id)
           stopPolling()
           if (task.value.connectionId) {
-            await loadVMList(task.value.connectionId)
+            await loadVMList()
           }
           await loadTaskLogs()
           await loadAnalysisResultFromBackend(id)
@@ -675,17 +796,83 @@ async function handleRetry() {
   }
 }
 
+// 加载日志（静默，不显示成功提示）
 async function loadTaskLogs() {
   if (!task.value?.id) return
 
   logsLoading.value = true
   try {
-    taskLogs.value = await ConnectionAPI.getTaskLogs(task.value.id, 200)
+    // 获取所有日志数据（后端 limit 参数较大，获取全部）
+    const logs = await ConnectionAPI.getTaskLogs(task.value.id, 10000)
+    allLogs.value = logs
+
+    // 应用搜索过滤
+    applyLogFilter()
   } catch (error: any) {
     ElMessage.error(error.message || '获取任务日志失败')
   } finally {
     logsLoading.value = false
   }
+}
+
+// 手动刷新日志（带成功提示）
+async function manualRefreshLogs() {
+  await loadTaskLogs()
+  ElMessage.success(`刷新成功，共 ${logsTotal.value} 条记录`)
+}
+
+// 应用搜索过滤
+function applyLogFilter() {
+  let filteredLogs = allLogs.value
+
+  if (logsSearchText.value) {
+    const searchLower = logsSearchText.value.toLowerCase()
+    filteredLogs = allLogs.value.filter((log: any) =>
+      log.message?.toLowerCase().includes(searchLower) ||
+      log.level?.toLowerCase().includes(searchLower)
+    )
+  }
+
+  taskLogs.value = filteredLogs
+  logsTotal.value = filteredLogs.length
+
+  // 如果当前页超过总页数，重置到第一页
+  const maxPage = Math.ceil(filteredLogs.length / logsPageSize.value) || 1
+  if (logsCurrentPage.value > maxPage) {
+    logsCurrentPage.value = 1
+  }
+}
+
+// 分页后的日志数据
+const paginatedLogs = computed(() => {
+  const start = (logsCurrentPage.value - 1) * logsPageSize.value
+  const end = start + logsPageSize.value
+  return taskLogs.value.slice(start, end)
+})
+
+// 日志级别对应的 Tag 类型
+function getLogLevelType(level: string) {
+  const levelMap: Record<string, string> = {
+    'error': 'danger',
+    'warn': 'warning',
+    'warning': 'warning',
+    'info': 'info',
+    'debug': '',
+    'success': 'success',
+    'system': 'info'
+  }
+  return levelMap[level] || ''
+}
+
+// 防抖搜索
+function onLogsSearchChange() {
+  if (vmSearchTimer) {
+    clearTimeout(vmSearchTimer)
+  }
+  vmSearchTimer = window.setTimeout(() => {
+    logsCurrentPage.value = 1 // 重置到第一页
+    applyLogFilter()  // 只过滤，不重新请求
+  }, 300)
 }
 
 async function loadAnalysisResultFromBackend(id: number) {
@@ -701,28 +888,27 @@ async function loadAnalysisResultFromBackend(id: number) {
     }
     console.log('[loadAnalysisResultFromBackend] 结果键:', Object.keys(result))
 
-    // 后端 Result 字段命名: zombieVm, rightSize, tidal, healthScore
+    // 后端 Result 字段命名: zombieVM, rightSize, tidal, healthScore
     // 后端数据格式: { count: number, results: [...] }
     // 需要转换为前端期望的格式
 
-    // zombie_vm -> zombie
-    if (result.zombieVm) {
-      console.log('[loadAnalysisResultFromBackend] 找到 zombieVm 数据:', result.zombieVm)
-      const zombieData = result.zombieVm as { count?: number; results?: any[] }
+    if (result.zombieVM) {
+      console.log('[loadAnalysisResultFromBackend] 找到 zombieVM 数据:', result.zombieVM)
+      const zombieData = result.zombieVM as { count?: number; results?: any[] }
       if (Array.isArray(zombieData.results)) {
         analysisData.zombie = zombieData.results
         hasAnalysisResults.zombie = true
         console.log('[loadAnalysisResultFromBackend] zombie 结果加载完成, 数量:', zombieData.results.length)
-      } else if (Array.isArray(result.zombieVm)) {
+      } else if (Array.isArray(result.zombieVM)) {
         // 兼容直接返回数组的情况
-        analysisData.zombie = result.zombieVm
+        analysisData.zombie = result.zombieVM
         hasAnalysisResults.zombie = true
-        console.log('[loadAnalysisResultFromBackend] zombie 结果加载完成(数组), 数量:', result.zombieVm.length)
+        console.log('[loadAnalysisResultFromBackend] zombie 结果加载完成(数组), 数量:', result.zombieVM.length)
       } else {
-        console.warn('[loadAnalysisResultFromBackend] zombieVm 数据格式异常:', typeof result.zombieVm)
+        console.warn('[loadAnalysisResultFromBackend] zombieVM 数据格式异常:', typeof result.zombieVM)
       }
     } else {
-      console.log('[loadAnalysisResultFromBackend] 未找到 zombieVm 数据')
+      console.log('[loadAnalysisResultFromBackend] 未找到 zombieVM 数据')
     }
 
     // right_size -> rightsize
@@ -861,13 +1047,13 @@ async function runAnalysis(type: string) {
           console.log('[runAnalysis] 结果类型:', type, '结果键:', Object.keys(result))
 
           // 后端存储的是直接数组格式，不是 {count, results} 对象
-          // 后端 Result 字段命名: zombieVm, rightSize, tidal, healthScore
+          // 后端 Result 字段命名: zombieVM, rightSize, tidal, healthScore
           if (type === 'zombie') {
-            // zombieVm 可能是数组或 {count, results} 格式
-            if (result.zombieVm && Array.isArray(result.zombieVm)) {
-              analysisData.zombie = result.zombieVm
-            } else if (result.zombieVm && result.zombieVm.results && Array.isArray(result.zombieVm.results)) {
-              analysisData.zombie = result.zombieVm.results
+            // zombieVM 可能是数组或 {count, results} 格式
+            if (result.zombieVM && Array.isArray(result.zombieVM)) {
+              analysisData.zombie = result.zombieVM
+            } else if (result.zombieVM && result.zombieVM.results && Array.isArray(result.zombieVM.results)) {
+              analysisData.zombie = result.zombieVM.results
             } else {
               analysisData.zombie = []
             }
@@ -980,8 +1166,8 @@ function checkHasData(result: any, analysisType: string): boolean {
 
   switch (analysisType) {
     case 'zombie':
-      // zombie 数据检查：zombieVm 是数组且长度 > 0
-      return !!(result.zombieVm && Array.isArray(result.zombieVm) && result.zombieVm.length > 0)
+      // zombie 数据检查：zombieVM 是数组且长度 > 0
+      return !!(result.zombieVM && Array.isArray(result.zombieVM) && result.zombieVM.length > 0)
 
     case 'rightsize':
       // rightsize 数据检查：rightSize 是数组且长度 > 0
@@ -1039,7 +1225,7 @@ async function exportReport() {
   try {
     ElMessage.info('正在生成后端报告...')
     const filepath = await exportTaskReport({
-      taskId,
+      taskId: taskId.value,
       connectionId: task.value.connectionId,
       reportTypes: buildReportTypes(),
       title: task.value.name

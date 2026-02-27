@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"time"
 
-	apperrors "justfit/internal/errors"
 	"justfit/internal/dto/mapper"
 	"justfit/internal/dto/response"
+	apperrors "justfit/internal/errors"
 	"justfit/internal/logger"
 	"justfit/internal/storage"
 )
 
 // ResourceService 资源服务
 type ResourceService struct {
-	ctx       context.Context
-	repos     *storage.Repositories
-	vmMapper  *mapper.VMMapper
-	hostMapper *mapper.HostMapper
+	ctx           context.Context
+	repos         *storage.Repositories
+	vmMapper      *mapper.VMMapper
+	hostMapper    *mapper.HostMapper
 	clusterMapper *mapper.ClusterMapper
-	log       logger.Logger
+	log           logger.Logger
 }
 
 // NewResourceService 创建资源服务
@@ -135,7 +135,8 @@ func (s *ResourceService) GetMetrics(vmID uint, metricType string, days int) (*r
 	endTime := time.Now()
 	startTime := endTime.AddDate(0, 0, -days)
 
-	metrics, err := s.repos.Metric.ListByVMAndType(vmID, metricType, startTime, endTime)
+	// taskID=0 表示查询所有任务的指标数据（独立查询）
+	metrics, err := s.repos.Metric.ListByTaskAndVMAndType(0, vmID, metricType, startTime, endTime)
 	if err != nil {
 		s.log.Error("获取指标失败", logger.Uint("vm_id", vmID), logger.Err(err))
 		return nil, apperrors.ErrInternalError.Wrap(err, "获取指标失败")
@@ -185,7 +186,7 @@ type DashboardStats struct {
 	TotalSavings string  `json:"totalSavings"`
 	VMCount      int64   `json:"vmCount"`
 	HostCount    int64   `json:"hostCount"`
-	ClusterCount int64  `json:"clusterCount"`
+	ClusterCount int64   `json:"clusterCount"`
 }
 
 func (s *ResourceService) GetDashboardStats() (*DashboardStats, error) {
@@ -217,7 +218,7 @@ func (s *ResourceService) GetDashboardStats() (*DashboardStats, error) {
 	if latestHealth.ID > 0 {
 		// 解析 Data 字段获取健康评分
 		// 这里简化处理，实际应该解析 JSON
-		healthScore = 75.0 // 默认值
+		healthScore = 75.0    // 默认值
 		_ = latestHealth.Data // 避免未使用警告
 	}
 
@@ -236,10 +237,10 @@ func (s *ResourceService) GetDashboardStats() (*DashboardStats, error) {
 	savings := fmt.Sprintf("¥%.0f/月", monthlySaving)
 
 	return &DashboardStats{
-		HealthScore:   healthScore,
-		ZombieCount:   zombieCount,
-		TotalSavings:  savings,
-		VMCount:   vmCount,
+		HealthScore:  healthScore,
+		ZombieCount:  zombieCount,
+		TotalSavings: savings,
+		VMCount:      vmCount,
 		HostCount:    hostCount,
 		ClusterCount: clusterCount,
 	}, nil

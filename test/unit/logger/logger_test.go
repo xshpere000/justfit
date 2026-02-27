@@ -218,10 +218,10 @@ func TestGlobalLogger(t *testing.T) {
 // TestFieldHelpers 测试字段辅助函数
 func TestFieldHelpers(t *testing.T) {
 	tests := []struct {
-		name   string
-		field  logger.Field
-		key    string
-		value  interface{}
+		name  string
+		field logger.Field
+		key   string
+		value interface{}
 	}{
 		{"String", logger.String("key", "value"), "key", "value"},
 		{"Int", logger.Int("count", 42), "count", 42},

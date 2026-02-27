@@ -32,7 +32,7 @@ type RightSizeResult struct {
 	// 评估
 	RiskLevel       string  `json:"riskLevel"`       // "低", "中", "高"
 	EstimatedSaving string  `json:"estimatedSaving"` // 节省估算
-	Confidence      float64 `json:"confidence"`       // 置信度
+	Confidence      float64 `json:"confidence"`      // 置信度
 }
 
 // RightSizeConfig Right Size 分析配置
@@ -56,7 +56,7 @@ func DefaultRightSizeConfig() *RightSizeConfig {
 }
 
 // AnalyzeRightSize 分析资源配置合理性
-func (e *Engine) AnalyzeRightSize(connectionID uint, config *RightSizeConfig) ([]RightSizeResult, error) {
+func (e *Engine) AnalyzeRightSize(taskID, connectionID uint, config *RightSizeConfig) ([]RightSizeResult, error) {
 	if config == nil {
 		config = DefaultRightSizeConfig()
 	}
@@ -83,14 +83,14 @@ func (e *Engine) AnalyzeRightSize(connectionID uint, config *RightSizeConfig) ([
 			continue
 		}
 
-		// 获取 CPU 指标 (单位: Cores)
-		cpuMetrics, err := e.repos.Metric.ListByVMAndType(vm.ID, "cpu", startTime, endTime)
+		// 获取 CPU 指标 (单位: Cores, 使用 TaskID 过滤)
+		cpuMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
 		if err != nil || len(cpuMetrics) == 0 {
 			continue
 		}
 
-		// 获取内存指标 (单位: MB)
-		memMetrics, err := e.repos.Metric.ListByVMAndType(vm.ID, "memory", startTime, endTime)
+		// 获取内存指标 (单位: MB, 使用 TaskID 过滤)
+		memMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "memory", startTime, endTime)
 		if err != nil || len(memMetrics) == 0 {
 			continue
 		}

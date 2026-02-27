@@ -70,10 +70,10 @@ func autoMigrate() error {
 		&VMMetric{}, // 新表名
 
 		// 任务层
-		&AssessmentTask{},  // 新表名 (原 Task)
+		&AssessmentTask{}, // 新表名 (原 Task)
 		&TaskVMSnapshot{},
-		&TaskAnalysisJob{},  // 新表名 (原 TaskAnalysisResult)
-		&TaskLog{},          // 任务操作日志
+		&TaskAnalysisJob{}, // 新表名 (原 TaskAnalysisResult)
+		&TaskLog{},         // 任务操作日志
 
 		// 输出层
 		&AnalysisFinding{}, // 新增
@@ -103,25 +103,25 @@ func GetDB() *gorm.DB {
 
 // Repositories 数据仓储
 type Repositories struct {
-	Connection        *ConnectionRepository
-	Cluster           *ClusterRepository
-	Host              *HostRepository
-	VM                *VMRepository
-	Metric            *MetricRepository // 向后兼容 (实际使用 VMMetric)
-	VMMetric          *MetricRepository // 新名称
-	Task              *TaskRepository   // 向后兼容 (实际使用 AssessmentTask)
-	AssessmentTask    *TaskRepository   // 新名称
-	TaskVMSnapshot    *TaskVMSnapshotRepository
-	TaskAnalysis      *TaskAnalysisResultRepository // 向后兼容
-	TaskAnalysisJob   *TaskAnalysisJobRepository     // 新名称
+	Connection         *ConnectionRepository
+	Cluster            *ClusterRepository
+	Host               *HostRepository
+	VM                 *VMRepository
+	Metric             *MetricRepository // 向后兼容 (实际使用 VMMetric)
+	VMMetric           *MetricRepository // 新名称
+	Task               *TaskRepository   // 向后兼容 (实际使用 AssessmentTask)
+	AssessmentTask     *TaskRepository   // 新名称
+	TaskVMSnapshot     *TaskVMSnapshotRepository
+	TaskAnalysis       *TaskAnalysisResultRepository // 向后兼容
+	TaskAnalysisJob    *TaskAnalysisJobRepository    // 新名称
 	TaskAnalysisResult *TaskAnalysisJobRepository    // 向后兼容别名
-	TaskLog           *TaskLogRepository   // 任务日志
-	AnalysisFinding   *AnalysisFindingRepository
-	AnalysisResult    *AnalysisFindingRepository // 向后兼容别名
-	Report            *TaskReportRepository // 向后兼容 (实际使用 TaskReport)
-	TaskReport        *TaskReportRepository // 新名称
-	Alert             *AnalysisFindingRepository // 向后兼容别名
-	Settings          *SettingsRepository
+	TaskLog            *TaskLogRepository            // 任务日志
+	AnalysisFinding    *AnalysisFindingRepository
+	AnalysisResult     *AnalysisFindingRepository // 向后兼容别名
+	Report             *TaskReportRepository      // 向后兼容 (实际使用 TaskReport)
+	TaskReport         *TaskReportRepository      // 新名称
+	Alert              *AnalysisFindingRepository // 向后兼容别名
+	Settings           *SettingsRepository
 }
 
 // DB 返回底层数据库连接
@@ -136,24 +136,24 @@ func NewRepositories() *Repositories {
 	findingRepo := NewAnalysisFindingRepository()
 
 	return &Repositories{
-		Connection:        NewConnectionRepository(),
-		Cluster:           NewClusterRepository(),
-		Host:              NewHostRepository(),
-		VM:                NewVMRepository(),
-		Metric:            metricRepo, // 向后兼容
-		VMMetric:          metricRepo,
-		Task:              taskRepo,   // 向后兼容
-		AssessmentTask:    taskRepo,
-		TaskVMSnapshot:    NewTaskVMSnapshotRepository(),
-		TaskAnalysis:      NewTaskAnalysisJobRepository(), // 向后兼容
-		TaskAnalysisJob:   NewTaskAnalysisJobRepository(),
+		Connection:         NewConnectionRepository(),
+		Cluster:            NewClusterRepository(),
+		Host:               NewHostRepository(),
+		VM:                 NewVMRepository(),
+		Metric:             metricRepo, // 向后兼容
+		VMMetric:           metricRepo,
+		Task:               taskRepo, // 向后兼容
+		AssessmentTask:     taskRepo,
+		TaskVMSnapshot:     NewTaskVMSnapshotRepository(),
+		TaskAnalysis:       NewTaskAnalysisJobRepository(), // 向后兼容
+		TaskAnalysisJob:    NewTaskAnalysisJobRepository(),
 		TaskAnalysisResult: NewTaskAnalysisJobRepository(), // 向后兼容别名
-		TaskLog:           NewTaskLogRepository(),
-		AnalysisFinding:   findingRepo,
-		AnalysisResult:    findingRepo, // 向后兼容别名
-		Report:            NewTaskReportRepository(), // 向后兼容
-		TaskReport:        NewTaskReportRepository(),
-		Alert:             findingRepo, // 向后兼容别名
-		Settings:          NewSettingsRepository(),
+		TaskLog:            NewTaskLogRepository(),
+		AnalysisFinding:    findingRepo,
+		AnalysisResult:     findingRepo,               // 向后兼容别名
+		Report:             NewTaskReportRepository(), // 向后兼容
+		TaskReport:         NewTaskReportRepository(),
+		Alert:              findingRepo, // 向后兼容别名
+		Settings:           NewSettingsRepository(),
 	}
 }

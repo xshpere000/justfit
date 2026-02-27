@@ -1,4 +1,4 @@
-import type { ReportData } from './types'
+import type { ReportData } from '../types/common'
 import { utils, write } from 'xlsx'
 import * as App from '../../wailsjs/go/main/App'
 

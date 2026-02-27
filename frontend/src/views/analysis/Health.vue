@@ -75,33 +75,33 @@
                 <div class="metric-item">
                   <span class="metric-label">资源均衡度</span>
                   <el-progress
-                    :percentage="result.resourceBalance * 100"
+                    :percentage="result.resourceBalance"
                     :color="'#409EFF'"
                     :show-text="false"
                   />
-                  <span class="metric-value">{{ (result.resourceBalance * 100).toFixed(0) }}%</span>
+                  <span class="metric-value">{{ result.resourceBalance.toFixed(0) }}%</span>
                 </div>
               </el-col>
               <el-col :span="8">
                 <div class="metric-item">
                   <span class="metric-label">超配风险</span>
                   <el-progress
-                    :percentage="result.overcommitRisk * 100"
+                    :percentage="result.overcommitRisk"
                     :color="getRiskColor(result.overcommitRisk)"
                     :show-text="false"
                   />
-                  <span class="metric-value">{{ (result.overcommitRisk * 100).toFixed(0) }}%</span>
+                  <span class="metric-value">{{ result.overcommitRisk.toFixed(0) }}%</span>
                 </div>
               </el-col>
               <el-col :span="8">
                 <div class="metric-item">
                   <span class="metric-label">热点集中度</span>
                   <el-progress
-                    :percentage="result.hotspotConcentration * 100"
+                    :percentage="result.hotspotConcentration"
                     :color="getHotspotColor(result.hotspotConcentration)"
                     :show-text="false"
                   />
-                  <span class="metric-value">{{ (result.hotspotConcentration * 100).toFixed(0) }}%</span>
+                  <span class="metric-value">{{ result.hotspotConcentration.toFixed(0) }}%</span>
                 </div>
               </el-col>
             </el-row>
@@ -221,14 +221,14 @@ function getHealthLevelText(level: string): string {
 }
 
 function getRiskColor(risk: number): string {
-  if (risk > 0.7) return '#F56C6C'
-  if (risk > 0.4) return '#E6A23C'
+  if (risk > 70) return '#F56C6C'
+  if (risk > 40) return '#E6A23C'
   return '#67C23A'
 }
 
 function getHotspotColor(hotspot: number): string {
-  if (hotspot > 0.6) return '#F56C6C'
-  if (hotspot > 0.3) return '#E6A23C'
+  if (hotspot > 60) return '#F56C6C'
+  if (hotspot > 30) return '#E6A23C'
   return '#67C23A'
 }
 </script>

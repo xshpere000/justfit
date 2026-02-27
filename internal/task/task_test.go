@@ -32,17 +32,17 @@ func setupTestDB(t *testing.T) *storage.Repositories {
 
 // mockExecutor 模拟执行器
 type mockExecutor struct {
-	executeFunc func(ctx context.Context, task *Task, progressCh chan<- float64) (*TaskResult, error)
-	delay       time.Duration
-	shouldFail  bool
+	executeFunc  func(ctx context.Context, task *Task, progressCh chan<- float64) (*TaskResult, error)
+	delay        time.Duration
+	shouldFail   bool
 	executeCount *int32
 }
 
 func newMockExecutor(delay time.Duration, shouldFail bool) *mockExecutor {
 	count := int32(0)
 	return &mockExecutor{
-		delay:       delay,
-		shouldFail:  shouldFail,
+		delay:        delay,
+		shouldFail:   shouldFail,
 		executeCount: &count,
 	}
 }

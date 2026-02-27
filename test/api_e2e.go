@@ -18,9 +18,9 @@ import (
 
 // E2ETest 端到端测试结构
 type E2ETest struct {
-	ctx    context.Context
-	repos  *storage.Repositories
-	connMgr *connector.ConnectorManager
+	ctx       context.Context
+	repos     *storage.Repositories
+	connMgr   *connector.ConnectorManager
 	collector *etl.Collector
 	analyzer  *analyzer.Engine
 }

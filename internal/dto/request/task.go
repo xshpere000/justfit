@@ -27,9 +27,9 @@ type ListTasksRequest struct {
 
 // ListResourcesRequest 查询资源列表请求
 type ListResourcesRequest struct {
-	ConnectionID uint   `json:"connectionId" validate:"required"`
-	Limit        int    `json:"limit" validate:"omitempty,min=1,max=500"`
-	Offset       int    `json:"offset" validate:"omitempty,min=0"`
+	ConnectionID uint `json:"connectionId" validate:"required"`
+	Limit        int  `json:"limit" validate:"omitempty,min=1,max=500"`
+	Offset       int  `json:"offset" validate:"omitempty,min=0"`
 }
 
 // GetMetricsRequest 获取指标请求
