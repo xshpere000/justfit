@@ -516,27 +516,27 @@ async function handleTaskCommand(cmd: string, task: Task) {
 
     .task-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 20px;
-      padding-bottom: 20px;
-      padding-right: 10px; // 防止滚动条遮挡
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+      padding-bottom: 14px;
+      padding-right: 10px;
     }
 
     .task-card {
       background: white;
-      border-radius: 8px;
+      border-radius: 10px;
       border: 1px solid #ebeef5;
-      padding: 20px;
+      padding: 14px;
       cursor: pointer;
-      transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+      transition: all 0.2s ease;
       position: relative;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 10px;
 
       &:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
         border-color: #c6e2ff;
       }
 
@@ -547,12 +547,12 @@ async function handleTaskCommand(cmd: string, task: Task) {
       .card-header {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
+        align-items: center;
 
         .platform-badge {
-            font-size: 12px;
-            padding: 2px 8px;
-            border-radius: 4px;
+            font-size: 11px;
+            padding: 2px 7px;
+            border-radius: 999px;
             background: #f0f2f5;
             color: #909399;
             font-weight: 600;
@@ -564,7 +564,8 @@ async function handleTaskCommand(cmd: string, task: Task) {
         .more-icon {
             color: #909399;
             transform: rotate(90deg);
-            padding: 4px;
+            padding: 3px;
+            font-size: 14px;
             &:hover { color: #409eff; background: #ecf5ff; border-radius: 4px; }
         }
       }
@@ -573,8 +574,8 @@ async function handleTaskCommand(cmd: string, task: Task) {
         flex: 1;
 
         .task-name {
-            margin: 0 0 12px 0;
-            font-size: 16px;
+            margin: 0 0 8px 0;
+            font-size: 15px;
             font-weight: 600;
             color: #303133;
             overflow: hidden;
@@ -586,14 +587,23 @@ async function handleTaskCommand(cmd: string, task: Task) {
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 13px;
+            font-size: 12px;
             color: #606266;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
+
+            .el-icon {
+              font-size: 12px;
+              color: #909399;
+            }
+        }
+
+        .connection-host {
+          color: #909399;
         }
       }
 
       .card-footer {
-        padding-top: 16px;
+        padding-top: 10px;
         border-top: 1px solid #f2f6fc;
 
         .status-running {
@@ -601,8 +611,18 @@ async function handleTaskCommand(cmd: string, task: Task) {
                 display: flex;
                 justify-content: space-between;
                 font-size: 12px;
-                margin-bottom: 6px;
+                margin-bottom: 4px;
                 color: #606266;
+
+                .status-text {
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 4px;
+                }
+
+                .vm-info {
+                  color: #909399;
+                }
             }
 
             .progress-val {
@@ -619,24 +639,33 @@ async function handleTaskCommand(cmd: string, task: Task) {
             .result-stat {
                 display: flex;
                 align-items: center;
-                gap: 12px;
+                gap: 10px;
 
                 .stat-item {
                     display: flex;
                     flex-direction: column;
                     align-items: center;
-                    .label { font-size: 10px; color: #909399; }
-                    .val { font-size: 14px; font-weight: bold; color: #303133; }
+                    .label { font-size: 10px; color: #909399; line-height: 1.2; }
+                    .val { font-size: 13px; font-weight: 600; color: #303133; line-height: 1.2; }
                 }
             }
 
             .completed-tag {
-                font-size: 13px;
+                font-size: 12px;
                 color: #67c23a;
                 display: flex;
                 align-items: center;
                 gap: 4px;
             }
+        }
+
+        .status-other {
+          :deep(.el-tag) {
+            font-size: 11px;
+            padding: 0 7px;
+            height: 22px;
+            line-height: 20px;
+          }
         }
       }
     }
