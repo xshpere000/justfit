@@ -249,20 +249,26 @@ const platformOptions: Array<{
     description: string
     version: string
     icon: Component
+    defaultUsername: string
+    defaultPort: number
 }> = [
         {
             type: 'vcenter',
             label: 'VMware vSphere',
             description: '适用于 vCenter 6.0 及以上版本',
             version: 'vCenter'
-            , icon: Monitor
+            , icon: Monitor,
+            defaultUsername: 'administrator@vsphere.local',
+            defaultPort: 443
         },
         {
             type: 'h3c-uis',
             label: 'H3C UIS',
             description: '适用于 H3C UIS 超融合 7.0 及以上版本',
             version: 'UIS 7.0+'
-            , icon: Connection
+            , icon: Connection,
+            defaultUsername: 'admin',
+            defaultPort: 443
         }
     ]
 
@@ -306,14 +312,26 @@ const filteredVMs = computed(() => {
     return list.slice(start, end)
 })
 
+const currentPlatformOption = computed(() => {
+    return platformOptions.find(platform => platform.type === formData.platform) || platformOptions[0]
+})
+
+function applyDefaultUsername() {
+    connectionForm.username = currentPlatformOption.value.defaultUsername
+}
+
+applyDefaultUsername()
+
 // Methods
 function selectPlatform(type: string) {
     formData.platform = type
-    if (type === 'vcenter') {
-        connectionForm.port = 443
-    } else {
-        connectionForm.port = 443
+
+    if (currentPlatformOption.value) {
+        connectionForm.port = currentPlatformOption.value.defaultPort
     }
+
+    applyDefaultUsername()
+
     nextStep()
 }
 
