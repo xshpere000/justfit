@@ -278,41 +278,49 @@ func (a *TestApp) TestReportGeneration() error {
 	return nil
 }
 
-// TestAlertManagement 测试告警管理
-func (a *TestApp) TestAlertManagement() error {
-	fmt.Println("\n=== 测试告警管理 ===")
+// TestAnalysisFindingManagement 测试分析发现管理
+func (a *TestApp) TestAnalysisFindingManagement() error {
+	fmt.Println("\n=== 测试分析发现管理 ===")
 
-	// 创建告警
-	alert := &storage.Alert{
-		TargetType:   "vm",
-		TargetKey:    "vm-123",
-		TargetName:   "test-vm",
-		AlertType:    "zombie",
-		Severity:     "warning",
-		Title:        "测试告警",
-		Message:      "这是一个测试告警",
-		Acknowledged: false,
+	// 创建测试任务以获取 TaskID
+	task := &storage.AssessmentTask{
+		Name:         "测试任务",
+		ConnectionID: 1,
+		Status:       "pending",
 	}
-
-	err := a.repos.Alert.Create(alert)
+	err := a.repos.AssessmentTask.Create(task)
 	if err != nil {
-		return fmt.Errorf("创建告警失败: %w", err)
+		return fmt.Errorf("创建测试任务失败: %w", err)
 	}
-	fmt.Printf("✓ 创建告警成功, ID: %d\n", alert.ID)
+	defer func() {
+		_ = a.repos.AssessmentTask.Delete(task.ID)
+	}()
 
-	// 列出告警
-	alerts, err := a.repos.Alert.List(false, 10, 0)
-	if err != nil {
-		return fmt.Errorf("列出告警失败: %w", err)
+	// 创建分析发现
+	finding := &storage.AnalysisFinding{
+		TaskID:      task.ID,
+		JobType:     "zombie",
+		TargetType:  "vm",
+		TargetKey:   "vm-123",
+		TargetName:  "test-vm",
+		Severity:    "warning",
+		Category:    "resource_waste",
+		Title:       "测试告警",
+		Description: "这是一个测试告警",
 	}
-	fmt.Printf("✓ 列出告警成功, 数量: %d\n", len(alerts))
 
-	// 确认告警
-	err = a.repos.Alert.Acknowledge(alert.ID)
+	err = a.repos.AnalysisFinding.Create(finding)
 	if err != nil {
-		return fmt.Errorf("确认告警失败: %w", err)
+		return fmt.Errorf("创建分析发现失败: %w", err)
 	}
-	fmt.Printf("✓ 确认告警成功\n")
+	fmt.Printf("✓ 创建分析发现成功, ID: %d\n", finding.ID)
+
+	// 列出分析发现
+	findings, err := a.repos.AnalysisFinding.ListByTaskID(task.ID)
+	if err != nil {
+		return fmt.Errorf("列出分析发现失败: %w", err)
+	}
+	fmt.Printf("✓ 列出分析发现成功, 数量: %d\n", len(findings))
 
 	return nil
 }
@@ -456,21 +464,36 @@ func (a *TestApp) TestDatabaseOperations() error {
 	}
 	fmt.Printf("✓ 通过ID获取虚拟机成功\n")
 
+	// 创建测试任务以获取 TaskID
+	task := &storage.AssessmentTask{
+		Name:         "指标测试任务",
+		ConnectionID: conn.ID,
+		Status:       "pending",
+	}
+	err = a.repos.AssessmentTask.Create(task)
+	if err != nil {
+		return fmt.Errorf("创建测试任务失败: %w", err)
+	}
+	defer func() {
+		_ = a.repos.AssessmentTask.Delete(task.ID)
+	}()
+
 	// 创建指标
-	metric := &storage.Metric{
+	metric := &storage.VMMetric{
+		TaskID:     task.ID,
 		VMID:       vm.ID,
 		MetricType: "cpu",
 		Timestamp:  time.Now(),
 		Value:      50.5,
 	}
-	err = a.repos.Metric.BatchCreate([]storage.Metric{*metric})
+	err = a.repos.VMMetric.Create(metric)
 	if err != nil {
 		return fmt.Errorf("创建指标失败: %w", err)
 	}
 	fmt.Printf("✓ 创建指标成功\n")
 
 	// 查询指标（taskID=0 表示查询所有任务）
-	metrics, err := a.repos.Metric.ListByTaskAndVMAndType(0, vm.ID, "cpu", time.Now().Add(-1*time.Hour), time.Now())
+	metrics, err := a.repos.VMMetric.ListByTaskAndVMAndType(0, vm.ID, "cpu", time.Now().Add(-1*time.Hour), time.Now())
 	if err != nil {
 		return fmt.Errorf("查询指标失败: %w", err)
 	}
@@ -479,21 +502,26 @@ func (a *TestApp) TestDatabaseOperations() error {
 	}
 	fmt.Printf("✓ 查询指标成功\n")
 
-	// 创建分析结果
-	analysisResult := &storage.AnalysisResult{
-		AnalysisType:   "zombie",
-		TargetType:     "vm",
-		TargetKey:      vm.VMKey,
-		TargetName:     vm.Name,
-		Data:           `{"cpu_usage": 5.0, "confidence": 0.9}`,
-		Recommendation: "建议删除",
-		SavedAmount:    "180元/月",
+	// 创建分析发现
+	finding := &storage.AnalysisFinding{
+		TaskID:      task.ID,
+		JobType:     "zombie",
+		TargetType:  "vm",
+		TargetKey:   vm.VMKey,
+		TargetName:  vm.Name,
+		Severity:    "warning",
+		Category:    "zombie_vm",
+		Title:       "僵尸虚拟机",
+		Description: `{"cpu_usage": 5.0, "confidence": 0.9}`,
+		Action:      "建议删除",
+		Reason:      "长期低使用率",
+		Details:     `{"cpu_usage": 5.0, "confidence": 0.9}`,
 	}
-	err = a.repos.AnalysisResult.Create(analysisResult)
+	err = a.repos.AnalysisFinding.Create(finding)
 	if err != nil {
-		return fmt.Errorf("创建分析结果失败: %w", err)
+		return fmt.Errorf("创建分析发现失败: %w", err)
 	}
-	fmt.Printf("✓ 创建分析结果成功\n")
+	fmt.Printf("✓ 创建分析发现成功\n")
 
 	return nil
 }
@@ -524,7 +552,7 @@ func main() {
 		{"任务管理", app.TestTaskManagement},
 		{"系统配置", app.TestSettingsManagement},
 		{"报告生成", app.TestReportGeneration},
-		{"告警管理", app.TestAlertManagement},
+		{"分析发现管理", app.TestAnalysisFindingManagement},
 		{"凭据管理", app.TestCredentialManagement},
 		{"数据库操作", app.TestDatabaseOperations},
 	}

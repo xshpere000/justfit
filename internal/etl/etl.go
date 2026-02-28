@@ -80,6 +80,7 @@ func (p *Processor) ProcessVM(connectionID uint, vm connector.VMInfo) error {
 		IPAddress:       vm.IPAddress,
 		GuestOS:         vm.GuestOS,
 		HostName:        vm.HostName,
+		HostIP:          vm.HostIP,
 		OverallStatus:   string(vm.OverallStatus),
 		CollectedAt:     now,
 	}
@@ -175,19 +176,19 @@ func (p *Processor) ProcessVMMetrics(taskID uint, vmKey string, metrics *connect
 		})
 	}
 
-	return p.repos.Metric.BatchCreate(allMetrics)
+	return p.repos.VMMetric.BatchCreate(allMetrics)
 }
 
 // CleanupOldData 清理旧数据
 func (p *Processor) CleanupOldData(retentionDays int) error {
 	cutoffDate := time.Now().AddDate(0, 0, -retentionDays)
-	return p.repos.Metric.DeleteByTimeRange(cutoffDate)
+	return p.repos.VMMetric.DeleteByTimeRange(cutoffDate)
 }
 
 // CleanConnectionData 清理指定连接的所有数据
 func (p *Processor) CleanConnectionData(connectionID uint) error {
 	// 删除需要按顺序进行，考虑外键约束
-	if err := p.repos.Metric.DeleteByVMID(0); err != nil {
+	if err := p.repos.VMMetric.DeleteByVMID(0); err != nil {
 		// 这里需要先获取所有 VM ID
 	}
 

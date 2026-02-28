@@ -130,9 +130,10 @@ type VMInfo struct {
 	MemoryMB        int32
 	PowerState      types.VirtualMachinePowerState
 	ConnectionState string // 连接状态: connected, disconnected, orphaned, notResponding
-	IPAddress       string
+	IPAddress       string // VM自己的IP地址
 	GuestOS         string
 	HostName        string
+	HostIP          string // VM所在主机的IP地址
 	OverallStatus   types.ManagedEntityStatus
 	UUID            string
 }
@@ -262,10 +263,30 @@ func (vc *VCenterClient) GetVMs() ([]VMInfo, error) {
 				continue
 			}
 
+			// 获取主机信息（名称和IP）
 			hostName := ""
+			hostIP := ""
 			if vmMo.Summary.Runtime.Host != nil {
-				hostObj := object.NewHostSystem(vc.client.Client, *vmMo.Summary.Runtime.Host)
-				hostName = hostObj.Name()
+				var hostMo mo.HostSystem
+				err = vc.client.RetrieveOne(vc.ctx, *vmMo.Summary.Runtime.Host, []string{"name", "summary", "config.network.vnic"}, &hostMo)
+				if err == nil {
+					hostName = hostMo.Name
+					// 尝试从管理网络接口获取IP（通常是 vmk0）
+					if hostMo.Config != nil && hostMo.Config.Network != nil {
+						for _, vnic := range hostMo.Config.Network.Vnic {
+							if vnic.Device == "vmk0" {
+								if vnic.Spec.Ip != nil {
+									hostIP = vnic.Spec.Ip.IpAddress
+									break
+								}
+							}
+						}
+					}
+					// 如果管理网络接口没找到IP，尝试使用 ManagementServerIp
+					if hostIP == "" && hostMo.Summary.ManagementServerIp != "" {
+						hostIP = hostMo.Summary.ManagementServerIp
+					}
+				}
 			}
 
 			// 获取连接状态字符串
@@ -281,6 +302,7 @@ func (vc *VCenterClient) GetVMs() ([]VMInfo, error) {
 				IPAddress:       vmMo.Summary.Guest.IpAddress,
 				GuestOS:         vmMo.Summary.Guest.GuestFullName,
 				HostName:        hostName,
+				HostIP:          hostIP,
 				OverallStatus:   vmMo.Summary.OverallStatus,
 				UUID:            vmMo.Summary.Config.Uuid,
 			})

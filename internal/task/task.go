@@ -103,7 +103,7 @@ func NewScheduler(workerCount int, repos *storage.Repositories) *Scheduler {
 		resultSubs:   make(map[uint][]chan *TaskResult),
 		taskCounter:  0,
 		running:      true,
-		taskRepo:     repos.Task,
+		taskRepo:     repos.AssessmentTask,
 		log:          applogger.With(applogger.Str("component", "task.Scheduler")),
 	}
 
@@ -152,7 +152,7 @@ func (s *Scheduler) Create(taskType TaskType, name string, config map[string]int
 	}
 
 	// 保存到数据库
-	dbTask := &storage.Task{
+	dbTask := &storage.AssessmentTask{
 		Model:     gorm.Model{ID: task.ID},
 		Name:      name,
 		Status:    string(task.Status),

@@ -402,12 +402,29 @@ func (c *UISConnector) GetVMs() ([]VMInfo, error) {
 		return nil, err
 	}
 
+	// 获取主机列表以建立 HostID -> HostIP 映射
+	hosts, err := c.GetHostList()
+	if err != nil {
+		// 主机列表获取失败时继续，但没有 HostIP
+		hosts = []UISHostInfo{}
+	}
+	hostIPMap := make(map[int]string)
+	for _, host := range hosts {
+		hostIPMap[host.HostID] = host.HostIP
+	}
+
 	result := make([]VMInfo, len(vms))
 	for i, vm := range vms {
 		powerState := mapUISPowerState(vm.PowerState)
 		overallStatus := "green"
 		if powerState != "poweredOn" {
 			overallStatus = "gray"
+		}
+
+		// 通过 HostID 查找主机IP
+		hostIP := ""
+		if vm.HostID > 0 {
+			hostIP = hostIPMap[vm.HostID]
 		}
 
 		result[i] = VMInfo{
@@ -420,6 +437,7 @@ func (c *UISConnector) GetVMs() ([]VMInfo, error) {
 			IPAddress:       vm.IPAddress,
 			GuestOS:         vm.GuestOS,
 			HostName:        vm.HostName,
+			HostIP:          hostIP,
 			OverallStatus:   types.ManagedEntityStatus(overallStatus),
 			UUID:            vm.UUID,
 		}

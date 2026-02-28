@@ -18,14 +18,14 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 
 	// 自动迁移表结构
-	err = db.AutoMigrate(&storage.Cluster{}, &storage.Host{}, &storage.VM{}, &storage.Metric{})
+	err = db.AutoMigrate(&storage.Cluster{}, &storage.Host{}, &storage.VM{}, &storage.VMMetric{})
 	require.NoError(t, err)
 
 	return db
 }
 
 func TestAverageMetrics(t *testing.T) {
-	metrics := []storage.Metric{
+	metrics := []storage.VMMetric{
 		{Value: 10.0},
 		{Value: 20.0},
 		{Value: 30.0},
@@ -36,7 +36,7 @@ func TestAverageMetrics(t *testing.T) {
 }
 
 func TestAverageMetrics_Empty(t *testing.T) {
-	result := averageMetrics([]storage.Metric{})
+	result := averageMetrics([]storage.VMMetric{})
 	assert.Equal(t, 0.0, result)
 }
 

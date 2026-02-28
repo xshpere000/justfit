@@ -25,6 +25,7 @@ type VMAnalysisResult struct {
 	VMName     string `json:"vmName"`
 	Datacenter string `json:"datacenter"`
 	Host       string `json:"host"`
+	HostIP     string `json:"hostIp"`
 	CPUCount   int32  `json:"cpuCount"`
 	MemoryMB   int32  `json:"memoryMb"`
 	PowerState string `json:"powerState"`
@@ -89,13 +90,13 @@ func (e *Engine) DetectZombieVMs(taskID, connectionID uint, config *ZombieVMConf
 		}
 
 		// 获取 CPU 指标（使用 TaskID 过滤）
-		cpuMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
+		cpuMetrics, err := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
 		if err != nil || len(cpuMetrics) == 0 {
 			continue
 		}
 
 		// 获取内存指标（使用 TaskID 过滤）
-		memMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "memory", startTime, endTime)
+		memMetrics, err := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "memory", startTime, endTime)
 		if err != nil || len(memMetrics) == 0 {
 			continue
 		}
@@ -114,10 +115,10 @@ func (e *Engine) DetectZombieVMs(taskID, connectionID uint, config *ZombieVMConf
 		}
 
 		// 获取 I/O 指标（使用 TaskID 过滤）
-		diskReadMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "disk_read", startTime, endTime)
-		diskWriteMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "disk_write", startTime, endTime)
-		netRxMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "net_rx", startTime, endTime)
-		netTxMetrics, _ := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "net_tx", startTime, endTime)
+		diskReadMetrics, _ := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "disk_read", startTime, endTime)
+		diskWriteMetrics, _ := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "disk_write", startTime, endTime)
+		netRxMetrics, _ := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "net_rx", startTime, endTime)
+		netTxMetrics, _ := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "net_tx", startTime, endTime)
 
 		avgDiskIO := (averageMetrics(diskReadMetrics) + averageMetrics(diskWriteMetrics)) / 2
 		avgNetwork := (averageMetrics(netRxMetrics) + averageMetrics(netTxMetrics)) / 2
@@ -139,6 +140,7 @@ func (e *Engine) DetectZombieVMs(taskID, connectionID uint, config *ZombieVMConf
 					VMName:     vm.Name,
 					Datacenter: vm.Datacenter,
 					Host:       vm.HostName,
+					HostIP:     vm.HostIP,
 					CPUCount:   vm.CpuCount,
 					MemoryMB:   vm.MemoryMB,
 					PowerState: string(vm.PowerState),
@@ -160,7 +162,7 @@ func (e *Engine) DetectZombieVMs(taskID, connectionID uint, config *ZombieVMConf
 }
 
 // averageMetrics 计算指标平均值
-func averageMetrics(metrics []storage.Metric) float64 {
+func averageMetrics(metrics []storage.VMMetric) float64 {
 	if len(metrics) == 0 {
 		return 0
 	}
@@ -173,7 +175,7 @@ func averageMetrics(metrics []storage.Metric) float64 {
 }
 
 // calculateLowUsageDays 计算低负载天数
-func calculateLowUsageDays(cpuMetrics, memMetrics []storage.Metric, absCpuThreshold, absMemThreshold float64) int {
+func calculateLowUsageDays(cpuMetrics, memMetrics []storage.VMMetric, absCpuThreshold, absMemThreshold float64) int {
 	// 按天分组
 	type DayAccumulator struct {
 		CpuSum   float64

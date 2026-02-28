@@ -32,7 +32,7 @@ func main() {
 	conn := &storage.Connection{
 		Name:     "H3C UIS 测试环境",
 		Platform: "h3c-uis",
-		Host:     "200.201.38.95",
+		Host:     "10.103.125.116",
 		Port:     443,
 		Username: "admin",
 		Insecure: true,

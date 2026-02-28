@@ -19,7 +19,7 @@ func NewResultStorage(repos *storage.Repositories) *ResultStorage {
 }
 
 // SaveZombieVMResults 保存僵尸 VM 分析结果到指定任务
-func (rs *ResultStorage) SaveZombieVMResults(taskID uint, results []ZombieVMResult) error {
+func (rs *ResultStorage) SaveZombieVMResults(taskID uint, jobID uint, results []ZombieVMResult) error {
 	findings := make([]storage.AnalysisFinding, len(results))
 
 	for i, r := range results {
@@ -37,6 +37,7 @@ func (rs *ResultStorage) SaveZombieVMResults(taskID uint, results []ZombieVMResu
 
 		findings[i] = storage.AnalysisFinding{
 			TaskID:     taskID,
+			JobID:      &jobID,
 			JobType:    "zombie",
 			TargetType: "vm",
 			TargetKey:  r.VMKey,
@@ -44,7 +45,7 @@ func (rs *ResultStorage) SaveZombieVMResults(taskID uint, results []ZombieVMResu
 			Severity:   severity,
 			Category:   "zombie",
 			Title:      fmt.Sprintf("僵尸VM: %s", r.VMName),
-			Description: fmt.Sprintf("该虚拟机在 %d 天内CPU使用率低于 %d%%，内存使用率低于 %d%%",
+			Description: fmt.Sprintf("该虚拟机在 %d 天内CPU使用率低于 %.1f%%，内存使用率低于 %.1f%%",
 				r.DaysLowUsage, r.CPUUsage, r.MemoryUsage),
 			Action:  r.Recommendation,
 			Reason:  estimateResourceSaving(r.CPUCount, r.MemoryMB, 0, 0),
@@ -56,7 +57,7 @@ func (rs *ResultStorage) SaveZombieVMResults(taskID uint, results []ZombieVMResu
 }
 
 // SaveRightSizeResults 保存 Right Size 分析结果到指定任务
-func (rs *ResultStorage) SaveRightSizeResults(taskID uint, results []RightSizeResult) error {
+func (rs *ResultStorage) SaveRightSizeResults(taskID uint, jobID uint, results []RightSizeResult) error {
 	findings := make([]storage.AnalysisFinding, len(results))
 
 	for i, r := range results {
@@ -77,6 +78,7 @@ func (rs *ResultStorage) SaveRightSizeResults(taskID uint, results []RightSizeRe
 
 		findings[i] = storage.AnalysisFinding{
 			TaskID:     taskID,
+			JobID:      &jobID,
 			JobType:    "rightsize",
 			TargetType: "vm",
 			TargetKey:  r.VMKey,
@@ -101,7 +103,7 @@ func (rs *ResultStorage) SaveRightSizeResults(taskID uint, results []RightSizeRe
 }
 
 // SaveTidalResults 保存潮汐分析结果到指定任务
-func (rs *ResultStorage) SaveTidalResults(taskID uint, results []TidalResult) error {
+func (rs *ResultStorage) SaveTidalResults(taskID uint, jobID uint, results []TidalResult) error {
 	findings := make([]storage.AnalysisFinding, len(results))
 
 	for i, r := range results {
@@ -117,6 +119,7 @@ func (rs *ResultStorage) SaveTidalResults(taskID uint, results []TidalResult) er
 
 		findings[i] = storage.AnalysisFinding{
 			TaskID:     taskID,
+			JobID:      &jobID,
 			JobType:    "tidal",
 			TargetType: "vm",
 			TargetKey:  r.VMKey,
@@ -124,7 +127,7 @@ func (rs *ResultStorage) SaveTidalResults(taskID uint, results []TidalResult) er
 			Severity:   severity,
 			Category:   "tidal_pattern",
 			Title:      fmt.Sprintf("潮汐模式: %s", r.VMName),
-			Description: fmt.Sprintf("检测到潮汐模式，稳定度: %.0f%%。峰值时段: %s, 峰值日: %s",
+			Description: fmt.Sprintf("检测到潮汐模式，稳定度: %.0f%%。峰值时段: %v, 峰值日: %v",
 				r.StabilityScore, r.PeakHours, r.PeakDays),
 			Action:  r.Recommendation,
 			Reason:  r.EstimatedSaving,
@@ -136,7 +139,7 @@ func (rs *ResultStorage) SaveTidalResults(taskID uint, results []TidalResult) er
 }
 
 // SaveHealthScoreResult 保存健康评分结果到指定任务
-func (rs *ResultStorage) SaveHealthScoreResult(taskID uint, result HealthScoreResult) error {
+func (rs *ResultStorage) SaveHealthScoreResult(taskID uint, jobID uint, result HealthScoreResult) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("序列化数据失败: %w", err)
@@ -160,6 +163,7 @@ func (rs *ResultStorage) SaveHealthScoreResult(taskID uint, result HealthScoreRe
 	// 主评分记录
 	mainFinding := storage.AnalysisFinding{
 		TaskID:     taskID,
+		JobID:      &jobID,
 		JobType:    "health",
 		TargetType: "connection",
 		TargetKey:  fmt.Sprintf("%d", result.ConnectionID),
@@ -216,67 +220,6 @@ func (rs *ResultStorage) CreateFinding(taskID uint, jobType, targetType, targetK
 
 // ==============================================================================
 // 向后兼容方法 (不再使用 ReportID，改用 TaskID)
-// ==============================================================================
-
-// SaveZombieVMResultsToConnection 保存僵尸VM结果到连接 (向后兼容)
-func (rs *ResultStorage) SaveZombieVMResultsToConnection(connectionID uint, results []ZombieVMResult) error {
-	// 这个方法不再使用 ReportID，所以使用 taskID=0
-	// 调用方应该使用新的带 taskID 的方法
-	return rs.SaveZombieVMResults(0, results)
-}
-
-// SaveRightSizeResultsToConnection 保存Right Size结果到连接 (向后兼容)
-func (rs *ResultStorage) SaveRightSizeResultsToConnection(connectionID uint, results []RightSizeResult) error {
-	return rs.SaveRightSizeResults(0, results)
-}
-
-// SaveTidalResultsToConnection 保存潮汐分析结果到连接 (向后兼容)
-func (rs *ResultStorage) SaveTidalResultsToConnection(connectionID uint, results []TidalResult) error {
-	return rs.SaveTidalResults(0, results)
-}
-
-// CreateAlert 创建告警 (向后兼容，转换为 AnalysisFinding)
-func (rs *ResultStorage) CreateAlert(targetType, targetKey, targetName, alertType, severity, title, message string, data interface{}) error {
-	dataJSON, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("序列化数据失败: %w", err)
-	}
-
-	finding := storage.AnalysisFinding{
-		JobType:     alertType,
-		TargetType:  targetType,
-		TargetKey:   targetKey,
-		TargetName:  targetName,
-		Severity:    severity,
-		Category:    alertType,
-		Title:       title,
-		Description: message,
-		Details:     string(dataJSON),
-	}
-
-	return rs.repos.AnalysisFinding.Create(&finding)
-}
-
-// CreateAlerts 批量创建告警 (向后兼容)
-func (rs *ResultStorage) CreateAlerts(alerts []storage.Alert) error {
-	// 转换为 AnalysisFinding
-	findings := make([]storage.AnalysisFinding, len(alerts))
-	for i, a := range alerts {
-		findings[i] = storage.AnalysisFinding{
-			JobType:     a.AlertType,
-			TargetType:  a.TargetType,
-			TargetKey:   a.TargetKey,
-			TargetName:  a.TargetName,
-			Severity:    a.Severity,
-			Category:    a.AlertType,
-			Title:       a.Title,
-			Description: a.Message,
-			Details:     a.Data,
-		}
-	}
-	return rs.repos.AnalysisFinding.BatchCreate(findings)
-}
-
 // ==============================================================================
 // 辅助函数
 // ==============================================================================

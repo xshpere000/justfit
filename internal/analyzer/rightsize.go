@@ -84,13 +84,13 @@ func (e *Engine) AnalyzeRightSize(taskID, connectionID uint, config *RightSizeCo
 		}
 
 		// 获取 CPU 指标 (单位: Cores, 使用 TaskID 过滤)
-		cpuMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
+		cpuMetrics, err := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
 		if err != nil || len(cpuMetrics) == 0 {
 			continue
 		}
 
 		// 获取内存指标 (单位: MB, 使用 TaskID 过滤)
-		memMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "memory", startTime, endTime)
+		memMetrics, err := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "memory", startTime, endTime)
 		if err != nil || len(memMetrics) == 0 {
 			continue
 		}
@@ -153,7 +153,7 @@ func (e *Engine) AnalyzeRightSize(taskID, connectionID uint, config *RightSizeCo
 }
 
 // extractMetricValues 提取指标值
-func extractMetricValues(metrics []storage.Metric) []float64 {
+func extractMetricValues(metrics []storage.VMMetric) []float64 {
 	values := make([]float64, len(metrics))
 	for i, m := range metrics {
 		values[i] = m.Value

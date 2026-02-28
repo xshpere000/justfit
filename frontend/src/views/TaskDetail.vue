@@ -11,10 +11,6 @@
         </div>
       </div>
       <div class="header-right">
-        <el-button v-if="task?.status === 'completed'" type="success" @click="exportReport">
-          <el-icon><Download /></el-icon>
-          导出报告
-        </el-button>
         <el-dropdown @command="handleCommand">
           <el-button :icon="MoreFilled" circle />
           <template #dropdown>
@@ -29,7 +25,8 @@
     </div>
 
     <!-- 任务进行中状态 -->
-    <div v-if="task?.status === 'running' || task?.status === 'paused' || task?.status === 'pending'" class="running-state">
+    <div v-if="task?.status === 'running' || task?.status === 'paused' || task?.status === 'pending'"
+      class="running-state">
       <el-card>
         <div class="progress-content">
           <div class="progress-info">
@@ -42,11 +39,8 @@
             </div>
           </div>
           <div class="progress-bar">
-            <el-progress
-              :percentage="task.progress"
-              :status="task.status === 'paused' ? 'exception' : undefined"
-              :stroke-width="12"
-            />
+            <el-progress :percentage="task.progress" :status="task.status === 'paused' ? 'exception' : undefined"
+              :stroke-width="12" />
             <div class="progress-stats">
               <span>{{ task.collectedVMCount || 0 }} / {{ task.vmCount || 0 }} 台虚拟机</span>
               <span>{{ task.progress }}%</span>
@@ -55,7 +49,9 @@
           <div class="progress-actions">
             <el-button-group>
               <el-button @click="handleCancel">
-                <el-icon><CloseBold /></el-icon>
+                <el-icon>
+                  <CloseBold />
+                </el-icon>
                 取消任务
               </el-button>
             </el-button-group>
@@ -74,7 +70,9 @@
             <el-row :gutter="20" class="stats-row">
               <el-col :span="6">
                 <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32"><Monitor /></el-icon>
+                  <el-icon class="stat-icon" :size="32">
+                    <Monitor />
+                  </el-icon>
                   <div class="stat-content">
                     <div class="stat-value">{{ task.vmCount }}</div>
                     <div class="stat-label">虚拟机数量</div>
@@ -83,7 +81,9 @@
               </el-col>
               <el-col :span="6">
                 <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32"><Clock /></el-icon>
+                  <el-icon class="stat-icon" :size="32">
+                    <Clock />
+                  </el-icon>
                   <div class="stat-content">
                     <div class="stat-value">{{ formatDuration(task) }}</div>
                     <div class="stat-label">采集耗时</div>
@@ -92,7 +92,9 @@
               </el-col>
               <el-col :span="6">
                 <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32"><Check /></el-icon>
+                  <el-icon class="stat-icon" :size="32">
+                    <Check />
+                  </el-icon>
                   <div class="stat-content">
                     <div class="stat-value">{{ completedAnalyses }}</div>
                     <div class="stat-label">已完成分析</div>
@@ -101,7 +103,9 @@
               </el-col>
               <el-col :span="6">
                 <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32"><TrendCharts /></el-icon>
+                  <el-icon class="stat-icon" :size="32">
+                    <TrendCharts />
+                  </el-icon>
                   <div class="stat-content">
                     <div class="stat-value">{{ task.platform === 'vcenter' ? 'vSphere' : 'UIS' }}</div>
                     <div class="stat-label">平台类型</div>
@@ -115,11 +119,8 @@
               <h3 class="section-title">分析功能</h3>
               <el-row :gutter="16">
                 <el-col :span="6" v-for="analysis in analyses" :key="analysis.key">
-                  <div
-                    class="analysis-card"
-                    :class="{ completed: task.analysisResults?.[analysis.key] }"
-                    @click="runAnalysis(analysis.key)"
-                  >
+                  <div class="analysis-card" :class="{ completed: task.analysisResults?.[analysis.key] }"
+                    @click="runAnalysis(analysis.key)">
                     <div class="analysis-icon" :class="'analysis-icon--' + analysis.color">
                       <el-icon :size="28">
                         <component :is="analysis.icon" />
@@ -158,60 +159,47 @@
             <!-- 虚拟机列表 -->
             <template v-else>
               <div class="table-toolbar">
-                <el-input
-                  v-model="vmSearch"
-                  placeholder="搜索虚拟机"
-                  prefix-icon="Search"
-                  clearable
-                  class="search-input"
-                  @input="handleVMSearch"
-                />
+                <el-input v-model="vmSearch" placeholder="搜索虚拟机" prefix-icon="Search" clearable style="width: 300px"
+                  @input="handleVMSearch" />
+                <div class="table-stats">
+                  共 {{ vmTotal }} 台虚拟机
+                </div>
               </div>
-              <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
-                <el-table :data="vmList" stripe :loading="vmListLoading" :height="listTableHeight" class="detail-table">
+              <div class="table-wrapper">
+                <el-table :data="vmList" stripe :loading="vmListLoading" height="400">
                   <el-table-column prop="name" label="虚拟机名称" min-width="180" />
-                <el-table-column prop="cpuCount" label="CPU" width="100">
-                  <template #default="{ row }">
-                    {{ row.cpuCount > 0 ? row.cpuCount + ' 核' : '-' }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="memoryGb" label="内存" width="120">
-                  <template #default="{ row }">
-                    {{ row.memoryGb > 0 ? row.memoryGb + ' GB' : '-' }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="powerState" label="状态" width="100">
-                  <template #default="{ row }">
-                    <el-tag :type="getPowerStateType(row.powerState)" size="small">
-                      {{ getPowerStateText(row.powerState) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="datacenter" label="数据中心" width="150" show-overflow-tooltip />
-                <el-table-column prop="hostName" label="主机" width="150" show-overflow-tooltip />
-              </el-table>
-            </div>
-            <div class="table-pagination">
-              <span class="logs-total">
-                共 {{ vmTotal }} 条
-              </span>
-              <el-pagination
-                v-model:current-page="vmCurrentPage"
-                v-model:page-size="vmPageSize"
-                :page-sizes="vmPageSizes"
-                :total="vmTotal"
-                :layout="vmPaginationLayout"
-                :small="isCompactWindow"
-                @current-change="handleVMPageChange"
-                @size-change="handleVMSizeChange"
-              />
-            </div>
+                  <el-table-column prop="cpuCount" label="CPU" width="100">
+                    <template #default="{ row }">
+                      {{ row.cpuCount > 0 ? row.cpuCount + ' 核' : '-' }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="memoryGb" label="内存" width="120">
+                    <template #default="{ row }">
+                      {{ row.memoryGb > 0 ? row.memoryGb + ' GB' : '-' }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="powerState" label="状态" width="100">
+                    <template #default="{ row }">
+                      <el-tag :type="getPowerStateType(row.powerState)" size="small">
+                        {{ getPowerStateText(row.powerState) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="datacenter" label="数据中心" width="150" />
+                  <el-table-column prop="hostIp" label="主机IP" width="150" />
+                </el-table>
+              </div>
+              <div class="table-pagination">
+                <el-pagination v-model:current-page="vmCurrentPage" v-model:page-size="vmPageSize"
+                  :page-sizes="[20, 50, 100, 200]" :total="vmTotal" layout="total, sizes, prev, pager, next, jumper"
+                  @current-change="handleVMPageChange" @size-change="handleVMSizeChange" />
+              </div>
             </template>
           </div>
         </el-tab-pane>
 
         <el-tab-pane label="僵尸VM" name="zombie">
-          <div class="analysis-content" v-if="hasAnalysisResults.zombie">
+          <div class="analysis-content" v-if="task?.analysisResults?.zombie">
             <div class="analysis-toolbar">
               <el-input
                 v-model="zombieSearch"
@@ -265,7 +253,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="Right Size" name="rightsize">
-          <div class="analysis-content" v-if="hasAnalysisResults.rightsize">
+          <div class="analysis-content" v-if="task?.analysisResults?.rightsize">
             <div class="analysis-toolbar">
               <el-input
                 v-model="rightsizeSearch"
@@ -318,7 +306,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="潮汐检测" name="tidal">
-          <div class="analysis-content" v-if="hasAnalysisResults.tidal">
+          <div class="analysis-content" v-if="task?.analysisResults?.tidal">
             <div class="analysis-toolbar">
               <el-input
                 v-model="tidalSearch"
@@ -372,21 +360,28 @@
         </el-tab-pane>
 
         <el-tab-pane label="健康评分" name="health">
-          <div class="analysis-content" v-if="hasAnalysisResults.health">
+          <div class="analysis-content" v-if="task?.analysisResults?.health">
             <el-card v-loading="analysisLoading.health">
               <el-descriptions :column="2" border>
                 <el-descriptions-item label="综合评分">
-                  {{ analysisData.health?.overallScore !== undefined ? analysisData.health.overallScore.toFixed(0) + '%' : '-' }}
+                  {{ analysisData.health?.overallScore !== undefined ? analysisData.health.overallScore.toFixed(0) + '%'
+                  : '-'
+                  }}
                 </el-descriptions-item>
                 <el-descriptions-item label="健康等级">{{ analysisData.health?.healthLevel ?? '-' }}</el-descriptions-item>
                 <el-descriptions-item label="资源均衡">
-                  {{ analysisData.health?.resourceBalance !== undefined ? analysisData.health.resourceBalance.toFixed(0) + '%' : '-' }}
+                  {{ analysisData.health?.resourceBalance !== undefined ? analysisData.health.resourceBalance.toFixed(0)
+                  + '%' :
+                  '-' }}
                 </el-descriptions-item>
                 <el-descriptions-item label="超配风险">
-                  {{ analysisData.health?.overcommitRisk !== undefined ? analysisData.health.overcommitRisk.toFixed(0) + '%' : '-' }}
+                  {{ analysisData.health?.overcommitRisk !== undefined ? analysisData.health.overcommitRisk.toFixed(0) +
+                  '%' :
+                  '-' }}
                 </el-descriptions-item>
                 <el-descriptions-item label="热点集中">
-                  {{ analysisData.health?.hotspotConcentration !== undefined ? analysisData.health.hotspotConcentration.toFixed(0) + '%' : '-' }}
+                  {{ analysisData.health?.hotspotConcentration !== undefined ?
+                    analysisData.health.hotspotConcentration.toFixed(0) + '%' : '-' }}
                 </el-descriptions-item>
                 <el-descriptions-item label="虚机数量">{{ analysisData.health?.vmCount ?? '-' }}</el-descriptions-item>
               </el-descriptions>
@@ -402,6 +397,94 @@
           </div>
         </el-tab-pane>
 
+        <el-tab-pane label="评估模式" name="analysisMode">
+          <AnalysisModeTab v-if="task?.id" :task-id="task.id" :task-status="task.status" />
+          <div v-else class="analysis-placeholder">
+            <el-empty description="任务未完成，无法配置评估模式" />
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="分析报告" name="reports">
+          <div class="reports-content">
+            <!-- 导出按钮组 -->
+            <div class="export-section">
+              <el-card>
+                <div class="export-header">
+                  <div>
+                    <h3>生成报告</h3>
+                    <p style="color: var(--el-text-color-secondary); margin-top: 4px;">
+                      根据本任务的分析结果生成报告文件
+                    </p>
+                  </div>
+                  <el-space>
+                    <el-button type="primary" size="large" @click="exportReport('xlsx')" :loading="exporting.xlsx">
+                      <el-icon>
+                        <DocumentCopy />
+                      </el-icon>
+                      Excel 数据表
+                    </el-button>
+                    <el-button type="success" size="large" @click="exportReport('pdf')" :loading="exporting.pdf">
+                      <el-icon>
+                        <Notebook />
+                      </el-icon>
+                      PDF 分析报告
+                    </el-button>
+                  </el-space>
+                </div>
+
+                <!-- 报告说明 -->
+                <el-divider />
+                <el-descriptions :column="2" border size="small">
+                  <el-descriptions-item label="Excel 数据表">
+                    包含所有采集数据和分析结果的详细表格，支持数据筛选和排序
+                  </el-descriptions-item>
+                  <el-descriptions-item label="PDF 分析报告">
+                    可视化报告，包含图表和统计信息，适合阅读和分享
+                  </el-descriptions-item>
+                </el-descriptions>
+              </el-card>
+            </div>
+
+            <!-- 历史报告列表 -->
+            <div class="report-history" style="margin-top: 20px;">
+              <h4>历史报告</h4>
+              <el-card v-loading="reportsLoading">
+                <el-table v-if="reportHistory.length > 0" :data="reportHistory" stripe>
+                  <el-table-column prop="title" label="报告名称" min-width="200" />
+                  <el-table-column prop="format" label="格式" width="100">
+                    <template #default="{ row }">
+                      <el-tag :type="row.format === 'xlsx' ? 'primary' : 'success'" size="small">
+                        {{ row.format.toUpperCase() }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="createdAt" label="生成时间" width="180" />
+                  <el-table-column prop="fileSize" label="文件大小" width="120">
+                    <template #default="{ row }">
+                      {{ formatFileSize(row.fileSize) }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="180" align="center">
+                    <template #default="{ row }">
+                      <el-button size="small" @click="downloadReport(row)">
+                        <el-icon>
+                          <Download />
+                        </el-icon> 下载
+                      </el-button>
+                      <el-button size="small" type="danger" @click="deleteReport(row)">
+                        <el-icon>
+                          <Delete />
+                        </el-icon>
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-else description="暂无历史报告，点击上方按钮生成报告" />
+              </el-card>
+            </div>
+          </div>
+        </el-tab-pane>
+
         <el-tab-pane label="执行日志" name="logs">
           <div class="analysis-content">
             <!-- 工具栏：搜索和刷新 -->
@@ -414,7 +497,9 @@
                 @input="onLogsSearchChange"
               >
                 <template #prefix>
-                  <el-icon><Search /></el-icon>
+                  <el-icon>
+                    <Search />
+                  </el-icon>
                 </template>
               </el-input>
               <div class="logs-actions">
@@ -487,6 +572,8 @@ import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as ConnectionAPI from '@/api/connection'
 import { exportTaskReport } from '@/api/report'
+import * as App from '../../wailsjs/go/main/App'
+import AnalysisModeTab from './AnalysisModeTab.vue'
 import {
   Download,
   MoreFilled,
@@ -501,7 +588,11 @@ import {
   CircleCheck,
   CircleClose,
   Loading,
-  Search
+  Search,
+  DocumentCopy,
+  Notebook,
+  View,
+  Delete
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -537,6 +628,14 @@ const windowWidth = ref(window.innerWidth)
 const pollTimer = ref<number | null>(null)
 const pollTimeout = ref<number | null>(null)
 let vmSearchTimer: number | null = null
+
+// 报告相关状态
+const exporting = reactive({
+  xlsx: false,
+  pdf: false
+})
+const reportHistory = ref<any[]>([])
+const reportsLoading = ref(false)
 
 const isCompactWindow = computed(() => windowHeight.value <= 700 || windowWidth.value <= 1100)
 const listTableHeight = computed(() => (isCompactWindow.value ? 500 : 800))
@@ -577,6 +676,12 @@ const analysisData = reactive<{
 })
 
 const task = computed(() => taskStore.getTask(taskId.value))
+
+// 调试：监听 task 变化
+watch(task, (newTask) => {
+  console.log('[TaskDetail] task changed:', newTask)
+  console.log('[TaskDetail] task.analysisResults:', newTask?.analysisResults)
+}, { immediate: true, deep: true })
 
 // 分析项类型定义
 interface AnalysisItem {
@@ -696,6 +801,10 @@ async function initTaskData() {
     await loadTaskLogs()
     await loadAnalysisResultFromBackend(task.value.id)
     pollTaskStatus(task.value.id)
+    // 如果任务已完成，也加载报告历史
+    if (task.value.status === 'completed') {
+      await loadReportHistory()
+    }
   }
 }
 
@@ -731,23 +840,21 @@ watch(analysisPageSize, () => {
 watch(activeTab, async (newTab) => {
   console.log('[TaskDetail] 切换标签页:', newTab)
 
-  if (!task.value?.id) {
-    return
-  }
-
   // 每次切换标签时，先同步一次最新的任务状态
   // 这样确保用户看到的数据是最新的
-  try {
-    const taskInfo = await ConnectionAPI.getTask(task.value.id)
-    if (task.value) {
-      task.value.status = taskInfo.status as any
-      task.value.progress = taskInfo.progress
-      task.value.error = taskInfo.error
-      task.value.startedAt = taskInfo.startedAt
-      task.value.completedAt = taskInfo.completedAt
+  if (task.value?.id) {
+    try {
+      const taskInfo = await ConnectionAPI.getTask(task.value.id)
+      if (task.value) {
+        task.value.status = taskInfo.status as any
+        task.value.progress = taskInfo.progress
+        task.value.error = taskInfo.error
+        task.value.startedAt = taskInfo.startedAt
+        task.value.completedAt = taskInfo.completedAt
+      }
+    } catch (error) {
+      console.error('[TaskDetail] 同步任务状态失败:', error)
     }
-  } catch (error) {
-    console.error('[TaskDetail] 同步任务状态失败:', error)
   }
 
   // 根据切换到的标签页，刷新对应的数据
@@ -766,7 +873,14 @@ watch(activeTab, async (newTab) => {
       break
     case 'analysis':
       console.log('[TaskDetail] 切换到分析结果标签')
-      await loadAnalysisResultFromBackend(task.value.id)
+      if (task.value?.id) {
+        await loadAnalysisResultFromBackend(task.value.id)
+      }
+      break
+    case 'reports':
+      console.log('[TaskDetail] 切换到分析报告标签')
+      // 报告列表不依赖 task.value.id，使用 taskId
+      await loadReportHistory()
       break
   }
 })
@@ -1131,7 +1245,7 @@ async function loadAnalysisResultFromBackend(id: number) {
       console.log('[loadAnalysisResultFromBackend] 未找到 healthScore 数据')
     }
 
-      } catch (error) {
+  } catch (error) {
     console.error('[loadAnalysisResultFromBackend] 加载失败:', error)
   }
 }
@@ -1380,7 +1494,7 @@ async function handleCommand(cmd: string) {
       await ElMessageBox.confirm('确定要删除此任务吗？', '确认删除', { type: 'warning' })
       stopPolling()
       taskStore.deleteTask(taskId.value)
-            ElMessage.success('任务已删除')
+      ElMessage.success('任务已删除')
       router.push('/')
     } catch {
       // 用户取消
@@ -1388,23 +1502,87 @@ async function handleCommand(cmd: string) {
   }
 }
 
-async function exportReport() {
+async function exportReport(format: string = 'xlsx') {
   if (!task.value?.connectionId) {
     ElMessage.warning('缺少连接信息，无法导出报告')
     return
   }
 
   try {
-    ElMessage.info('正在生成后端报告...')
-    const filepath = await exportTaskReport({
+    exporting[format as keyof typeof exporting] = true
+    ElMessage.info(`正在生成${format === 'xlsx' ? 'Excel' : 'PDF'}报告...`)
+
+    await exportTaskReport({
       taskId: taskId.value,
       connectionId: task.value.connectionId,
-      reportTypes: buildReportTypes(),
+      reportTypes: [format],
       title: task.value.name
     })
-    ElMessage.success('报告已导出: ' + filepath)
+
+    ElMessage.success('报告已生成')
+    // 刷新报告列表
+    await loadReportHistory()
   } catch (error: any) {
     ElMessage.error('导出失败: ' + (error.message || '未知错误'))
+  } finally {
+    exporting[format as keyof typeof exporting] = false
+  }
+}
+
+// 加载报告历史
+async function loadReportHistory() {
+  // 使用 taskId.value 而不是 task.value?.id，确保一致性
+  if (!taskId.value) return
+
+  try {
+    reportsLoading.value = true
+    console.log('[TaskDetail] 加载报告历史, taskId:', taskId.value)
+    // taskId 是字符串，需要转换为数字
+    const reports = await App.GetTaskReports(parseInt(taskId.value))
+    console.log('[TaskDetail] 报告列表加载成功:', reports)
+    reportHistory.value = reports
+  } catch (error: any) {
+    console.error('加载报告列表失败:', error)
+    ElMessage.error('加载报告列表失败: ' + (error.message || '未知错误'))
+  } finally {
+    reportsLoading.value = false
+  }
+}
+
+// 下载报告
+async function downloadReport(report: any) {
+  try {
+    // 调用后端保存对话框 API
+    const savedPath = await App.SaveReportAs(report.id)
+
+    if (savedPath) {
+      ElMessage.success('报告已保存到: ' + savedPath)
+    } else {
+      ElMessage.info('已取消保存')
+    }
+  } catch (error: any) {
+    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
+  }
+}
+
+// 删除报告
+async function deleteReport(report: any) {
+  try {
+    await ElMessageBox.confirm('确定要删除此报告吗？此操作无法撤销。', '确认删除', {
+      type: 'warning',
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消'
+    })
+
+    await App.DeleteReport(report.id)
+    ElMessage.success('报告已删除')
+
+    // 刷新列表
+    await loadReportHistory()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败: ' + (error.message || '未知错误'))
+    }
   }
 }
 
@@ -1437,6 +1615,14 @@ function formatMemory(mb: number): string {
     return (mb / 1024).toFixed(1) + ' GB'
   }
   return mb + ' MB'
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return (bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0) + ' ' + sizes[i]
 }
 
 function formatDuration(taskData: Task | undefined): string {
@@ -1489,7 +1675,7 @@ async function syncTaskFromBackend() {
       if (matchedBackendTask) {
         console.log('[TaskDetail] 匹配到后端任务:', matchedBackendTask)
         task.value.id = matchedBackendTask.id
-              } else {
+      } else {
         console.log('[TaskDetail] 未找到匹配的后端任务')
         // 列出所有后端任务供调试
         backendTasks.forEach((bt: any) => {
@@ -1605,8 +1791,13 @@ function getPowerStateText(state: string) {
       }
 
       @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+        from {
+          transform: rotate(0deg);
+        }
+
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .progress-text {

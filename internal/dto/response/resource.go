@@ -16,6 +16,7 @@ type VMResponse struct {
 	IPAddress     string    `json:"ipAddress,omitempty"`
 	GuestOS       string    `json:"guestOs,omitempty"`
 	HostName      string    `json:"hostName,omitempty"`
+	HostIP        string    `json:"hostIp,omitempty"`
 	OverallStatus string    `json:"overallStatus,omitempty"`
 	CollectedAt   time.Time `json:"collectedAt"`
 }

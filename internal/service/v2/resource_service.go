@@ -136,7 +136,7 @@ func (s *ResourceService) GetMetrics(vmID uint, metricType string, days int) (*r
 	startTime := endTime.AddDate(0, 0, -days)
 
 	// taskID=0 表示查询所有任务的指标数据（独立查询）
-	metrics, err := s.repos.Metric.ListByTaskAndVMAndType(0, vmID, metricType, startTime, endTime)
+	metrics, err := s.repos.VMMetric.ListByTaskAndVMAndType(0, vmID, metricType, startTime, endTime)
 	if err != nil {
 		s.log.Error("获取指标失败", logger.Uint("vm_id", vmID), logger.Err(err))
 		return nil, apperrors.ErrInternalError.Wrap(err, "获取指标失败")
@@ -211,21 +211,21 @@ func (s *ResourceService) GetDashboardStats() (*DashboardStats, error) {
 	}
 
 	// 获取最新健康评分
-	var latestHealth storage.AnalysisResult
+	var latestHealth storage.AnalysisFinding
 	var healthScore float64 = 0
-	s.repos.DB().Where("analysis_type = ?", "health").Order("created_at desc").First(&latestHealth)
+	s.repos.DB().Where("job_type = ?", "health").Order("created_at desc").First(&latestHealth)
 
 	if latestHealth.ID > 0 {
-		// 解析 Data 字段获取健康评分
+		// 解析 Details 字段获取健康评分
 		// 这里简化处理，实际应该解析 JSON
-		healthScore = 75.0    // 默认值
-		_ = latestHealth.Data // 避免未使用警告
+		healthScore = 75.0       // 默认值
+		_ = latestHealth.Details // 避免未使用警告
 	}
 
 	// 统计僵尸 VM 数量
 	var zombieCount int64
-	s.repos.DB().Model(&storage.AnalysisResult{}).
-		Where("analysis_type = ? AND created_at > ?", "zombie", time.Now().AddDate(0, 0, -7)).
+	s.repos.DB().Model(&storage.AnalysisFinding{}).
+		Where("job_type = ? AND created_at > ?", "zombie", time.Now().AddDate(0, 0, -7)).
 		Count(&zombieCount)
 
 	// 计算节省

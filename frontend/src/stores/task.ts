@@ -60,15 +60,19 @@ export const useTaskStore = defineStore('task', () => {
     try {
       const backendTasks = await TaskAPI.listTasks('', 100, 0)
       console.log('[taskStore] syncTasksFromBackend 从后端获取到任务数量:', backendTasks.length)
-      console.log('[taskStore] syncTasksFromBackend 任务详情:', backendTasks.map(t => ({
-        id: t.id,
-        name: t.name,
-        status: t.status,
-        progress: t.progress,
-        vmCount: t.vmCount,
-        collectedVMCount: t.collectedVMCount,
-        analysisResults: t.analysisResults
-      })))
+      backendTasks.forEach((bt, idx) => {
+        console.log(`[taskStore] 任务${idx + 1}:`, {
+          id: bt.id,
+          name: bt.name,
+          status: bt.status,
+          analysisResults: bt.analysisResults,
+          hasAnalysisResults: !!bt.analysisResults,
+          zombieCompleted: bt.analysisResults?.zombie,
+          rightsizeCompleted: bt.analysisResults?.rightsize,
+          tidalCompleted: bt.analysisResults?.tidal,
+          healthCompleted: bt.analysisResults?.health
+        })
+      })
 
       tasks.value = backendTasks.map(bt => ({
         id: bt.id,
@@ -159,7 +163,9 @@ export const useTaskStore = defineStore('task', () => {
   // 获取单个任务
   function getTask(id: number | string): Task | undefined {
     const numId = typeof id === 'string' ? parseInt(id.replace('backend_', ''), 10) : id
-    return tasks.value.find(t => t.id === numId)
+    const found = tasks.value.find(t => t.id === numId)
+    console.log('[taskStore] getTask:', { id, numId, found, analysisResults: found?.analysisResults })
+    return found
   }
 
   // 更新任务状态（向后兼容，实际上会刷新整个列表）

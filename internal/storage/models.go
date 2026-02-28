@@ -19,7 +19,7 @@ type Connection struct {
 	Host     string     `gorm:"size:255;not null" json:"host"`
 	Port     int        `gorm:"not null" json:"port"`
 	Username string     `gorm:"size:100;not null" json:"username"`
-	Password string     `gorm:"size:500;not null" json:"-"` // 加密存储，不导出 JSON
+	Password string     `gorm:"size:500;not null" json:"-"`
 	Insecure bool       `gorm:"default:true" json:"insecure"`
 	Status   string     `gorm:"size:20;default:disconnected" json:"status"`
 	LastSync *time.Time `json:"lastSync"`
@@ -33,8 +33,8 @@ type Cluster struct {
 	ClusterKey   string      `gorm:"size:100;index" json:"clusterKey"`
 	Name         string      `gorm:"size:200;not null" json:"name"`
 	Datacenter   string      `gorm:"size:100" json:"datacenter"`
-	TotalCpu     int64       `json:"totalCpu"`    // MHz
-	TotalMemory  int64       `json:"totalMemory"` // Bytes
+	TotalCpu     int64       `json:"totalCpu"`
+	TotalMemory  int64       `json:"totalMemory"`
 	NumHosts     int32       `json:"numHosts"`
 	NumVMs       int         `json:"numVMs"`
 	Status       string      `gorm:"size:50" json:"status"`
@@ -52,7 +52,7 @@ type Host struct {
 	IPAddress       string      `gorm:"size:50" json:"ipAddress"`
 	CpuCores        int32       `json:"cpuCores"`
 	CpuMhz          int32       `json:"cpuMhz"`
-	Memory          int64       `json:"memory"` // Bytes
+	Memory          int64       `json:"memory"`
 	NumVMs          int         `json:"numVMs"`
 	ConnectionState string      `gorm:"size:50" json:"connectionState"`
 	PowerState      string      `gorm:"size:50" json:"powerState"`
@@ -76,6 +76,7 @@ type VM struct {
 	IPAddress       string      `gorm:"size:50" json:"ipAddress"`
 	GuestOS         string      `gorm:"size:100" json:"guestOs"`
 	HostName        string      `gorm:"size:200" json:"hostName"`
+	HostIP          string      `gorm:"size:50" json:"hostIp"`
 	OverallStatus   string      `gorm:"size:50" json:"overallStatus"`
 	CollectedAt     time.Time   `json:"collectedAt"`
 }
@@ -91,10 +92,6 @@ type VMMetric struct {
 	Timestamp  time.Time       `gorm:"index:idx_vm_metric_timestamp" json:"timestamp"`
 	Value      float64         `json:"value"`
 }
-
-// Metric 旧的性能指标表名，保持向后兼容
-// Deprecated: 使用 VMMetric 代替
-type Metric = VMMetric
 
 // ==============================================================================
 // 任务层 - 用户操作
@@ -112,6 +109,10 @@ type AssessmentTask struct {
 	SelectedVMs string `gorm:"type:text" json:"selectedVMs"`
 	MetricsDays int    `gorm:"default:30" json:"metricsDays"`
 
+	// 评估模式配置
+	AnalysisMode   string `gorm:"size:20;default:safe;index" json:"analysisMode"` // safe | saving | aggressive | custom
+	AnalysisConfig string `gorm:"type:text" json:"analysisConfig"`                // JSON格式的自定义配置
+
 	// 任务状态: pending | collecting | analyzing | completed | failed | cancelled
 	Status      string `gorm:"size:20;not null;index" json:"status"`
 	Progress    int    `gorm:"default:0" json:"progress"`
@@ -125,12 +126,8 @@ type AssessmentTask struct {
 
 // TableName 指定表名
 func (AssessmentTask) TableName() string {
-	return "tasks"
+	return "assessment_tasks"
 }
-
-// Task 旧的任务表名，保持向后兼容
-// Deprecated: 使用 AssessmentTask 代替
-type Task = AssessmentTask
 
 // TaskVMSnapshot 任务虚拟机快照
 type TaskVMSnapshot struct {
@@ -156,6 +153,7 @@ type TaskVMSnapshot struct {
 	// 状态快照
 	IPAddress     string `gorm:"size:50" json:"ipAddress"`
 	HostName      string `gorm:"size:200" json:"hostName"`
+	HostIP        string `gorm:"size:50" json:"hostIp"`
 	OverallStatus string `gorm:"size:50" json:"overallStatus"`
 
 	CollectedAt time.Time `json:"collectedAt"`
@@ -177,14 +175,10 @@ type TaskAnalysisJob struct {
 	CompletedAt *time.Time `json:"completedAt"`
 	Error       string     `gorm:"type:text" json:"error"`
 
-	// 分析结果 (JSON存储)
+	// 分析结果
 	Result      string `gorm:"type:text" json:"result"`
 	ResultCount int    `gorm:"default:0" json:"resultCount"`
 }
-
-// TaskAnalysisResult 旧的分析结果表名，保持向后兼容
-// Deprecated: 使用 TaskAnalysisJob 代替
-type TaskAnalysisResult = TaskAnalysisJob
 
 // ==============================================================================
 // 输出层 - 分析结果和报告
@@ -196,7 +190,8 @@ type AnalysisFinding struct {
 	TaskID uint            `gorm:"index:idx_analysis_finding_task" json:"taskId"`
 	Task   *AssessmentTask `gorm:"constraint:OnDelete:CASCADE" json:"-"`
 
-	// 分析类型
+	// 分析子任务（关联到具体执行）
+	JobID   *uint  `gorm:"index:idx_analysis_finding_job;index:idx_analysis_finding_job_task" json:"jobId,omitempty"` // 关联到 task_analysis_jobs.id
 	JobType string `gorm:"size:50;not null;index:idx_analysis_finding_job_type" json:"jobType"`
 
 	// 目标对象
@@ -221,8 +216,6 @@ type AnalysisFinding struct {
 
 	// 详细数据
 	Details string `gorm:"type:text" json:"details"`
-
-	CreatedAt time.Time `json:"createdAt"`
 }
 
 // TaskReport 任务报告
@@ -244,10 +237,6 @@ type TaskReport struct {
 	Status      string     `gorm:"size:20;default:pending" json:"status"`
 	GeneratedAt *time.Time `json:"generatedAt"`
 }
-
-// Report 旧的报告表名，保持向后兼容
-// Deprecated: 使用 TaskReport 代替
-type Report = TaskReport
 
 // ==============================================================================
 // 系统配置层
@@ -285,58 +274,4 @@ type TaskLog struct {
 	IPAddress string `gorm:"size:50" json:"ipAddress"`
 
 	CreatedAt time.Time `json:"createdAt"`
-}
-
-// ==============================================================================
-// 向后兼容的类型别名
-// ==============================================================================
-
-// V2 类型别名 (向后兼容)
-type VMMetrics = VMMetric
-
-// TaskVMSnapshots 任务快照复数别名
-type TaskVMSnapshots = TaskVMSnapshot
-
-// AnalysisFindings 分析发现复数别名
-type AnalysisFindings = AnalysisFinding
-
-// TaskReports 任务报告复数别名
-type TaskReports = TaskReport
-
-// TaskLogs 任务日志复数别名
-type TaskLogs = TaskLog
-
-// ==============================================================================
-// 告警相关（保留用于兼容）
-// ==============================================================================
-
-// AnalysisResult 旧的分析结果类型
-// Deprecated: 使用 AnalysisFinding 代替
-type AnalysisResult struct {
-	gorm.Model
-	ReportID       uint   `gorm:"index:idx_analysis_report" json:"reportId"`
-	AnalysisType   string `gorm:"size:50;index" json:"analysisType"`
-	TargetType     string `gorm:"size:50" json:"targetType"`
-	TargetKey      string `gorm:"size:100;index" json:"targetKey"`
-	TargetName     string `gorm:"size:200" json:"targetName"`
-	Data           string `gorm:"type:text" json:"data"`
-	Recommendation string `gorm:"type:text" json:"recommendation"`
-	SavedAmount    string `gorm:"size:100" json:"savedAmount"`
-}
-
-// Alert 旧的告警类型
-// Deprecated: 告警功能已合并到 AnalysisFinding 中
-type Alert struct {
-	gorm.Model
-	TargetType     string     `gorm:"size:50;index" json:"targetType"`
-	TargetKey      string     `gorm:"size:100;index" json:"targetKey"`
-	TargetName     string     `gorm:"size:200" json:"targetName"`
-	AlertType      string     `gorm:"size:50;index" json:"alertType"`
-	Severity       string     `gorm:"size:20" json:"severity"`
-	Title          string     `gorm:"size:200" json:"title"`
-	Message        string     `gorm:"type:text" json:"message"`
-	Data           string     `gorm:"type:text" json:"data"`
-	Acknowledged   bool       `gorm:"default:false" json:"acknowledged"`
-	AcknowledgedAt *time.Time `json:"acknowledgedAt"`
-	CreatedAt      time.Time  `json:"createdAt"`
 }

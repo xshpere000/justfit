@@ -89,6 +89,7 @@ export interface VMResponse {
   ipAddress?: string
   guestOs?: string
   hostName?: string
+  hostIp?: string
   overallStatus?: 'gray' | 'green' | 'yellow' | 'red'
   collectedAt: string
 }
@@ -264,42 +265,6 @@ export interface AnalysisSummary {
   riskDistribution: Record<string, number>
 }
 
-// ==================== 告警相关 ====================
-
-export interface AlertResponse {
-  id: number
-  targetType: 'cluster' | 'host' | 'vm'
-  targetKey: string
-  targetName: string
-  alertType: string
-  severity: 'info' | 'warning' | 'critical'
-  title: string
-  message: string
-  data?: string
-  acknowledged: boolean
-  acknowledgedAt?: string
-  createdAt: string
-}
-
-export interface AlertListItem {
-  id: number
-  targetType: 'cluster' | 'host' | 'vm'
-  targetName: string
-  alertType: string
-  severity: 'info' | 'warning' | 'critical'
-  title: string
-  message: string
-  acknowledged: boolean
-  createdAt: string
-}
-
-export interface AlertStats {
-  total: number
-  unacknowledged: number
-  bySeverity: Record<string, number>
-  byType: Record<string, number>
-}
-
 // ==================== 仪表盘 ====================
 
 export interface DashboardStats {
@@ -309,4 +274,58 @@ export interface DashboardStats {
   vmCount: number
   hostCount: number
   clusterCount: number
+}
+
+// ==================== 评估模式配置 ====================
+
+export type AnalysisModeType = 'safe' | 'saving' | 'aggressive' | 'custom'
+
+export interface AnalysisModeResponse {
+  mode: AnalysisModeType
+  modeName: string
+  description: string
+  config: AnalysisConfig
+  availableModes: AnalysisModeInfo[]
+}
+
+export interface AnalysisConfig {
+  zombieVM?: ZombieVMConfig
+  rightSize?: RightSizeConfig
+  tidal?: TidalConfig
+  health?: HealthConfig
+}
+
+export interface ZombieVMConfig {
+  analysisDays: number
+  cpuThreshold: number
+  memoryThreshold: number
+  ioThreshold: number
+  networkThreshold: number
+  minConfidence: number
+}
+
+export interface RightSizeConfig {
+  analysisDays: number
+  bufferRatio: number
+  p95Threshold: number
+  smallMargin: number
+  largeMargin: number
+}
+
+export interface TidalConfig {
+  analysisDays: number
+  minStability: number
+  minVariation: number
+}
+
+export interface HealthConfig {
+  resourceBalanceWeight: number
+  overcommitRiskWeight: number
+  hotspotWeight: number
+}
+
+export interface AnalysisModeInfo {
+  mode: AnalysisModeType
+  name: string
+  description: string
 }

@@ -48,15 +48,21 @@ function downloadBlob(blob: Blob, filename: string) {
 
 // 导出任务报告（后端生成）
 export async function exportTaskReport(params: {
-  taskId: string
+  taskId: number | string
   connectionId: number
-  reportTypes: string[]
+  reportTypes?: string[]  // 可选，默认为 ['xlsx']
   title?: string
 }): Promise<string> {
+  // 默认生成 Excel 和 PDF
+  const types = params.reportTypes && params.reportTypes.length > 0
+    ? params.reportTypes
+    : ['xlsx', 'pdf']
+
   const response = await App.GenerateReport({
     title: params.title || ('任务报告-' + params.taskId),
     connectionId: params.connectionId,
-    reportTypes: params.reportTypes
+    taskId: typeof params.taskId === 'number' ? params.taskId : parseInt(params.taskId),
+    reportTypes: types
   })
 
   if (!response.success) {
@@ -64,6 +70,7 @@ export async function exportTaskReport(params: {
   }
 
   if (response.files && response.files.length > 0) {
+    // 返回第一个生成的文件路径（通常是 Excel）
     return response.files[0]
   }
 

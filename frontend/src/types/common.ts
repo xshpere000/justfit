@@ -161,6 +161,7 @@ export interface VMInfo {
   connectionId: number
   hostId: number
   hostName: string
+  hostIp?: string
   clusterId: number
   clusterName: string
   name: string

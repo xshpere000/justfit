@@ -74,7 +74,7 @@ func (e *Engine) DetectTidalPattern(taskID, connectionID uint, config *TidalConf
 		}
 
 		// 获取 CPU 指标（使用 TaskID 过滤）
-		cpuMetrics, err := e.repos.Metric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
+		cpuMetrics, err := e.repos.VMMetric.ListByTaskAndVMAndType(taskID, vm.ID, "cpu", startTime, endTime)
 		if err != nil || len(cpuMetrics) == 0 {
 			continue
 		}
@@ -132,7 +132,7 @@ func (e *Engine) DetectTidalPattern(taskID, connectionID uint, config *TidalConf
 }
 
 // analyzeDailyPattern 分析日周期模式
-func analyzeDailyPattern(metrics []storage.Metric) (TidalPattern, float64) {
+func analyzeDailyPattern(metrics []storage.VMMetric) (TidalPattern, float64) {
 	// 按小时分组
 	hourlyData := make(map[int][]float64)
 
@@ -172,7 +172,7 @@ func analyzeDailyPattern(metrics []storage.Metric) (TidalPattern, float64) {
 }
 
 // analyzeWeeklyPattern 分析周周期模式
-func analyzeWeeklyPattern(metrics []storage.Metric) (TidalPattern, float64) {
+func analyzeWeeklyPattern(metrics []storage.VMMetric) (TidalPattern, float64) {
 	// 按星期分组
 	dailyData := make(map[int][]float64)
 
@@ -210,7 +210,7 @@ func analyzeWeeklyPattern(metrics []storage.Metric) (TidalPattern, float64) {
 }
 
 // extractPeakTroughHours 提取高峰和低谷时段
-func extractPeakTroughHours(metrics []storage.Metric) (peakHours, troughHours []int) {
+func extractPeakTroughHours(metrics []storage.VMMetric) (peakHours, troughHours []int) {
 	// 按小时分组
 	hourlyData := make(map[int][]float64)
 
@@ -255,7 +255,7 @@ func extractPeakTroughHours(metrics []storage.Metric) (peakHours, troughHours []
 }
 
 // extractPeakTroughDays 提取高峰和低谷日期
-func extractPeakTroughDays(metrics []storage.Metric) (peakDays, troughDays []int) {
+func extractPeakTroughDays(metrics []storage.VMMetric) (peakDays, troughDays []int) {
 	// 按星期分组
 	dailyData := make(map[int][]float64)
 

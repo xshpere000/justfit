@@ -11,8 +11,6 @@ export type entityType = 'cluster' | 'host' | 'vm';
 export type PlatformType = 'vcenter' | 'h3c-uis';
 export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 export type TaskType = 'collection' | 'analysis' | 'report';
-export type AlertSeverity = 'info' | 'warning' | 'critical';
-export type alertType = 'zombieVM' | 'overprovisioned' | 'underprovisioned' | 'healthRisk';
 export type ConnectionStatus = 'connected' | 'disconnected' | 'error';
 
 // ==================== 连接管理 ====================
@@ -170,6 +168,7 @@ export interface VMListItem {
   ipAddress: string;
   guestOs: string;
   hostName: string;
+  hostIp?: string;
   overallStatus: string;
   collectedAt: string;
 }
@@ -295,13 +294,14 @@ export interface AnalysisSummary {
 export interface ReportRequest {
   title: string;
   connectionId: number;
+  taskId?: number;      // 可选，任务 ID
   reportTypes: string[];
 }
 
 export interface ReportResponse {
   success: boolean;
   message: string;
-  Files: string[];
+  files: string[];
 }
 
 export interface ReportListItem {
@@ -365,34 +365,6 @@ export interface SystemSettings {
   autoRefreshInterval: number;
 }
 
-// ==================== 告警服务 ====================
-
-export interface AlertListItem {
-  id: number;
-  targetType: string;
-  targetKey: string;
-  targetName: string;
-  alertType: alertType;
-  severity: AlertSeverity;
-  title: string;
-  message: string;
-  acknowledged: boolean;
-  acknowledgedAt?: string;
-  createdAt: string;
-}
-
-export interface MarkAlertRequest {
-  id: number;
-  acknowledged: boolean;
-}
-
-export interface AlertStats {
-  total: number;
-  unacknowledged: number;
-  bySeverity: Record<string, number>;
-  byType: Record<string, number>;
-}
-
 // ==================== 仪表盘 ====================
 
 export interface DashboardStats {
@@ -409,19 +381,6 @@ export interface APIResponse<T = any> {
   data?: T;
   message?: string;
   error?: string;
-}
-
-// ==================== 创建告警 ====================
-
-export interface CreateAlertRequest {
-  targetType: string;
-  targetKey: string;
-  targetName: string;
-  alertType: string;
-  severity: string;
-  title: string;
-  message: string;
-  data?: string;
 }
 
 // ==================== 版本管理 ====================

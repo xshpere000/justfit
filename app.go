@@ -361,15 +361,15 @@ func (a *App) GetDashboardStats() (*DashboardStats, error) {
 	}
 
 	// 2. 获取最新的健康评分 (取最近一条)
-	var latestHealth storage.AnalysisResult
+	var latestHealth storage.AnalysisFinding
 	var healthScore float64 = 0 // 默认 0
 
-	// 从 AnalysisResult 表中查找 type=health 的最新记录
-	err := storage.DB.Where("analysis_type = ?", "health").Order("created_at desc").First(&latestHealth).Error
+	// 从 AnalysisFinding 表中查找 type=health 的最新记录
+	err := storage.DB.Where("job_type = ?", "health").Order("created_at desc").First(&latestHealth).Error
 	if err == nil {
 		// 解析 Data 字段
 		var healthData HealthScoreResult
-		if json.Unmarshal([]byte(latestHealth.Data), &healthData) == nil {
+		if json.Unmarshal([]byte(latestHealth.Details), &healthData) == nil {
 			healthScore = healthData.OverallScore
 		}
 	} else {
@@ -379,8 +379,8 @@ func (a *App) GetDashboardStats() (*DashboardStats, error) {
 
 	// 3. 统计僵尸 VM 数量 (这里简单统计最近一次分析的结果)
 	var zombieCount int64
-	storage.DB.Model(&storage.AnalysisResult{}).
-		Where("analysis_type = ? AND created_at > ?", "zombie", time.Now().AddDate(0, 0, -7)).
+	storage.DB.Model(&storage.AnalysisFinding{}).
+		Where("job_type = ? AND created_at > ?", "zombie", time.Now().AddDate(0, 0, -7)).
 		Count(&zombieCount)
 
 	// 4. 计算节省
@@ -1045,42 +1045,92 @@ func (a *App) executeAnalysisJob(taskID uint, jobID uint, jobType string, connec
 		return
 	}
 
+	// 获取任务的评估模式配置
+	task, err := a.repos.AssessmentTask.GetByID(taskID)
+	if err != nil {
+		log.Error("获取任务失败", applogger.Err(err))
+		a.repos.TaskAnalysisJob.UpdateStatus(jobID, "failed", 0)
+		return
+	}
+
+	// 解析评估模式
+	mode := analyzer.AnalysisMode(task.AnalysisMode)
+	if mode == "" {
+		mode = analyzer.ModeSafe // 默认安全模式
+	}
+
+	// 解析自定义配置
+	var customConfig *analyzer.AnalysisConfig
+	if task.AnalysisConfig != "" {
+		customConfig = &analyzer.AnalysisConfig{}
+		if unmarshalErr := json.Unmarshal([]byte(task.AnalysisConfig), customConfig); unmarshalErr != nil {
+			log.Warn("解析自定义配置失败，使用预设配置", applogger.Err(unmarshalErr))
+			customConfig = nil
+		}
+	}
+
+	// 获取有效配置
+	effectiveConfig := analyzer.GetEffectiveConfig(mode, customConfig)
+	log.Info("使用评估模式", applogger.String("mode", string(mode)))
+
 	// 更新状态为运行中
 	a.repos.TaskAnalysisJob.UpdateStatus(jobID, "running", 0)
 	a.repos.TaskLog.CreateLog(taskID, &jobID, "analysis_running", "system",
-		"分析执行中", fmt.Sprintf("正在执行 %s 分析", jobType), nil, nil, 0)
+		"分析执行中", fmt.Sprintf("正在执行 %s 分析 (模式: %s)", jobType, mode), nil, nil, 0)
 
 	var result interface{}
-	var err error
 	var startTime = time.Now()
 
-	// 根据分析类型执行
+	// 根据分析类型执行，使用任务的评估模式配置
 	switch jobType {
 	case "zombie":
-		cfg := parseZombieVMConfigFromMap(config)
-		analyzerConfig := analyzer.ZombieVMConfig{
-			AnalysisDays:    cfg.AnalysisDays,
-			CPUThreshold:    cfg.CPUThreshold,
-			MemoryThreshold: cfg.MemoryThreshold,
-			MinConfidence:   cfg.MinConfidence,
+		zombieConfig := effectiveConfig.ZombieVM
+		if zombieConfig == nil {
+			// 使用默认配置
+			zombieConfig = &analyzer.ZombieVMConfig{
+				AnalysisDays:     30,
+				CPUThreshold:     5.0,
+				MemoryThreshold:  10.0,
+				IOThreshold:      10.0,
+				NetworkThreshold: 10.0,
+				MinConfidence:    80.0,
+			}
 		}
-		result, err = a.analyzer.DetectZombieVMs(taskID, connectionID, &analyzerConfig)
+		result, err = a.analyzer.DetectZombieVMs(taskID, connectionID, zombieConfig)
 	case "rightsize":
-		cfg := parseRightSizeConfigFromMap(config)
-		analyzerConfig := analyzer.RightSizeConfig{
-			AnalysisDays: cfg.AnalysisDays,
-			BufferRatio:  cfg.BufferRatio,
+		rightSizeConfig := effectiveConfig.RightSize
+		if rightSizeConfig == nil {
+			// 使用默认配置
+			rightSizeConfig = &analyzer.RightSizeConfig{
+				AnalysisDays: 7,
+				BufferRatio:  1.3,
+				P95Threshold: 95.0,
+				SmallMargin:  0.4,
+				LargeMargin:  0.6,
+			}
 		}
-		result, err = a.analyzer.AnalyzeRightSize(taskID, connectionID, &analyzerConfig)
+		result, err = a.analyzer.AnalyzeRightSize(taskID, connectionID, rightSizeConfig)
 	case "tidal":
-		cfg := parseTidalConfigFromMap(config)
-		analyzerConfig := analyzer.TidalConfig{
-			AnalysisDays: cfg.AnalysisDays,
-			MinStability: cfg.MinStability,
+		tidalConfig := effectiveConfig.Tidal
+		if tidalConfig == nil {
+			// 使用默认配置
+			tidalConfig = &analyzer.TidalConfig{
+				AnalysisDays: 30,
+				MinStability: 70.0,
+				MinVariation: 40.0,
+			}
 		}
-		result, err = a.analyzer.DetectTidalPattern(taskID, connectionID, &analyzerConfig)
+		result, err = a.analyzer.DetectTidalPattern(taskID, connectionID, tidalConfig)
 	case "health":
-		healthConfig := &analyzer.HealthConfig{}
+		healthConfig := effectiveConfig.Health
+		if healthConfig == nil {
+			// 使用默认配置
+			healthConfig = &analyzer.HealthConfig{
+				ResourceBalanceWeight: 0.4,
+				OvercommitRiskWeight:  0.3,
+				HotspotWeight:         0.3,
+			}
+		}
 		result, err = a.analyzer.AnalyzeHealthScore(connectionID, healthConfig)
 	default:
 		err = fmt.Errorf("不支持的分析类型: %s", jobType)
@@ -1101,21 +1151,43 @@ func (a *App) executeAnalysisJob(taskID uint, jobID uint, jobType string, connec
 		switch jobType {
 		case "zombie":
 			if zombies, ok := result.([]analyzer.ZombieVMResult); ok {
-				a.resultStorage.SaveZombieVMResults(taskID, zombies)
+				log.Info("保存僵尸VM结果", applogger.Int("count", len(zombies)))
+				if saveErr := a.resultStorage.SaveZombieVMResults(taskID, jobID, zombies); saveErr != nil {
+					log.Error("保存僵尸VM结果失败", applogger.Err(saveErr))
+				}
+			} else {
+				log.Warn("僵尸VM结果类型断言失败", applogger.String("type", fmt.Sprintf("%T", result)))
 			}
 		case "rightsize":
 			if results, ok := result.([]analyzer.RightSizeResult); ok {
-				a.resultStorage.SaveRightSizeResults(taskID, results)
+				log.Info("保存RightSize结果", applogger.Int("count", len(results)))
+				if saveErr := a.resultStorage.SaveRightSizeResults(taskID, jobID, results); saveErr != nil {
+					log.Error("保存RightSize结果失败", applogger.Err(saveErr))
+				}
+			} else {
+				log.Warn("RightSize结果类型断言失败", applogger.String("type", fmt.Sprintf("%T", result)))
 			}
 		case "tidal":
 			if results, ok := result.([]analyzer.TidalResult); ok {
-				a.resultStorage.SaveTidalResults(taskID, results)
+				log.Info("保存潮汐分析结果", applogger.Int("count", len(results)))
+				if saveErr := a.resultStorage.SaveTidalResults(taskID, jobID, results); saveErr != nil {
+					log.Error("保存潮汐分析结果失败", applogger.Err(saveErr))
+				}
+			} else {
+				log.Warn("潮汐分析结果类型断言失败", applogger.String("type", fmt.Sprintf("%T", result)))
 			}
 		case "health":
 			if health, ok := result.(analyzer.HealthScoreResult); ok {
-				a.resultStorage.SaveHealthScoreResult(taskID, health)
+				log.Info("保存健康评分结果")
+				if saveErr := a.resultStorage.SaveHealthScoreResult(taskID, jobID, health); saveErr != nil {
+					log.Error("保存健康评分结果失败", applogger.Err(saveErr))
+				}
+			} else {
+				log.Warn("健康评分结果类型断言失败", applogger.String("type", fmt.Sprintf("%T", result)))
 			}
 		}
+	} else {
+		log.Warn("分析结果为空", applogger.String("jobType", jobType))
 	}
 
 	// 保存结果到 Job
@@ -1501,6 +1573,7 @@ func (a *App) ListTaskVMs(taskID uint, limit, offset int, keyword string) (*Task
 			IPAddress:       row.IPAddress,
 			GuestOS:         row.GuestOS,
 			HostName:        row.HostName,
+			HostIP:          row.HostIP,
 			OverallStatus:   row.OverallStatus,
 			CollectedAt:     row.CollectedAt.Format("2006-01-02 15:04:05"),
 		}
@@ -1580,77 +1653,77 @@ func (a *App) GetTaskAnalysisResult(taskID uint, analysisType string) (interface
 	return result, nil
 }
 
-// ExportTaskReport 按任务导出报告
+// ExportTaskReport 按任务导出报告（支持 Excel 和 PDF）
 func (a *App) ExportTaskReport(taskID uint, format string) (string, error) {
 	taskDetail, err := a.GetTaskDetail(taskID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("获取任务信息失败: %w", err)
 	}
 
-	var reportType report.ReportType
+	// 确定输出目录
+	outputDir, _ := appdir.GetAppDataDir()
+	reportDir := filepath.Join(outputDir, "reports")
+	os.MkdirAll(reportDir, 0755)
+
+	// 创建按任务ID过滤的数据源
+	dataSource := report.NewDataSourceByTaskID(a.repos, taskID)
+
+	// 创建报告构建器
+	builder := report.NewReportBuilder(dataSource)
+
+	// 构建报告数据
+	reportData, err := builder.BuildReportData()
+	if err != nil {
+		return "", fmt.Errorf("构建报告数据失败: %w", err)
+	}
+
+	// 设置报告标题
+	reportData.Title = fmt.Sprintf("任务报告-%s", taskDetail.Name)
+	reportData.ConnectionID = taskDetail.ConnectionID
+
+	// 获取采集天数
+	metricsDays := 30 // 默认值
+	if days, ok := reportData.Metadata["metricsDays"].(int); ok {
+		metricsDays = days
+	}
+
+	// 生成图表
+	chartGen := report.NewChartGenerator(filepath.Join(reportDir, "charts"))
+
+	// 设置指标数据源
+	metricDS := report.NewMetricDataSource(a.repos, taskID)
+	chartGen.SetMetricDataSource(metricDS, taskID, metricsDays)
+
+	chartImages, err := chartGen.GenerateAllCharts(reportData)
+	if err != nil {
+		a.log.Warn("生成图表失败", applogger.Err(err))
+		chartImages = nil
+	}
+
+	// 根据格式生成报告
 	switch format {
-	case "", "json":
-		reportType = report.ReportTypeJSON
-	case "html":
-		reportType = report.ReportTypeHTML
-	case "xlsx":
-		reportType = report.ReportTypeExcel
+	case "", "xlsx", "excel":
+		excelGen := report.NewExcelGenerator(reportData, reportDir)
+		filepath, err := excelGen.Generate()
+		if err != nil {
+			return "", fmt.Errorf("生成 Excel 报告失败: %w", err)
+		}
+		return filepath, nil
+
+	case "pdf":
+		pdfConfig := &report.PDFConfig{
+			OutputDir: reportDir,
+		}
+		pdfGen := report.NewPDFGenerator(reportData, chartImages, pdfConfig)
+		filepath, err := pdfGen.Generate()
+		if err != nil {
+			return "", fmt.Errorf("生成 PDF 报告失败: %w", err)
+		}
+		return filepath, nil
+
 	default:
 		return "", fmt.Errorf("不支持的导出格式: %s", format)
 	}
-
-	vmsResp, _ := a.ListTaskVMs(taskID, 0, 0, "")
-	vms := vmsResp.VMs
-	analysisData, _ := a.GetTaskAnalysisResult(taskID, "")
-
-	reportData := &report.ReportData{
-		Title:        fmt.Sprintf("任务报告-%d", taskID),
-		ConnectionID: taskDetail.ConnectionID,
-		Metadata: map[string]interface{}{
-			"task_id":      taskID,
-			"task_name":    taskDetail.Name,
-			"task_type":    taskDetail.Type,
-			"task_status":  taskDetail.Status,
-			"platform":     taskDetail.Platform,
-			"created_at":   taskDetail.CreatedAt,
-			"completed_at": taskDetail.CompletedAt,
-			"selectedVMs":  taskDetail.SelectedVMs,
-		},
-		Sections: []report.ReportSection{
-			{
-				Title: "任务概览",
-				Type:  "summary",
-				Data: map[string]interface{}{
-					"task_id":          taskID,
-					"vmCount":          taskDetail.VMCount,
-					"collectedVMCount": taskDetail.CollectedVMCount,
-					"progress":         taskDetail.Progress,
-				},
-			},
-			{
-				Title: "虚拟机快照",
-				Type:  "table",
-				Data:  vms,
-			},
-			{
-				Title: "分析结果",
-				Type:  "table",
-				Data:  analysisData,
-			},
-		},
-	}
-
-	generator := report.NewGenerator(&report.ReportConfig{
-		Type:      reportType,
-		OutputDir: os.TempDir(),
-	})
-
-	filepath, genErr := generator.Generate(reportData)
-	if genErr != nil {
-		return "", fmt.Errorf("生成任务报告失败: %w", genErr)
-	}
-
-	return filepath, nil
 }
 
 // StopTask 停止任务
@@ -1732,7 +1805,7 @@ func (a *App) DeleteTask(id uint) error {
 	_ = a.taskScheduler.Cancel(id)
 
 	// 删除相关的指标数据
-	if err := a.repos.Metric.DeleteByTaskID(id); err != nil {
+	if err := a.repos.VMMetric.DeleteByTaskID(id); err != nil {
 		log.Warn("删除任务指标数据失败", applogger.Err(err))
 	}
 
@@ -2006,158 +2079,6 @@ func (a *App) AnalyzeHealthScore(connectionID uint) (*HealthScoreResult, error) 
 	}, nil
 }
 
-// ========== 分析结果存储服务 ==========
-
-// SaveZombieVMResults 保存僵尸 VM 分析结果
-func (a *App) SaveZombieVMResults(connectionID uint, results []ZombieVMResult) error {
-	if a.resultStorage == nil {
-		return fmt.Errorf("结果存储服务未初始化")
-	}
-
-	// 转换为内部格式
-	internalResults := make([]analyzer.ZombieVMResult, len(results))
-	for i, r := range results {
-		vmResult := analyzer.VMAnalysisResult{
-			VMName:     r.VMName,
-			Datacenter: r.Datacenter,
-			Host:       r.Host,
-			CPUCount:   r.CPUCount,
-			MemoryMB:   r.MemoryMB,
-		}
-		internalResults[i] = analyzer.ZombieVMResult{
-			VMAnalysisResult: vmResult,
-			CPUUsage:         r.CPUUsage,
-			MemoryUsage:      r.MemoryUsage,
-			Confidence:       r.Confidence,
-			DaysLowUsage:     r.DaysLowUsage,
-			Evidence:         r.Evidence,
-			Recommendation:   r.Recommendation,
-		}
-	}
-
-	return a.resultStorage.SaveZombieVMResults(connectionID, internalResults)
-}
-
-// SaveRightSizeResults 保存 Right Size 分析结果
-func (a *App) SaveRightSizeResults(connectionID uint, results []RightSizeResult) error {
-	if a.resultStorage == nil {
-		return fmt.Errorf("结果存储服务未初始化")
-	}
-
-	// 转换为内部格式
-	internalResults := make([]analyzer.RightSizeResult, len(results))
-	for i, r := range results {
-		vmResult := analyzer.VMAnalysisResult{
-			VMName:     r.VMName,
-			Datacenter: r.Datacenter,
-		}
-		internalResults[i] = analyzer.RightSizeResult{
-			VMAnalysisResult:    vmResult,
-			CurrentCPU:          r.CurrentCPU,
-			CurrentMemoryMB:     r.CurrentMemoryMB,
-			RecommendedCPU:      r.RecommendedCPU,
-			RecommendedMemoryMB: r.RecommendedMemoryMB,
-			AdjustmentType:      r.AdjustmentType,
-			RiskLevel:           r.RiskLevel,
-			EstimatedSaving:     r.EstimatedSaving,
-			Confidence:          r.Confidence,
-		}
-	}
-
-	return a.resultStorage.SaveRightSizeResults(connectionID, internalResults)
-}
-
-// SaveTidalResults 保存潮汐分析结果
-func (a *App) SaveTidalResults(connectionID uint, results []TidalResult) error {
-	if a.resultStorage == nil {
-		return fmt.Errorf("结果存储服务未初始化")
-	}
-
-	// 转换为内部格式
-	internalResults := make([]analyzer.TidalResult, len(results))
-	for i, r := range results {
-		vmResult := analyzer.VMAnalysisResult{
-			VMName:     r.VMName,
-			Datacenter: r.Datacenter,
-		}
-		pattern := analyzer.TidalPattern(r.Pattern)
-		internalResults[i] = analyzer.TidalResult{
-			VMAnalysisResult: vmResult,
-			Pattern:          pattern,
-			StabilityScore:   r.StabilityScore,
-			PeakHours:        r.PeakHours,
-			PeakDays:         r.PeakDays,
-			Recommendation:   r.Recommendation,
-			EstimatedSaving:  r.EstimatedSaving,
-		}
-	}
-
-	return a.resultStorage.SaveTidalResults(connectionID, internalResults)
-}
-
-// SaveHealthScoreResult 保存健康评分结果
-func (a *App) SaveHealthScoreResult(result HealthScoreResult) error {
-	if a.resultStorage == nil {
-		return fmt.Errorf("结果存储服务未初始化")
-	}
-
-	internalResult := analyzer.HealthScoreResult{
-		ConnectionID:         result.ConnectionID,
-		ConnectionName:       result.ConnectionName,
-		OverallScore:         result.OverallScore,
-		HealthLevel:          result.HealthLevel,
-		ResourceBalance:      result.ResourceBalance,
-		OvercommitRisk:       result.OvercommitRisk,
-		HotspotConcentration: result.HotspotConcentration,
-		ClusterCount:         result.ClusterCount,
-		HostCount:            result.HostCount,
-		VMCount:              result.VMCount,
-		RiskItems:            result.RiskItems,
-		Recommendations:      result.Recommendations,
-	}
-
-	return a.resultStorage.SaveHealthScoreResult(0, internalResult)
-}
-
-// CreateAlert 创建告警
-type CreateAlertRequest struct {
-	TargetType string `json:"targetType"` // cluster, host, vm
-	TargetKey  string `json:"targetKey"`
-	TargetName string `json:"targetName"`
-	AlertType  string `json:"alertType"` // zombie, overprovisioned, etc.
-	Severity   string `json:"severity"`  // info, warning, critical
-	Title      string `json:"title"`
-	Message    string `json:"message"`
-	Data       string `json:"data"` // JSON string
-}
-
-// CreateAlert 创建告警
-func (a *App) CreateAlert(req CreateAlertRequest) error {
-	if a.resultStorage == nil {
-		return fmt.Errorf("结果存储服务未初始化")
-	}
-
-	var data interface{}
-	if req.Data != "" {
-		if err := json.Unmarshal([]byte(req.Data), &data); err != nil {
-			return fmt.Errorf("解析数据失败: %w", err)
-		}
-	}
-
-	return a.resultStorage.CreateAlert(
-		req.TargetType,
-		req.TargetKey,
-		req.TargetName,
-		req.AlertType,
-		req.Severity,
-		req.Title,
-		req.Message,
-		data,
-	)
-}
-
-// ========== 工具方法 ==========
-
 // GetVMList 获取虚拟机列表（返回标准格式 JSON 字符串）
 func (a *App) GetVMList(connectionID uint) (string, error) {
 	vms, err := a.repos.VM.ListByConnectionID(connectionID)
@@ -2180,6 +2101,7 @@ func (a *App) GetVMList(connectionID uint) (string, error) {
 			IPAddress:       v.IPAddress,
 			GuestOS:         v.GuestOS,
 			HostName:        v.HostName,
+			HostIP:          v.HostIP,
 			OverallStatus:   v.OverallStatus,
 			CollectedAt:     v.CollectedAt.Format("2006-01-02 15:04:05"),
 		}
@@ -2323,6 +2245,7 @@ type VMListItem struct {
 	IPAddress       string  `json:"ipAddress"`
 	GuestOS         string  `json:"guestOs"`
 	HostName        string  `json:"hostName"`
+	HostIP          string  `json:"hostIp,omitempty"`
 	OverallStatus   string  `json:"overallStatus"`
 	CollectedAt     string  `json:"collectedAt"`
 }
@@ -2354,6 +2277,7 @@ func (a *App) ListVMs(connectionID uint) ([]VMListItem, error) {
 			IPAddress:       v.IPAddress,
 			GuestOS:         v.GuestOS,
 			HostName:        v.HostName,
+			HostIP:          v.HostIP,
 			OverallStatus:   v.OverallStatus,
 			CollectedAt:     v.CollectedAt.Format("2006-01-02 15:04:05"),
 		}
@@ -2390,7 +2314,7 @@ func (a *App) GetMetrics(taskID, vmID uint, metricType string, days int) (*Metri
 	startTime := endTime.AddDate(0, 0, -days)
 
 	// 使用带 TaskID 的查询方法
-	metrics, err := a.repos.Metric.ListByTaskAndVMAndType(taskID, vmID, metricType, startTime, endTime)
+	metrics, err := a.repos.VMMetric.ListByTaskAndVMAndType(taskID, vmID, metricType, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("获取指标失败: %w", err)
 	}
@@ -2517,6 +2441,7 @@ func (a *App) GetEntityDetail(entityType EntityType, id uint) (*EntityDetail, er
 type ReportRequest struct {
 	Title        string   `json:"title"`
 	ConnectionID uint     `json:"connectionId"`
+	TaskID       uint     `json:"taskId"`      // 可选，任务 ID
 	ReportTypes  []string `json:"reportTypes"` // json, html
 }
 
@@ -2527,76 +2452,572 @@ type ReportResponse struct {
 	Files   []string `json:"files"` // 生成的文件路径
 }
 
-// GenerateReport 生成报告
+// GenerateReport 生成报告（支持 Excel 和 PDF）
 func (a *App) GenerateReport(req ReportRequest) (*ReportResponse, error) {
+	a.log.Info("开始生成报告",
+		applogger.Uint("taskID", req.TaskID),
+		applogger.Any("reportTypes", req.ReportTypes),
+		applogger.String("title", req.Title))
+
 	if len(req.ReportTypes) == 0 {
-		req.ReportTypes = []string{"json"}
+		req.ReportTypes = []string{"xlsx"}
+		a.log.Info("未指定报告类型，默认使用 Excel", applogger.Any("defaultTypes", req.ReportTypes))
 	}
 
 	var generatedFiles []string
+	outputDir, err := appdir.GetAppDataDir()
+	if err != nil {
+		a.log.Error("获取应用数据目录失败", applogger.Err(err))
+		return &ReportResponse{
+			Success: false,
+			Message: fmt.Sprintf("获取应用数据目录失败: %v", err),
+		}, nil
+	}
+	reportDir := filepath.Join(outputDir, "reports")
+	if err := os.MkdirAll(reportDir, 0755); err != nil {
+		a.log.Error("创建报告目录失败", applogger.String("dir", reportDir), applogger.Err(err))
+		return &ReportResponse{
+			Success: false,
+			Message: fmt.Sprintf("创建报告目录失败: %v", err),
+		}, nil
+	}
+	a.log.Debug("报告目录已准备好", applogger.String("dir", reportDir))
 
+	// 创建数据源（支持按任务过滤）
+	var dataSource report.DataSource
+	if req.TaskID > 0 {
+		dataSource = report.NewDataSourceByTaskID(a.repos, req.TaskID)
+		a.log.Debug("使用按任务过滤的数据源", applogger.Uint("taskID", req.TaskID))
+	} else {
+		dataSource = report.NewStorageDataSource(a.repos)
+		a.log.Debug("使用全局数据源")
+	}
+
+	// 创建报告构建器
+	builder := report.NewReportBuilder(dataSource)
+
+	// 构建报告数据
+	a.log.Debug("开始构建报告数据...")
+	reportData, err := builder.BuildReportData()
+	if err != nil {
+		a.log.Error("构建报告数据失败", applogger.Err(err))
+		return &ReportResponse{
+			Success: false,
+			Message: fmt.Sprintf("构建报告数据失败: %v", err),
+		}, nil
+	}
+	a.log.Info("报告数据构建成功", applogger.Int("sections", len(reportData.Sections)))
+
+	// 覆盖标题
+	reportData.Title = req.Title
+	reportData.ConnectionID = req.ConnectionID
+
+	// 获取采集天数（用于图表时间范围）
+	metricsDays := 30 // 默认值
+	if days, ok := reportData.Metadata["metricsDays"].(int); ok {
+		metricsDays = days
+	}
+	a.log.Debug("指标数据天数", applogger.Int("days", metricsDays))
+
+	// 生成图表
+	chartDir := filepath.Join(reportDir, "charts")
+	os.MkdirAll(chartDir, 0755)
+	chartGen := report.NewChartGenerator(chartDir)
+	a.log.Debug("图表生成器已创建", applogger.String("dir", chartDir))
+
+	// 设置指标数据源（如果有任务ID）
+	if req.TaskID > 0 {
+		metricDS := report.NewMetricDataSource(a.repos, req.TaskID)
+		chartGen.SetMetricDataSource(metricDS, req.TaskID, metricsDays)
+		a.log.Debug("指标数据源已设置", applogger.Uint("taskID", req.TaskID))
+	}
+
+	chartImages, err := chartGen.GenerateAllCharts(reportData)
+	if err != nil {
+		a.log.Warn("生成图表失败", applogger.Err(err))
+		// 图表生成失败不影响报告生成
+		chartImages = nil
+	} else {
+		a.log.Info("图表生成成功")
+	}
+
+	// 按类型生成报告
 	for _, reportType := range req.ReportTypes {
-		var generator *report.Generator
+		a.log.Info("开始生成报告", applogger.String("type", reportType))
+		var filepath string
 
 		switch reportType {
-		case "json":
-			generator = report.NewGenerator(&report.ReportConfig{
-				Type:      report.ReportTypeJSON,
-				OutputDir: os.TempDir(),
-			})
-		case "html":
-			generator = report.NewGenerator(&report.ReportConfig{
-				Type:      report.ReportTypeHTML,
-				OutputDir: os.TempDir(),
-			})
+		case "xlsx", "excel":
+			// 生成 Excel 报告
+			a.log.Debug("创建 Excel 生成器...")
+			excelGen := report.NewExcelGenerator(reportData, reportDir)
+			filepath, err = excelGen.Generate()
+			if err != nil {
+				a.log.Error("生成 Excel 报告失败", applogger.String("type", reportType), applogger.Err(err))
+				return &ReportResponse{
+					Success: false,
+					Message: fmt.Sprintf("生成 Excel 报告失败: %v", err),
+				}, nil
+			}
+			a.log.Info("Excel 报告生成成功", applogger.String("filepath", filepath))
+
+		case "pdf":
+			// 生成 PDF 报告
+			a.log.Debug("创建 PDF 生成器...")
+			pdfConfig := &report.PDFConfig{
+				OutputDir: reportDir,
+			}
+			pdfGen := report.NewPDFGenerator(reportData, chartImages, pdfConfig)
+			filepath, err = pdfGen.Generate()
+			if err != nil {
+				a.log.Error("生成 PDF 报告失败", applogger.String("type", reportType), applogger.Err(err))
+				return &ReportResponse{
+					Success: false,
+					Message: fmt.Sprintf("生成 PDF 报告失败: %v", err),
+				}, nil
+			}
+			a.log.Info("PDF 报告生成成功", applogger.String("filepath", filepath))
+
 		default:
+			a.log.Warn("不支持的报告类型", applogger.String("type", reportType))
 			continue
-		}
-
-		// 构建报告数据
-		reportData := &report.ReportData{
-			Title:        req.Title,
-			ConnectionID: req.ConnectionID,
-			Metadata:     make(map[string]interface{}),
-			Sections:     buildReportSections(req.ConnectionID),
-		}
-
-		filepath, err := generator.Generate(reportData)
-		if err != nil {
-			return &ReportResponse{
-				Success: false,
-				Message: fmt.Sprintf("生成 %s 报告失败: %v", reportType, err),
-			}, nil
 		}
 
 		generatedFiles = append(generatedFiles, filepath)
 	}
 
+	if len(generatedFiles) == 0 {
+		a.log.Error("没有生成任何报告文件", applogger.Any("requestedTypes", req.ReportTypes))
+		return &ReportResponse{
+			Success: false,
+			Message: "没有生成任何报告文件",
+		}, nil
+	}
+
+	// 保存报告记录到数据库
+	for _, filePath := range generatedFiles {
+		// 使用 filepath.Ext 正确提取扩展名（包括 .xlsx 这种 4 字符的）
+		ext := strings.TrimPrefix(filepath.Ext(filePath), ".")
+		if ext == "" {
+			// 如果没有扩展名，根据报告类型推断
+			ext = "xlsx"
+		}
+
+		reportType := "xlsx"
+		if ext == "pdf" {
+			reportType = "pdf"
+		}
+
+		// 获取文件大小
+		fileSize := int64(0)
+		if info, err := os.Stat(filePath); err == nil {
+			fileSize = info.Size()
+		}
+
+		report := &storage.TaskReport{
+			TaskID:     req.TaskID,
+			Title:      req.Title,
+			ReportType: reportType,
+			Format:     ext,
+			FilePath:   filePath,
+			FileSize:   fileSize,
+			Status:     "ready", // 报告已生成，状态设为 ready
+		}
+
+		if err := a.repos.TaskReport.Create(report); err != nil {
+			a.log.Error("保存报告记录失败", applogger.Uint("taskID", req.TaskID), applogger.Err(err))
+			// 继续返回，因为文件已生成
+		} else {
+			a.log.Info("报告记录已保存", applogger.Uint("reportID", report.ID))
+		}
+	}
+
 	return &ReportResponse{
 		Success: true,
-		Message: "报告生成成功",
+		Message: fmt.Sprintf("成功生成 %d 个报告文件", len(generatedFiles)),
 		Files:   generatedFiles,
 	}, nil
 }
 
-// buildReportSections 构建报告章节
-func buildReportSections(connectionID uint) []report.ReportSection {
-	// TODO: 从数据库获取实际数据构建报告章节
-	return []report.ReportSection{
-		{
-			Title:   "概述",
-			Content: "本报告由 JustFit 云平台资源评估工具自动生成",
-			Type:    "text",
-		},
-		{
-			Title: "数据汇总",
-			Type:  "summary",
-			Data: map[string]interface{}{
-				"vmCount":   0,
-				"hostCount": 0,
+// GetTaskReports 获取任务报告列表
+func (a *App) GetTaskReports(taskID uint) ([]TaskReportItem, error) {
+	a.log.Info("获取任务报告列表", applogger.Uint("taskID", taskID))
+
+	reports, err := a.repos.TaskReport.ListByTaskID(taskID)
+	if err != nil {
+		a.log.Error("获取报告列表失败", applogger.Err(err))
+		return nil, err
+	}
+
+	items := make([]TaskReportItem, len(reports))
+	for i, r := range reports {
+		items[i] = TaskReportItem{
+			ID:         r.ID,
+			Title:      r.Title,
+			ReportType: r.ReportType,
+			Format:     r.Format,
+			FilePath:   r.FilePath,
+			FileSize:   r.FileSize,
+			Status:     r.Status,
+			CreatedAt:  r.CreatedAt.Format("2006-01-02 15:04:05"),
+		}
+	}
+
+	a.log.Info("获取报告列表成功", applogger.Int("count", len(items)))
+	return items, nil
+}
+
+// DownloadReport 下载报告
+func (a *App) DownloadReport(reportID uint) (string, error) {
+	a.log.Info("下载报告", applogger.Uint("reportID", reportID))
+
+	report, err := a.repos.TaskReport.GetByID(reportID)
+	if err != nil {
+		a.log.Error("报告不存在", applogger.Uint("reportID", reportID), applogger.Err(err))
+		return "", err
+	}
+
+	if report.Status != "ready" {
+		return "", fmt.Errorf("报告尚未准备就绪")
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(report.FilePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("报告文件不存在: %s", report.FilePath)
+	}
+
+	a.log.Info("报告文件已准备", applogger.String("filepath", report.FilePath))
+	return report.FilePath, nil
+}
+
+// SaveReportAs 保存报告到指定位置（弹出保存对话框）
+func (a *App) SaveReportAs(reportID uint) (string, error) {
+	a.log.Info("保存报告到指定位置", applogger.Uint("reportID", reportID))
+
+	// 获取报告信息
+	report, err := a.repos.TaskReport.GetByID(reportID)
+	if err != nil {
+		a.log.Error("报告不存在", applogger.Uint("reportID", reportID), applogger.Err(err))
+		return "", err
+	}
+
+	if report.Status != "ready" {
+		return "", fmt.Errorf("报告尚未准备就绪")
+	}
+
+	// 检查原文件是否存在
+	if _, err := os.Stat(report.FilePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("报告文件不存在: %s", report.FilePath)
+	}
+
+	// 弹出保存对话框
+	defaultFilename := fmt.Sprintf("%s.%s", report.Title, report.Format)
+	if len(defaultFilename) > 100 {
+		defaultFilename = defaultFilename[:100]
+	}
+
+	filename, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: defaultFilename,
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: report.ReportType + " Files",
+				Pattern:     "*." + report.Format,
 			},
 		},
+	})
+
+	if err != nil {
+		a.log.Error("保存对话框失败", applogger.Err(err))
+		return "", err
 	}
+
+	if filename == "" {
+		a.log.Info("用户取消了保存")
+		return "", nil
+	}
+
+	// 复制文件到指定位置
+	srcFile, err := os.Open(report.FilePath)
+	if err != nil {
+		a.log.Error("打开源文件失败", applogger.String("filepath", report.FilePath), applogger.Err(err))
+		return "", err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(filename)
+	if err != nil {
+		a.log.Error("创建目标文件失败", applogger.String("filepath", filename), applogger.Err(err))
+		return "", err
+	}
+	defer dstFile.Close()
+
+	_, err = dstFile.ReadFrom(srcFile)
+	if err != nil {
+		a.log.Error("复制文件失败", applogger.Err(err))
+		return "", err
+	}
+
+	a.log.Info("报告已保存", applogger.String("filepath", filename))
+	return filename, nil
+}
+
+// DeleteReport 删除报告
+func (a *App) DeleteReport(reportID uint) error {
+	a.log.Info("删除报告", applogger.Uint("reportID", reportID))
+
+	// 获取报告信息
+	report, err := a.repos.TaskReport.GetByID(reportID)
+	if err != nil {
+		return err
+	}
+
+	// 删除文件
+	if report.FilePath != "" {
+		if err := os.Remove(report.FilePath); err != nil {
+			a.log.Warn("删除报告文件失败", applogger.String("filepath", report.FilePath), applogger.Err(err))
+			// 继续删除数据库记录
+		}
+	}
+
+	// 删除数据库记录
+	if err := a.repos.TaskReport.Delete(reportID); err != nil {
+		return err
+	}
+
+	a.log.Info("报告已删除", applogger.Uint("reportID", reportID))
+	return nil
+}
+
+// TaskReportItem 任务报告项
+type TaskReportItem struct {
+	ID         uint   `json:"id"`
+	Title      string `json:"title"`
+	ReportType string `json:"reportType"`
+	Format     string `json:"format"`
+	FilePath   string `json:"filePath"`
+	FileSize   int64  `json:"fileSize"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// ========== 评估模式配置 ==========
+
+// GetAnalysisMode 获取任务的评估模式
+func (a *App) GetAnalysisMode(taskID uint) (map[string]interface{}, error) {
+	a.log.Debug("获取评估模式", applogger.Uint("task_id", taskID))
+
+	// 获取任务
+	task, err := a.repos.AssessmentTask.GetByID(taskID)
+	if err != nil {
+		a.log.Error("获取任务失败", applogger.Uint("task_id", taskID), applogger.Err(err))
+		return nil, err
+	}
+
+	// 解析模式
+	mode := task.AnalysisMode
+	if mode == "" {
+		mode = "safe"
+	}
+
+	// 获取模式信息
+	name, description := "", ""
+	switch mode {
+	case "safe":
+		name, description = "安全模式", "保守识别，适合生产环境谨慎操作"
+	case "saving":
+		name, description = "节省模式", "平衡风险与成本，推荐大多数场景"
+	case "aggressive":
+		name, description = "激进模式", "最大化资源利用率"
+	case "custom":
+		name, description = "自定义模式", "根据业务特点精调参数"
+	}
+
+	// 解析配置
+	var config map[string]interface{}
+	if task.AnalysisConfig != "" {
+		if err := json.Unmarshal([]byte(task.AnalysisConfig), &config); err != nil {
+			a.log.Warn("解析配置失败", applogger.Err(err))
+		}
+	}
+
+	// 构建可用模式列表
+	availableModes := []map[string]interface{}{
+		{"mode": "safe", "name": "安全模式", "description": "保守识别，适合生产环境谨慎操作"},
+		{"mode": "saving", "name": "节省模式", "description": "平衡风险与成本，推荐大多数场景"},
+		{"mode": "aggressive", "name": "激进模式", "description": "最大化资源利用率"},
+		{"mode": "custom", "name": "自定义模式", "description": "根据业务特点精调参数"},
+	}
+
+	return map[string]interface{}{
+		"mode":           mode,
+		"modeName":       name,
+		"description":    description,
+		"config":         config,
+		"availableModes": availableModes,
+	}, nil
+}
+
+// SetAnalysisMode 设置任务的评估模式
+func (a *App) SetAnalysisMode(taskID uint, mode string, configJSON string) error {
+	a.log.Debug("设置评估模式", applogger.Uint("task_id", taskID), applogger.String("mode", mode))
+
+	// 验证模式
+	validModes := map[string]bool{"safe": true, "saving": true, "aggressive": true, "custom": true}
+	if !validModes[mode] {
+		return fmt.Errorf("无效的评估模式: %s", mode)
+	}
+
+	// 获取任务
+	task, err := a.repos.AssessmentTask.GetByID(taskID)
+	if err != nil {
+		a.log.Error("获取任务失败", applogger.Uint("task_id", taskID), applogger.Err(err))
+		return err
+	}
+
+	// 更新模式
+	task.AnalysisMode = mode
+
+	// 如果是自定义模式，保存配置
+	if mode == "custom" && configJSON != "" {
+		// 验证 JSON 格式
+		var config map[string]interface{}
+		if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+			return fmt.Errorf("配置 JSON 格式无效: %w", err)
+		}
+		task.AnalysisConfig = configJSON
+	} else {
+		task.AnalysisConfig = ""
+	}
+
+	// 保存
+	if err := a.repos.AssessmentTask.Update(task); err != nil {
+		a.log.Error("更新任务失败", applogger.Uint("task_id", taskID), applogger.Err(err))
+		return err
+	}
+
+	a.log.Info("评估模式已更新", applogger.Uint("task_id", taskID), applogger.String("mode", mode))
+	return nil
+}
+
+// GetEffectiveAnalysisConfig 获取任务的有效分析配置（内部使用）
+func (a *App) GetEffectiveAnalysisConfig(taskID uint) (map[string]interface{}, error) {
+	a.log.Debug("获取有效分析配置", applogger.Uint("task_id", taskID))
+
+	// 获取任务
+	task, err := a.repos.AssessmentTask.GetByID(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 解析模式
+	mode := task.AnalysisMode
+	if mode == "" {
+		mode = "safe"
+	}
+
+	// 根据模式返回预设配置
+	var baseConfig map[string]interface{}
+	switch mode {
+	case "safe":
+		baseConfig = map[string]interface{}{
+			"zombieVM": map[string]interface{}{
+				"analysisDays":     30,
+				"cpuThreshold":     5.0,
+				"memoryThreshold":  10.0,
+				"ioThreshold":      10.0,
+				"networkThreshold": 10.0,
+				"minConfidence":    80.0,
+			},
+			"rightSize": map[string]interface{}{
+				"analysisDays": 7,
+				"bufferRatio":  1.3,
+				"p95Threshold": 95.0,
+				"smallMargin":  0.4,
+				"largeMargin":  0.6,
+			},
+			"tidal": map[string]interface{}{
+				"analysisDays": 30,
+				"minStability": 70.0,
+				"minVariation": 40.0,
+			},
+			"health": map[string]interface{}{
+				"resourceBalanceWeight": 0.4,
+				"overcommitRiskWeight":  0.3,
+				"hotspotWeight":         0.3,
+			},
+		}
+	case "saving":
+		baseConfig = map[string]interface{}{
+			"zombieVM": map[string]interface{}{
+				"analysisDays":     14,
+				"cpuThreshold":     10.0,
+				"memoryThreshold":  20.0,
+				"ioThreshold":      20.0,
+				"networkThreshold": 20.0,
+				"minConfidence":    60.0,
+			},
+			"rightSize": map[string]interface{}{
+				"analysisDays": 7,
+				"bufferRatio":  1.2,
+				"p95Threshold": 90.0,
+				"smallMargin":  0.3,
+				"largeMargin":  0.5,
+			},
+			"tidal": map[string]interface{}{
+				"analysisDays": 21,
+				"minStability": 60.0,
+				"minVariation": 30.0,
+			},
+			"health": map[string]interface{}{
+				"resourceBalanceWeight": 0.4,
+				"overcommitRiskWeight":  0.3,
+				"hotspotWeight":         0.3,
+			},
+		}
+	case "aggressive":
+		baseConfig = map[string]interface{}{
+			"zombieVM": map[string]interface{}{
+				"analysisDays":     7,
+				"cpuThreshold":     15.0,
+				"memoryThreshold":  30.0,
+				"ioThreshold":      30.0,
+				"networkThreshold": 30.0,
+				"minConfidence":    50.0,
+			},
+			"rightSize": map[string]interface{}{
+				"analysisDays": 5,
+				"bufferRatio":  1.1,
+				"p95Threshold": 85.0,
+				"smallMargin":  0.2,
+				"largeMargin":  0.4,
+			},
+			"tidal": map[string]interface{}{
+				"analysisDays": 14,
+				"minStability": 50.0,
+				"minVariation": 20.0,
+			},
+			"health": map[string]interface{}{
+				"resourceBalanceWeight": 0.3,
+				"overcommitRiskWeight":  0.3,
+				"hotspotWeight":         0.4,
+			},
+		}
+	case "custom":
+		baseConfig = map[string]interface{}{}
+	}
+
+	// 如果是自定义模式且有配置，合并配置
+	if mode == "custom" && task.AnalysisConfig != "" {
+		var customConfig map[string]interface{}
+		if err := json.Unmarshal([]byte(task.AnalysisConfig), &customConfig); err == nil {
+			// 简单合并（覆盖式）
+			for key, value := range customConfig {
+				baseConfig[key] = value
+			}
+		}
+	}
+
+	return baseConfig, nil
 }
 
 // ========== 分析服务（统一入口） ==========
@@ -2791,27 +3212,27 @@ func (a *App) GetAnalysisSummary(connectionID uint) (*AnalysisSummary, error) {
 
 	// 统计各类分析结果
 	var zombieCount, rightSizeCount, tidalCount int64
-	storage.DB.Model(&storage.AnalysisResult{}).
-		Where("analysis_type = ? AND created_at > ?", "zombie", time.Now().AddDate(0, 0, -7)).
+	storage.DB.Model(&storage.AnalysisFinding{}).
+		Where("job_type = ? AND created_at > ?", "zombie", time.Now().AddDate(0, 0, -7)).
 		Count(&zombieCount)
 
-	storage.DB.Model(&storage.AnalysisResult{}).
-		Where("analysis_type = ? AND created_at > ?", "rightsize", time.Now().AddDate(0, 0, -7)).
+	storage.DB.Model(&storage.AnalysisFinding{}).
+		Where("job_type = ? AND created_at > ?", "rightsize", time.Now().AddDate(0, 0, -7)).
 		Count(&rightSizeCount)
 
-	storage.DB.Model(&storage.AnalysisResult{}).
-		Where("analysis_type = ? AND created_at > ?", "tidal", time.Now().AddDate(0, 0, -7)).
+	storage.DB.Model(&storage.AnalysisFinding{}).
+		Where("job_type = ? AND created_at > ?", "tidal", time.Now().AddDate(0, 0, -7)).
 		Count(&tidalCount)
 
 	// 获取最新健康评分
-	var latestHealth storage.AnalysisResult
+	var latestHealth storage.AnalysisFinding
 	var healthScore float64 = 0
-	storage.DB.Where("analysis_type = ? AND created_at > ?", "health", time.Now().AddDate(0, 0, -30)).
+	storage.DB.Where("job_type = ? AND created_at > ?", "health", time.Now().AddDate(0, 0, -30)).
 		Order("created_at desc").First(&latestHealth)
 
 	if latestHealth.ID > 0 {
 		var healthData HealthScoreResult
-		if json.Unmarshal([]byte(latestHealth.Data), &healthData) == nil {
+		if json.Unmarshal([]byte(latestHealth.Details), &healthData) == nil {
 			healthScore = healthData.OverallScore
 		}
 	}
@@ -2853,7 +3274,7 @@ type ReportListItem struct {
 
 // ListReports 获取报告列表
 func (a *App) ListReports(limit, offset int) ([]ReportListItem, error) {
-	reports, err := a.repos.Report.List(limit, offset)
+	reports, err := a.repos.TaskReport.List(limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("获取报告列表失败: %w", err)
 	}
@@ -2892,7 +3313,7 @@ type ReportDetail struct {
 
 // GetReport 获取报告详情
 func (a *App) GetReport(id uint) (*ReportDetail, error) {
-	r, err := a.repos.Report.GetByID(id)
+	r, err := a.repos.TaskReport.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("获取报告失败: %w", err)
 	}
@@ -2932,7 +3353,7 @@ type ExportReportRequest struct {
 // ExportReport 导出报告
 func (a *App) ExportReport(req ExportReportRequest) (string, error) {
 	// 获取原报告
-	originalReport, err := a.repos.Report.GetByID(req.ReportID)
+	originalReport, err := a.repos.TaskReport.GetByID(req.ReportID)
 	if err != nil {
 		return "", fmt.Errorf("获取报告失败: %w", err)
 	}
@@ -2987,7 +3408,7 @@ func (a *App) ExportReport(req ExportReportRequest) (string, error) {
 // buildReportDataFromDB 从数据库重建报告数据
 func (a *App) buildReportDataFromDB(connectionID uint) report.ReportData {
 	// 获取最新的分析结果
-	var results []storage.AnalysisResult
+	var results []storage.AnalysisFinding
 	storage.DB.Where("connection_id = ?", connectionID).
 		Order("created_at DESC").
 		Limit(100).
@@ -3004,14 +3425,14 @@ func (a *App) buildReportDataFromDB(connectionID uint) report.ReportData {
 	// 根据分析结果构建章节
 	for _, r := range results {
 		section := report.ReportSection{
-			Title: r.AnalysisType + " - " + r.TargetName,
+			Title: r.JobType + " - " + r.TargetName,
 			Type:  "data",
 			Data: map[string]interface{}{
-				"analysis_type":  r.AnalysisType,
+				"job_type":       r.JobType,
 				"target_type":    r.TargetType,
 				"target_name":    r.TargetName,
-				"recommendation": r.Recommendation,
-				"saved_amount":   r.SavedAmount,
+				"recommendation": r.Action,
+				"saved_amount":   r.SavingCost,
 			},
 		}
 		sections = append(sections, section)
@@ -3143,124 +3564,4 @@ func (a *App) ExportDiagnosticPackage() (string, error) {
 	_ = os.Rename(diagnosticFile, filename)
 
 	return filename, nil
-}
-
-// ========== 告警服务 ==========
-
-// AlertListItem 告警列表项
-type AlertListItem struct {
-	ID             uint    `json:"id"`
-	TargetType     string  `json:"targetType"`
-	TargetKey      string  `json:"targetKey"`
-	TargetName     string  `json:"targetName"`
-	AlertType      string  `json:"alertType"`
-	Severity       string  `json:"severity"`
-	Title          string  `json:"title"`
-	Message        string  `json:"message"`
-	Acknowledged   bool    `json:"acknowledged"`
-	AcknowledgedAt *string `json:"acknowledgedAt,omitempty"`
-	CreatedAt      string  `json:"createdAt"`
-}
-
-// ListAlerts 获取告警列表
-func (a *App) ListAlerts(acknowledged *bool, limit, offset int) ([]AlertListItem, error) {
-	var alerts []storage.Alert
-	query := storage.DB.Model(&storage.Alert{}).Order("created_at DESC")
-
-	if acknowledged != nil {
-		query = query.Where("acknowledged = ?", *acknowledged)
-	}
-
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	if offset > 0 {
-		query = query.Offset(offset)
-	}
-
-	err := query.Find(&alerts).Error
-	if err != nil {
-		return nil, fmt.Errorf("获取告警列表失败: %w", err)
-	}
-
-	result := make([]AlertListItem, len(alerts))
-	for i, a := range alerts {
-		result[i] = AlertListItem{
-			ID:           a.ID,
-			TargetType:   a.TargetType,
-			TargetKey:    a.TargetKey,
-			TargetName:   a.TargetName,
-			AlertType:    a.AlertType,
-			Severity:     a.Severity,
-			Title:        a.Title,
-			Message:      a.Message,
-			Acknowledged: a.Acknowledged,
-			CreatedAt:    a.CreatedAt.Format("2006-01-02 15:04:05"),
-		}
-		if a.AcknowledgedAt != nil {
-			t := a.AcknowledgedAt.Format("2006-01-02 15:04:05")
-			result[i].AcknowledgedAt = &t
-		}
-	}
-
-	return result, nil
-}
-
-// MarkAlertRequest 标记告警请求
-type MarkAlertRequest struct {
-	ID           uint `json:"id"`
-	Acknowledged bool `json:"acknowledged"`
-}
-
-// MarkAlert 标记告警 (空操作，因为新设计中不再需要确认功能)
-func (a *App) MarkAlert(req MarkAlertRequest) error {
-	// 新设计中告警合并到 AnalysisFinding，不再需要确认功能
-	return nil
-}
-
-// AlertStats 告警统计
-type AlertStats struct {
-	Total          int64            `json:"total"`
-	Unacknowledged int64            `json:"unacknowledged"`
-	BySeverity     map[string]int64 `json:"bySeverity"`
-	ByType         map[string]int64 `json:"byType"`
-}
-
-// GetAlertStats 获取告警统计
-func (a *App) GetAlertStats() (*AlertStats, error) {
-	stats := &AlertStats{
-		BySeverity: make(map[string]int64),
-		ByType:     make(map[string]int64),
-	}
-
-	storage.DB.Model(&storage.Alert{}).Count(&stats.Total)
-	storage.DB.Model(&storage.Alert{}).Where("acknowledged = ?", false).Count(&stats.Unacknowledged)
-
-	// 按严重程度统计
-	var severityStats []struct {
-		Severity string
-		Count    int64
-	}
-	storage.DB.Model(&storage.Alert{}).
-		Select("severity, count(*) as count").
-		Group("severity").
-		Scan(&severityStats)
-	for _, s := range severityStats {
-		stats.BySeverity[s.Severity] = s.Count
-	}
-
-	// 按类型统计
-	var typeStats []struct {
-		AlertType string
-		Count     int64
-	}
-	storage.DB.Model(&storage.Alert{}).
-		Select("alert_type, count(*) as count").
-		Group("alert_type").
-		Scan(&typeStats)
-	for _, t := range typeStats {
-		stats.ByType[t.AlertType] = t.Count
-	}
-
-	return stats, nil
 }

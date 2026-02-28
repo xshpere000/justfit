@@ -32,6 +32,7 @@ func (m *VMMapper) ToDTO(model *storage.VM) *response.VMResponse {
 		IPAddress:     model.IPAddress,
 		GuestOS:       model.GuestOS,
 		HostName:      model.HostName,
+		HostIP:        model.HostIP,
 		OverallStatus: model.OverallStatus,
 		CollectedAt:   model.CollectedAt,
 	}

@@ -16,7 +16,7 @@ func testH3CUISConnection() error {
 	config := &connector.ConnectionConfig{
 		Name:     "测试 H3C UIS",
 		Platform: connector.PlatformH3CUIS,
-		Host:     "200.201.38.95",
+		Host:     "10.103.125.116",
 		Port:     443,
 		Username: "admin",
 		Password: "Admin@123.",
@@ -113,7 +113,7 @@ func testDatabase() error {
 	conn := &storage.Connection{
 		Name:     "测试连接",
 		Platform: "h3c-uis",
-		Host:     "200.201.38.95",
+		Host:     "10.103.125.116",
 		Port:     443,
 		Username: "admin",
 		Status:   "connected",

@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -45,52 +46,83 @@ func NewExcelGenerator(data *ReportData, outputDir string) *ExcelGenerator {
 
 // Generate 生成 Excel 报告
 func (g *ExcelGenerator) Generate() (string, error) {
+	log.Printf("[ExcelGenerator] 开始生成 Excel 报告: title=%s", g.data.Title)
+
 	// 设置生成时间
 	g.data.GeneratedAt = time.Now()
 
 	// 初始化样式
 	if err := g.initStyles(); err != nil {
+		log.Printf("[ExcelGenerator] 初始化样式失败: %v", err)
 		return "", fmt.Errorf("初始化样式失败: %w", err)
 	}
 
-	// 删除默认 Sheet
-	g.file.DeleteSheet("Sheet1")
+	// 重命名默认 Sheet1 为 "概览"
+	g.file.SetSheetName("Sheet1", "概览")
 
 	// 创建各个 Sheet
+	log.Printf("[ExcelGenerator] 创建概览 Sheet...")
 	if err := g.createSummarySheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建概览 Sheet 失败: %v", err)
 		return "", fmt.Errorf("创建概览 Sheet 失败: %w", err)
 	}
 
+	log.Printf("[ExcelGenerator] 创建集群信息 Sheet...")
+	if err := g.createClusterSheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建集群信息 Sheet 失败: %v", err)
+		return "", fmt.Errorf("创建集群信息 Sheet 失败: %w", err)
+	}
+
+	log.Printf("[ExcelGenerator] 创建主机信息 Sheet...")
+	if err := g.createHostSheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建主机信息 Sheet 失败: %v", err)
+		return "", fmt.Errorf("创建主机信息 Sheet 失败: %w", err)
+	}
+
+	log.Printf("[ExcelGenerator] 创建虚拟机列表 Sheet...")
+	if err := g.createVMSheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建虚拟机列表 Sheet 失败: %v", err)
+		return "", fmt.Errorf("创建虚拟机列表 Sheet 失败: %w", err)
+	}
+
+	log.Printf("[ExcelGenerator] 创建僵尸 VM Sheet...")
 	if err := g.createZombieVMSheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建僵尸 VM Sheet 失败: %v", err)
 		return "", fmt.Errorf("创建僵尸 VM Sheet 失败: %w", err)
 	}
 
+	log.Printf("[ExcelGenerator] 创建 RightSize Sheet...")
 	if err := g.createRightSizeSheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建 RightSize Sheet 失败: %v", err)
 		return "", fmt.Errorf("创建 Right Size Sheet 失败: %w", err)
 	}
 
+	log.Printf("[ExcelGenerator] 创建潮汐检测 Sheet...")
 	if err := g.createTidalSheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建潮汐检测 Sheet 失败: %v", err)
 		return "", fmt.Errorf("创建潮汐检测 Sheet 失败: %w", err)
 	}
 
+	log.Printf("[ExcelGenerator] 创建健康评分 Sheet...")
 	if err := g.createHealthSheet(); err != nil {
+		log.Printf("[ExcelGenerator] 创建健康评分 Sheet 失败: %v", err)
 		return "", fmt.Errorf("创建健康评分 Sheet 失败: %w", err)
-	}
-
-	if err := g.createVMSheet(); err != nil {
-		return "", fmt.Errorf("创建虚拟机列表 Sheet 失败: %w", err)
 	}
 
 	// 生成文件名
 	filename := fmt.Sprintf("%s_%s.xlsx", sanitizeFilename(g.data.Title), time.Now().Format("20060102_150405"))
 	filepath := filepath.Join(g.outputDir, filename)
 
+	log.Printf("[ExcelGenerator] 保存文件: %s", filepath)
+
 	// 保存文件
 	if err := g.file.SaveAs(filepath); err != nil {
+		log.Printf("[ExcelGenerator] 保存文件失败: %v", err)
 		return "", fmt.Errorf("保存文件失败: %w", err)
 	}
 
 	g.file.Close()
+	log.Printf("[ExcelGenerator] Excel 报告生成成功: %s", filepath)
 	return filepath, nil
 }
 
@@ -291,14 +323,12 @@ func (g *ExcelGenerator) initStyles() error {
 	return nil
 }
 
-// createSummarySheet 创建概览 Sheet
+// createSummarySheet 创建概览 Sheet（使用默认的 Sheet1）
 func (g *ExcelGenerator) createSummarySheet() error {
-	sheet := "概览"
-	index, err := g.file.NewSheet(sheet)
-	if err != nil {
-		return err
-	}
-	g.file.SetActiveSheet(index)
+	sheet := "概览" // Sheet1 已在 Generate() 中重命名
+
+	// 设置为活动 sheet
+	g.file.SetActiveSheet(0)
 
 	// 设置列宽
 	g.file.SetColWidth(sheet, "A", "B", 20)
@@ -317,7 +347,8 @@ func (g *ExcelGenerator) createSummarySheet() error {
 	// 空行
 	row := 4
 
-	// 汇总数据
+	// 汇总数据 - 使用固定顺序的 key 避免无序问题
+	summaryKeyOrder := []string{"clusterCount", "hostCount", "vmCount", "totalCpu", "totalMemory"}
 	for _, section := range g.data.Sections {
 		if section.Type == "summary" {
 			g.file.SetCellValue(sheet, fmt.Sprintf("A%d", row), section.Title)
@@ -326,26 +357,30 @@ func (g *ExcelGenerator) createSummarySheet() error {
 			row++
 
 			if m, ok := section.Data.(map[string]interface{}); ok {
-				for key, value := range m {
-					label := getMetricLabel(key)
-					g.file.SetCellValue(sheet, fmt.Sprintf("A%d", row), label)
-					g.file.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), g.styles.normal)
+				// 按固定顺序遍历，而不是随机 map 迭代
+				for _, key := range summaryKeyOrder {
+					if value, exists := m[key]; exists {
+						label := getMetricLabel(key)
+						g.file.SetCellValue(sheet, fmt.Sprintf("A%d", row), label)
+						g.file.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), g.styles.normal)
 
-					g.file.SetCellValue(sheet, fmt.Sprintf("B%d", row), value)
-					style := g.getNumberStyle(key)
-					g.file.SetCellStyle(sheet, fmt.Sprintf("B%d", row), fmt.Sprintf("B%d", row), style)
+						g.file.SetCellValue(sheet, fmt.Sprintf("B%d", row), value)
+						style := g.getNumberStyle(key)
+						g.file.SetCellStyle(sheet, fmt.Sprintf("B%d", row), fmt.Sprintf("B%d", row), style)
 
-					// 备注
-					remark := getMetricRemark(key)
-					if remark != "" {
-						g.file.SetCellValue(sheet, fmt.Sprintf("C%d", row), remark)
-						g.file.SetCellStyle(sheet, fmt.Sprintf("C%d", row), fmt.Sprintf("C%d", row), g.styles.normal)
+						// 备注
+						remark := getMetricRemark(key)
+						if remark != "" {
+							g.file.SetCellValue(sheet, fmt.Sprintf("C%d", row), remark)
+							g.file.SetCellStyle(sheet, fmt.Sprintf("C%d", row), fmt.Sprintf("C%d", row), g.styles.normal)
+						}
+
+						row++
 					}
-
-					row++
 				}
 			}
 			row += 2
+			break // 只处理第一个 summary section
 		}
 	}
 
@@ -383,11 +418,11 @@ func (g *ExcelGenerator) createZombieVMSheet() error {
 
 	// 设置列宽
 	g.file.SetColWidth(sheet, "A", "A", 25)
-	g.file.SetColWidth(sheet, "B", "G", 15)
-	g.file.SetColWidth(sheet, "H", "H", 40)
+	g.file.SetColWidth(sheet, "B", "H", 15)
+	g.file.SetColWidth(sheet, "I", "I", 40)
 
 	// 表头
-	headers := []string{"虚拟机名称", "集群", "主机", "CPU(核)", "内存(GB)", "CPU使用率", "内存使用率", "置信度", "建议"}
+	headers := []string{"虚拟机名称", "集群", "主机IP", "CPU(核)", "内存(GB)", "CPU使用率", "内存使用率", "置信度", "建议"}
 	for i, h := range headers {
 		cell := fmt.Sprintf("%s1", string(rune('A'+i)))
 		g.file.SetCellValue(sheet, cell, h)
@@ -400,7 +435,7 @@ func (g *ExcelGenerator) createZombieVMSheet() error {
 		if section.Type == "zombie_table" {
 			if rows, ok := section.Data.([]map[string]interface{}); ok {
 				for _, r := range rows {
-					g.setRowValue(sheet, row, r)
+					g.setZombieRowValue(sheet, row, r)
 					// 置信度高的标红
 					if confidence, ok := r["confidence"].(float64); ok && confidence >= 90 {
 						g.file.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("I%d", row), g.styles.danger)
@@ -417,6 +452,18 @@ func (g *ExcelGenerator) createZombieVMSheet() error {
 	return nil
 }
 
+// setZombieRowValue 设置僵尸 VM 数据行（固定列顺序）
+func (g *ExcelGenerator) setZombieRowValue(sheet string, row int, data map[string]interface{}) {
+	// 固定列顺序
+	columns := []string{"vmName", "cluster", "hostIp", "cpuCores", "memoryGb", "cpuUsage", "memoryUsage", "confidence", "recommendation"}
+	for i, key := range columns {
+		cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
+		value := data[key]
+		g.file.SetCellValue(sheet, cell, value)
+		g.file.SetCellStyle(sheet, cell, cell, g.styles.normal)
+	}
+}
+
 // createRightSizeSheet 创建 Right Size Sheet
 func (g *ExcelGenerator) createRightSizeSheet() error {
 	sheet := "RightSize"
@@ -427,15 +474,15 @@ func (g *ExcelGenerator) createRightSizeSheet() error {
 
 	// 设置列宽
 	g.file.SetColWidth(sheet, "A", "A", 25)
-	g.file.SetColWidth(sheet, "B", "C", 15)
+	g.file.SetColWidth(sheet, "B", "C", 12)
 	g.file.SetColWidth(sheet, "D", "E", 12)
-	g.file.SetColWidth(sheet, "F", "F", 12)
+	g.file.SetColWidth(sheet, "F", "F", 10)
 	g.file.SetColWidth(sheet, "G", "G", 10)
 	g.file.SetColWidth(sheet, "H", "H", 15)
 	g.file.SetColWidth(sheet, "I", "I", 40)
 
 	// 表头
-	headers := []string{"虚拟机名称", "集群", "当前CPU", "推荐CPU", "当前内存(GB)", "推荐内存(GB)", "调整类型", "风险等级", "节省估算", "置信度"}
+	headers := []string{"虚拟机名称", "集群", "当前CPU", "推荐CPU", "当前内存(GB)", "推荐内存(GB)", "调整类型", "风险等级", "置信度", "建议"}
 	for i, h := range headers {
 		cell := fmt.Sprintf("%s1", string(rune('A'+i)))
 		g.file.SetCellValue(sheet, cell, h)
@@ -448,15 +495,15 @@ func (g *ExcelGenerator) createRightSizeSheet() error {
 		if section.Type == "rightsize_table" {
 			if rows, ok := section.Data.([]map[string]interface{}); ok {
 				for _, r := range rows {
-					g.setRowValue(sheet, row, r)
+					g.setRightSizeRowValue(sheet, row, r)
 					// 根据风险等级设置样式
 					if risk, ok := r["riskLevel"].(string); ok {
 						style := g.styles.normal
-						if risk == "高" {
+						if risk == "高" || risk == "high" {
 							style = g.styles.danger
-						} else if risk == "中" {
+						} else if risk == "中" || risk == "medium" {
 							style = g.styles.warning
-						} else if risk == "低" {
+						} else if risk == "低" || risk == "low" {
 							style = g.styles.success
 						}
 						g.file.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("J%d", row), style)
@@ -469,6 +516,18 @@ func (g *ExcelGenerator) createRightSizeSheet() error {
 	}
 
 	return nil
+}
+
+// setRightSizeRowValue 设置 RightSize 数据行（固定列顺序）
+func (g *ExcelGenerator) setRightSizeRowValue(sheet string, row int, data map[string]interface{}) {
+	// 固定列顺序
+	columns := []string{"vmName", "cluster", "currentCPU", "suggestedCPU", "currentMemory", "suggestedMemory", "adjustmentType", "riskLevel", "confidence", "recommendation"}
+	for i, key := range columns {
+		cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
+		value := data[key]
+		g.file.SetCellValue(sheet, cell, value)
+		g.file.SetCellStyle(sheet, cell, cell, g.styles.normal)
+	}
 }
 
 // createTidalSheet 创建潮汐检测 Sheet
@@ -485,7 +544,7 @@ func (g *ExcelGenerator) createTidalSheet() error {
 	g.file.SetColWidth(sheet, "G", "G", 40)
 
 	// 表头
-	headers := []string{"虚拟机名称", "集群", "模式类型", "稳定性评分", "高峰时段", "高峰日期", "节省估算", "建议"}
+	headers := []string{"虚拟机名称", "集群", "模式类型", "稳定性评分", "高峰时段", "高峰日期", "建议"}
 	for i, h := range headers {
 		cell := fmt.Sprintf("%s1", string(rune('A'+i)))
 		g.file.SetCellValue(sheet, cell, h)
@@ -498,7 +557,7 @@ func (g *ExcelGenerator) createTidalSheet() error {
 		if section.Type == "tidal_table" {
 			if rows, ok := section.Data.([]map[string]interface{}); ok {
 				for _, r := range rows {
-					g.setRowValue(sheet, row, r)
+					g.setTidalRowValue(sheet, row, r)
 					row++
 				}
 			}
@@ -507,6 +566,18 @@ func (g *ExcelGenerator) createTidalSheet() error {
 	}
 
 	return nil
+}
+
+// setTidalRowValue 设置潮汐数据行（固定列顺序）
+func (g *ExcelGenerator) setTidalRowValue(sheet string, row int, data map[string]interface{}) {
+	// 固定列顺序
+	columns := []string{"vmName", "cluster", "patternType", "stabilityScore", "peakHours", "peakDays", "recommendation"}
+	for i, key := range columns {
+		cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
+		value := data[key]
+		g.file.SetCellValue(sheet, cell, value)
+		g.file.SetCellStyle(sheet, cell, cell, g.styles.normal)
+	}
 }
 
 // createHealthSheet 创建健康评分 Sheet
@@ -547,18 +618,21 @@ func (g *ExcelGenerator) createHealthSheet() error {
 					row += 2
 				}
 
-				// 详细指标
-				for key, value := range m {
-					if key == "overallScore" {
-						continue
-					}
-					label := getMetricLabel(key)
-					g.file.SetCellValue(sheet, fmt.Sprintf("A%d", row), label)
-					g.file.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), g.styles.normal)
+				// 详细指标 - 使用固定顺序
+				healthMetricOrder := []string{"healthLevel", "resourceBalance", "overcommitRisk", "clusterCount", "hostCount", "vmCount"}
+				for _, key := range healthMetricOrder {
+					if value, exists := m[key]; exists {
+						if key == "overallScore" {
+							continue
+						}
+						label := getMetricLabel(key)
+						g.file.SetCellValue(sheet, fmt.Sprintf("A%d", row), label)
+						g.file.SetCellStyle(sheet, fmt.Sprintf("A%d", row), fmt.Sprintf("A%d", row), g.styles.normal)
 
-					g.file.SetCellValue(sheet, fmt.Sprintf("B%d", row), value)
-					g.file.SetCellStyle(sheet, fmt.Sprintf("B%d", row), fmt.Sprintf("B%d", row), g.styles.number)
-					row++
+						g.file.SetCellValue(sheet, fmt.Sprintf("B%d", row), value)
+						g.file.SetCellStyle(sheet, fmt.Sprintf("B%d", row), fmt.Sprintf("B%d", row), g.styles.number)
+						row++
+					}
 				}
 			}
 			break
@@ -611,6 +685,106 @@ func (g *ExcelGenerator) createHealthSheet() error {
 	return nil
 }
 
+// createClusterSheet 创建集群信息 Sheet
+func (g *ExcelGenerator) createClusterSheet() error {
+	sheet := "集群信息"
+	_, err := g.file.NewSheet(sheet)
+	if err != nil {
+		return err
+	}
+
+	// 设置列宽
+	g.file.SetColWidth(sheet, "A", "B", 20)
+	g.file.SetColWidth(sheet, "C", "C", 25)
+	g.file.SetColWidth(sheet, "D", "F", 15)
+	g.file.SetColWidth(sheet, "G", "G", 12)
+
+	// 表头
+	headers := []string{"集群名称", "数据中心", "CPU(MHz)", "内存(GB)", "主机数", "VM数", "状态"}
+	for i, h := range headers {
+		cell := fmt.Sprintf("%s1", string(rune('A'+i)))
+		g.file.SetCellValue(sheet, cell, h)
+		g.file.SetCellStyle(sheet, cell, cell, g.styles.header)
+	}
+
+	// 数据行
+	row := 2
+	for _, section := range g.data.Sections {
+		if section.Type == "cluster_table" {
+			if rows, ok := section.Data.([]map[string]interface{}); ok {
+				for _, r := range rows {
+					g.setClusterRowValue(sheet, row, r)
+					row++
+				}
+			}
+			break
+		}
+	}
+
+	return nil
+}
+
+// setClusterRowValue 设置集群数据行（固定列顺序）
+func (g *ExcelGenerator) setClusterRowValue(sheet string, row int, data map[string]interface{}) {
+	columns := []string{"name", "datacenter", "totalCpu", "totalMemory", "numHosts", "numVMs", "status"}
+	for i, key := range columns {
+		cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
+		value := data[key]
+		g.file.SetCellValue(sheet, cell, value)
+		g.file.SetCellStyle(sheet, cell, cell, g.styles.normal)
+	}
+}
+
+// createHostSheet 创建主机信息 Sheet
+func (g *ExcelGenerator) createHostSheet() error {
+	sheet := "主机信息"
+	_, err := g.file.NewSheet(sheet)
+	if err != nil {
+		return err
+	}
+
+	// 设置列宽
+	g.file.SetColWidth(sheet, "A", "A", 25)
+	g.file.SetColWidth(sheet, "B", "C", 18)
+	g.file.SetColWidth(sheet, "D", "G", 12)
+	g.file.SetColWidth(sheet, "H", "I", 15)
+
+	// 表头
+	headers := []string{"主机名称", "数据中心", "IP地址", "CPU核数", "CPU频率", "内存(GB)", "VM数", "电源状态", "整体状态"}
+	for i, h := range headers {
+		cell := fmt.Sprintf("%s1", string(rune('A'+i)))
+		g.file.SetCellValue(sheet, cell, h)
+		g.file.SetCellStyle(sheet, cell, cell, g.styles.header)
+	}
+
+	// 数据行
+	row := 2
+	for _, section := range g.data.Sections {
+		if section.Type == "host_table" {
+			if rows, ok := section.Data.([]map[string]interface{}); ok {
+				for _, r := range rows {
+					g.setHostRowValue(sheet, row, r)
+					row++
+				}
+			}
+			break
+		}
+	}
+
+	return nil
+}
+
+// setHostRowValue 设置主机数据行（固定列顺序）
+func (g *ExcelGenerator) setHostRowValue(sheet string, row int, data map[string]interface{}) {
+	columns := []string{"name", "datacenter", "ipAddress", "cpuCores", "cpuMhz", "memory", "numVMs", "powerState", "overallStatus"}
+	for i, key := range columns {
+		cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
+		value := data[key]
+		g.file.SetCellValue(sheet, cell, value)
+		g.file.SetCellStyle(sheet, cell, cell, g.styles.normal)
+	}
+}
+
 // createVMSheet 创建虚拟机列表 Sheet
 func (g *ExcelGenerator) createVMSheet() error {
 	sheet := "虚拟机列表"
@@ -622,11 +796,11 @@ func (g *ExcelGenerator) createVMSheet() error {
 	// 设置列宽
 	g.file.SetColWidth(sheet, "A", "A", 25)
 	g.file.SetColWidth(sheet, "B", "D", 15)
-	g.file.SetColWidth(sheet, "E", "F", 12)
-	g.file.SetColWidth(sheet, "G", "G", 10)
+	g.file.SetColWidth(sheet, "E", "G", 12)
+	g.file.SetColWidth(sheet, "H", "I", 12)
 
 	// 表头
-	headers := []string{"虚拟机名称", "集群", "主机", "操作系统", "CPU", "内存(GB)", "磁盘(GB)", "电源状态"}
+	headers := []string{"虚拟机名称", "数据中心", "主机IP", "操作系统", "CPU(核)", "内存(GB)", "电源状态", "整体状态"}
 	for i, h := range headers {
 		cell := fmt.Sprintf("%s1", string(rune('A'+i)))
 		g.file.SetCellValue(sheet, cell, h)
@@ -639,7 +813,7 @@ func (g *ExcelGenerator) createVMSheet() error {
 		if section.Type == "vm_table" {
 			if rows, ok := section.Data.([]map[string]interface{}); ok {
 				for _, r := range rows {
-					g.setRowValue(sheet, row, r)
+					g.setVMRowValue(sheet, row, r)
 					row++
 				}
 			}
@@ -650,14 +824,14 @@ func (g *ExcelGenerator) createVMSheet() error {
 	return nil
 }
 
-// setRowValue 设置一行数据
-func (g *ExcelGenerator) setRowValue(sheet string, row int, data map[string]interface{}) {
-	col := 'A'
-	for _, value := range data {
-		cell := fmt.Sprintf("%s%d", string(col), row)
+// setVMRowValue 设置虚拟机数据行（固定列顺序）
+func (g *ExcelGenerator) setVMRowValue(sheet string, row int, data map[string]interface{}) {
+	columns := []string{"name", "datacenter", "hostIp", "guestOs", "cpuCount", "memoryGb", "powerState", "overallStatus"}
+	for i, key := range columns {
+		cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
+		value := data[key]
 		g.file.SetCellValue(sheet, cell, value)
 		g.file.SetCellStyle(sheet, cell, cell, g.styles.normal)
-		col++
 	}
 }
 

@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 import requests
 
 
-DEFAULT_H3C_HOST = "https://200.201.38.95/uis/login"
+DEFAULT_H3C_HOST = "https://10.103.125.116/uis/login"
 DEFAULT_H3C_USERNAME = "admin"
 DEFAULT_H3C_PASSWORD = "Admin@123."
 

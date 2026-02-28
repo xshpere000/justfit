@@ -255,7 +255,7 @@ const previewColumns = computed(() => {
     vms: [
       { prop: 'name', label: '名称', width: 200 },
       { prop: 'datacenter', label: '数据中心', width: 150 },
-      { prop: 'hostName', label: '主机', width: 150 },
+      { prop: 'hostIp', label: '主机IP', width: 150 },
       { prop: 'cpuCount', label: 'CPU核数', width: 100 },
       { prop: 'memoryGb', label: '内存(GB)', width: 120 },
       { prop: 'ipAddress', label: 'IP地址', width: 120 },

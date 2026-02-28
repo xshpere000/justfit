@@ -164,9 +164,9 @@ func (m *Manager) HasData() bool {
 		return true
 	}
 
-	// 检查 tasks 表是否有数据
-	if err := m.db.Table("tasks").Count(&count).Error; err == nil && count > 0 {
-		m.log.Debug("检测到数据", applogger.String("table", "tasks"), applogger.Int64("count", count))
+	// 检查 assessment_tasks 表是否有数据
+	if err := m.db.Table("assessment_tasks").Count(&count).Error; err == nil && count > 0 {
+		m.log.Debug("检测到数据", applogger.String("table", "assessment_tasks"), applogger.Int64("count", count))
 		return true
 	}
 

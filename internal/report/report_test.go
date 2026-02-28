@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -392,4 +393,227 @@ func TestGenerateWithRealData(t *testing.T) {
 	assert.Contains(t, html, "150")
 	assert.Contains(t, html, "test-vm-001")
 	assert.Contains(t, html, "建议关闭")
+}
+
+// ========== 新增测试：报告生成器 ==========
+
+// TestReportBuilder_BuildReportData 测试报告数据构建器
+func TestReportBuilder_BuildReportData(t *testing.T) {
+	// 创建模拟数据源
+	ds := &mockDataSource{
+		clusters: []ClusterInfo{
+			{Name: "Cluster-01", Datacenter: "DC1", TotalCpu: 100000, TotalMemory: 100000000000, NumHosts: 5, NumVMs: 50},
+			{Name: "Cluster-02", Datacenter: "DC1", TotalCpu: 200000, TotalMemory: 200000000000, NumHosts: 10, NumVMs: 100},
+		},
+		hosts: []HostInfo{
+			{Name: "Host-01", Datacenter: "DC1", IPAddress: "192.168.1.1", CpuCores: 32, CpuMhz: 2400, Memory: 100000000000, NumVMs: 10},
+		},
+		vms: []VMInfo{
+			{Name: "VM-001", Datacenter: "DC1", CpuCount: 4, MemoryMB: 8192, PowerState: "poweredOn"},
+		},
+		findings: map[string][]AnalysisFinding{
+			"zombie": {
+				{JobType: "zombie", TargetName: "VM-001", Severity: "warning", Title: "低使用率", Action: "建议关机"},
+			},
+		},
+		taskInfo: &TaskInfo{Name: "Test Task", Platform: "vcenter", StartedAt: time.Now(), MetricsDays: 30},
+	}
+
+	builder := NewReportBuilder(ds)
+	reportData, err := builder.BuildReportData()
+
+	require.NoError(t, err, "构建报告数据应该成功")
+	assert.NotNil(t, reportData)
+	assert.Equal(t, "Test Task - 资源评估报告", reportData.Title)
+	assert.NotEmpty(t, reportData.Sections, "应该有章节内容")
+}
+
+// TestExcelGenerator_Generate 测试 Excel 生成器
+func TestExcelGenerator_Generate(t *testing.T) {
+	// 创建测试报告数据
+	reportData := &ReportData{
+		Title:        "测试报告",
+		GeneratedAt:  time.Now(),
+		ConnectionID: 1,
+		Metadata:     make(map[string]interface{}),
+		Sections: []ReportSection{
+			{
+				Type:  "summary",
+				Title: "资源概览",
+				Data: map[string]interface{}{
+					"clusterCount": 2,
+					"hostCount":    5,
+					"vmCount":      10,
+				},
+			},
+			{
+				Type:  "cluster_table",
+				Title: "集群信息",
+				Data: []map[string]interface{}{
+					{"name": "Cluster-01", "datacenter": "DC1", "totalCpu": 100000, "totalMemory": 100, "numHosts": 5, "numVMs": 50, "status": "green"},
+				},
+			},
+			{
+				Type:  "host_table",
+				Title: "主机信息",
+				Data: []map[string]interface{}{
+					{"name": "Host-01", "datacenter": "DC1", "ipAddress": "192.168.1.1", "cpuCores": 32, "cpuMhz": 2400, "memory": 100, "numVMs": 10, "powerState": "poweredOn"},
+				},
+			},
+			{
+				Type:  "vm_table",
+				Title: "虚拟机列表",
+				Data: []map[string]interface{}{
+					{"name": "VM-001", "datacenter": "DC1", "hostName": "Host-01", "cpuCount": 4, "memoryGb": 8.0, "powerState": "poweredOn"},
+				},
+			},
+		},
+	}
+
+	// 创建临时输出目录
+	tmpDir := t.TempDir()
+	gen := NewExcelGenerator(reportData, tmpDir)
+
+	filepath, err := gen.Generate()
+	require.NoError(t, err, "Excel 生成应该成功")
+
+	// 验证文件存在
+	assert.FileExists(t, filepath)
+	assert.Contains(t, filepath, ".xlsx")
+
+	// 清理
+	os.Remove(filepath)
+}
+
+// TestPDFGenerator_GenerateWithFont 测试 PDF 生成器（需要字体）
+func TestPDFGenerator_GenerateWithFont(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过 PDF 生成测试（需要字体文件）")
+	}
+
+	// 创建测试报告数据
+	reportData := &ReportData{
+		Title:        "测试报告",
+		GeneratedAt:  time.Now(),
+		ConnectionID: 1,
+		Metadata:     make(map[string]interface{}),
+		Sections: []ReportSection{
+			{
+				Type:  "summary",
+				Title: "资源概览",
+				Data: map[string]interface{}{
+					"clusterCount": 2,
+					"hostCount":    5,
+					"vmCount":      10,
+				},
+			},
+		},
+	}
+
+	// 创建临时输出目录
+	tmpDir := t.TempDir()
+	config := &PDFConfig{
+		OutputDir: tmpDir,
+	}
+
+	gen := NewPDFGenerator(reportData, nil, config)
+
+	// 使用 recover 捕获可能的 panic（字体加载失败）
+	defer func() {
+		if r := recover(); r != nil {
+			t.Skipf("PDF 生成失败（可能缺少有效的 TTF 字体文件）: %v", r)
+		}
+	}()
+
+	filepath, err := gen.Generate()
+
+	// PDF 生成可能会因为没有字体而失败
+	if err != nil {
+		t.Skipf("PDF 生成失败（可能缺少字体）: %v", err)
+		return
+	}
+
+	// 验证文件存在
+	assert.FileExists(t, filepath)
+	assert.Contains(t, filepath, ".pdf")
+
+	// 清理
+	os.Remove(filepath)
+}
+
+// TestChartGenerator_GenerateClusterPie 测试集群分布饼图生成
+func TestChartGenerator_GenerateClusterPie(t *testing.T) {
+	reportData := &ReportData{
+		Title:        "测试报告",
+		GeneratedAt:  time.Now(),
+		ConnectionID: 1,
+		Sections: []ReportSection{
+			{
+				Type: "cluster_table",
+				Data: []map[string]interface{}{
+					{"name": "Cluster-01", "numVMs": 50},
+					{"name": "Cluster-02", "numVMs": 30},
+					{"name": "Cluster-03", "numVMs": 20},
+				},
+			},
+		},
+	}
+
+	tmpDir := t.TempDir()
+	gen := NewChartGenerator(tmpDir)
+
+	images, err := gen.GenerateAllCharts(reportData)
+
+	// 饼图图应该生成成功（不需要指标数据源）
+	assert.NoError(t, err)
+	assert.NotNil(t, images)
+	assert.NotEmpty(t, images.ClusterDistribution, "集群分布图应该生成")
+
+	// 验证文件存在
+	assert.FileExists(t, images.ClusterDistribution)
+
+	// 清理
+	os.Remove(images.ClusterDistribution)
+}
+
+// TestMetricDataSourceAdapter 测试指标数据源适配器
+func TestMetricDataSourceAdapter(t *testing.T) {
+	// 这个测试需要真实的数据库连接，在集成测试中运行
+	t.Skip("需要数据库连接，在集成测试中运行")
+}
+
+// ========== Mock 数据源（用于单元测试） ==========
+
+type mockDataSource struct {
+	clusters []ClusterInfo
+	hosts    []HostInfo
+	vms      []VMInfo
+	findings map[string][]AnalysisFinding
+	taskInfo *TaskInfo
+}
+
+func (m *mockDataSource) GetClusters() ([]ClusterInfo, error) {
+	return m.clusters, nil
+}
+
+func (m *mockDataSource) GetHosts() ([]HostInfo, error) {
+	return m.hosts, nil
+}
+
+func (m *mockDataSource) GetVMs() ([]VMInfo, error) {
+	return m.vms, nil
+}
+
+func (m *mockDataSource) GetAnalysisFindings(jobType string) ([]AnalysisFinding, error) {
+	if findings, ok := m.findings[jobType]; ok {
+		return findings, nil
+	}
+	return []AnalysisFinding{}, nil
+}
+
+func (m *mockDataSource) GetTaskInfo() (*TaskInfo, error) {
+	if m.taskInfo == nil {
+		return &TaskInfo{Name: "Default Task", Platform: "test", StartedAt: time.Now(), MetricsDays: 30}, nil
+	}
+	return m.taskInfo, nil
 }

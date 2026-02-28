@@ -31,6 +31,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ **数据隔离架构** - 指标数据按任务隔离，支持独立分析
 - ✅ **双平台支持** - vCenter 和 H3C UIS 统一处理
 - ✅ **6 种指标完整采集** - CPU、内存、磁盘读写、网络收发
+- ✅ **评估模式系统** - 安全/节省/激进/自定义四种预设模式
+- ✅ **报告生成功能** - 支持 Excel 和 PDF 双格式导出
 - ✅ **命名规范统一** - 全项目驼峰命名（首字母小写）
 - ✅ **DTO + Service + Mapper** - v2 分层架构
 - ✅ **结构化日志系统** - 统一的日志和错误处理
@@ -730,6 +732,204 @@ func (c *VCenterClient) GetVMMetrics(...) (*VMMetrics, error) {
 - 实时间隔（`Realtime`）才提供全部 6 种指标
 - 历史间隔（`Historical`）仅提供 CPU 和内存指标
 - 使用空字符串 `""` 作为实例名获取聚合数据
+
+---
+
+## 主机信息获取最佳实践
+
+### vCenter 主机IP获取
+
+**错误方式**（会返回 vCenter 的 IP）：
+```go
+hostIP = hostMo.Summary.ManagementServerIp  // ❌ 返回 vCenter IP
+```
+
+**正确方式**（返回主机真实管理IP）：
+```go
+// 从管理网络接口获取IP（通常是 vmk0）
+if hostMo.Config != nil && hostMo.Config.Network != nil {
+    for _, vnic := range hostMo.Config.Network.Vnic {
+        if vnic.Device == "vmk0" {
+            if vnic.Spec.Ip != nil {
+                hostIP = vnic.Spec.Ip.IpAddress  // ✅ 返回主机真实IP
+                break
+            }
+        }
+    }
+}
+// 如果 vmk0 不存在，使用 ManagementServerIp 作为备用
+if hostIP == "" && hostMo.Summary.ManagementServerIp != "" {
+    hostIP = hostMo.Summary.ManagementServerIp
+}
+```
+
+**要点**：
+- 优先从 `config.network.vnic[vmk0].spec.ip.ipAddress` 获取
+- 使用 `RetrieveOne` 而非 `hostObj.Name()` 获取主机对象
+- 请求属性：`[]string{"name", "summary", "config.network.vnic"}`
+
+### H3C UIS 主机IP获取
+
+通过 HostID 关联主机列表获取：
+```go
+// 1. 获取主机列表
+hosts, err := c.GetHostList()
+
+// 2. 建立 HostID -> HostIP 映射
+hostIPMap := make(map[int]string)
+for _, host := range hosts {
+    hostIPMap[host.HostID] = host.HostIP
+}
+
+// 3. VM 使用时通过 HostID 查找
+hostIP = hostIPMap[vm.HostID]
+```
+
+**要点**：
+- 主机列表获取失败时不要中断 VM 采集
+- 使用 HostID 关联而非主机名（更可靠）
+
+---
+
+## 报告生成系统注意事项
+
+### Excel 生成常见陷阱
+
+#### 1. Map 迭代无序导致列值错位
+
+**问题**：Go 的 map 迭代顺序随机
+```go
+// ❌ 错误：列名和值可能不匹配
+for key, value := range data {
+    // ...
+}
+```
+
+**正确做法**：使用固定数组
+```go
+// ✅ 正确：固定列顺序
+columns := []string{"vmName", "cluster", "hostIp", "cpuCores"}
+for i, key := range columns {
+    cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
+    g.file.SetCellValue(sheet, cell, data[key])
+}
+```
+
+#### 2. Sheet1 空表问题
+
+**问题**：excelize 创建默认 Sheet1，代码直接删除导致问题
+
+**正确做法**：重命名而非删除
+```go
+// ❌ 错误
+g.file.DeleteSheet("Sheet1")
+
+// ✅ 正确
+g.file.SetSheetName("Sheet1", "概览")
+```
+
+#### 3. JSON 字段名与数据库不匹配
+
+**检查方法**：
+```bash
+# 1. 查看数据库实际存储的 JSON
+sqlite3 justfit.db "SELECT details FROM analysis_findings LIMIT 1;"
+
+# 2. 对比结构体定义
+grep "json:" internal/report/builder.go
+```
+
+**常见错误**：
+- 结构体用 `Cluster` 但数据库是 `datacenter`
+- 结构体用 `PatternType` 但数据库是 `pattern`
+
+#### 4. 文件扩展名处理
+
+**错误方式**（.xlsx 有 4 个字符）：
+```go
+ext := filepath[len(filepath)-3:]  // ❌ 假设扩展名是3字符
+```
+
+**正确方式**：
+```go
+ext := strings.TrimPrefix(filepath.Ext(filePath), ".")  // ✅ 自动识别长度
+```
+
+### PDF 生成注意事项
+
+#### 1. Go Vet 锁值复制警告
+
+**警告信息**：
+```
+wrapText passes lock by value: gopdf.GoPdf contains sync.Mutex
+```
+
+**影响**：单线程场景下无实际影响，但不符合最佳实践
+
+**解决方案**（可选）：
+```go
+// 改为只传递需要的参数
+func wrapText(text string, maxWidth float64, avgCharWidth float64) []string {
+    maxChars := int(maxWidth / avgCharWidth)
+    // ...
+}
+```
+
+#### 2. 中文字体加载
+
+确保字体文件存在：
+```go
+// internal/report/fonts/simhei.ttf
+err := pdf.AddTTFFont("wryh", "./internal/report/fonts/simhei.ttf")
+```
+
+### 数据字段对齐检查清单
+
+每次修改字段后执行以下检查：
+
+```bash
+# 1. 检查数据库模型
+grep "HostIP\|hostIp" internal/storage/models.go
+
+# 2. 检查 DTO 层
+grep "HostIP\|hostIp" internal/dto/response/*.go
+
+# 3. 检查 Mapper
+grep "HostIP\|hostIp" internal/dto/mapper/*.go
+
+# 4. 检查 app.go API 层
+grep "HostIP\|hostIp" app.go
+
+# 5. 检查前端类型定义
+grep "hostIp" frontend/src/types/*.ts
+
+# 6. 检查前端组件使用
+grep "hostIp\|hostName" frontend/src/views/*.vue
+
+# 7. 编译验证
+go build ./...
+```
+
+### 修改字段的完整流程
+
+1. **数据库模型** (`internal/storage/models.go`)
+   - 添加字段：`HostIP string \`gorm:"size:50" json:"hostIp"\``
+
+2. **DTO 响应** (`internal/dto/response/resource.go`)
+   - 添加字段：`HostIP string \`json:"hostIp,omitempty"\``
+
+3. **Mapper** (`internal/dto/mapper/vm_mapper.go`)
+   - 映射字段：`HostIP: model.HostIP`
+
+4. **API 层** (`app.go`)
+   - 结构体添加：`HostIP string \`json:"hostIp,omitempty"\```
+   - 映射数据：`HostIP: v.HostIP`
+
+5. **前端类型** (`frontend/src/types/v2.ts`, `frontend/src/types/api.ts`)
+   - 添加字段：`hostIp?: string`
+
+6. **前端组件** (`frontend/src/views/*.vue`)
+   - 表格列：`{ prop: 'hostIp', label: '主机IP' }`
 
 ---
 

@@ -305,6 +305,7 @@ func (e *CollectionExecutor) captureTaskVMSnapshots(taskID, connectionID uint, s
 			IPAddress:       vm.IPAddress,
 			GuestOS:         vm.GuestOS,
 			HostName:        vm.HostName,
+			HostIP:          vm.HostIP,
 			OverallStatus:   vm.OverallStatus,
 			CollectedAt:     vm.CollectedAt,
 		})

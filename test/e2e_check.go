@@ -32,7 +32,7 @@ func main() {
 	config := &connector.ConnectionConfig{
 		Name:     "H3C UIS 测试环境",
 		Platform: connector.PlatformH3CUIS,
-		Host:     "200.201.38.95",
+		Host:     "10.103.125.116",
 		Port:     443,
 		Username: "admin",
 		Password: "Admin@123.",

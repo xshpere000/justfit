@@ -239,6 +239,20 @@ func (r *VMRepository) ListByConnectionIDPaged(connectionID uint, limit, offset 
 	return vms, total, err
 }
 
+// ListByHostName 根据主机名称获取关联的虚拟机列表
+func (r *VMRepository) ListByHostName(hostName string) ([]VM, error) {
+	var vms []VM
+	err := r.db.Where("host_name = ?", hostName).Find(&vms).Error
+	return vms, err
+}
+
+// ListByHostNames 根据主机名称列表获取关联的虚拟机列表
+func (r *VMRepository) ListByHostNames(hostNames []string) ([]VM, error) {
+	var vms []VM
+	err := r.db.Where("host_name IN ?", hostNames).Find(&vms).Error
+	return vms, err
+}
+
 // ==============================================================================
 // MetricRepository 性能指标仓储
 // ==============================================================================
@@ -504,7 +518,10 @@ func (r *TaskAnalysisJobRepository) GetByID(id uint) (*TaskAnalysisJob, error) {
 
 func (r *TaskAnalysisJobRepository) GetByTaskAndType(taskID uint, jobType string) (*TaskAnalysisJob, error) {
 	var job TaskAnalysisJob
-	err := r.db.Where("task_id = ? AND job_type = ?", taskID, jobType).First(&job).Error
+	// 获取最新的执行记录（按 created_at DESC）
+	err := r.db.Where("task_id = ? AND job_type = ?", taskID, jobType).
+		Order("created_at DESC").
+		First(&job).Error
 	if err != nil {
 		return nil, err
 	}
@@ -513,7 +530,17 @@ func (r *TaskAnalysisJobRepository) GetByTaskAndType(taskID uint, jobType string
 
 func (r *TaskAnalysisJobRepository) ListByTaskID(taskID uint) ([]TaskAnalysisJob, error) {
 	var jobs []TaskAnalysisJob
-	err := r.db.Where("task_id = ?", taskID).Order("created_at ASC").Find(&jobs).Error
+	// 只返回每个 job_type 的最新执行记录
+	// 使用子查询获取每个 job_type 的最大 id
+	err := r.db.Raw(`
+		SELECT * FROM task_analysis_jobs
+		WHERE id IN (
+			SELECT MAX(id) FROM task_analysis_jobs
+			WHERE task_id = ?
+			GROUP BY job_type
+		)
+		ORDER BY job_type ASC
+	`, taskID).Find(&jobs).Error
 	return jobs, err
 }
 
@@ -556,18 +583,47 @@ func (r *AnalysisFindingRepository) BatchCreate(findings []AnalysisFinding) erro
 }
 
 func (r *AnalysisFindingRepository) ListByTaskAndJobType(taskID uint, jobType string) ([]AnalysisFinding, error) {
-	var findings []AnalysisFinding
-	query := r.db.Where("task_id = ?", taskID)
+	// 子查询：获取该任务下每个 job_type 的最新执行记录
+	latestJobsQuery := r.db.Table("task_analysis_jobs").
+		Select("job_type, MAX(id) as latest_job_id").
+		Where("task_id = ?", taskID).
+		Group("job_type")
+
 	if jobType != "" {
-		query = query.Where("job_type = ?", jobType)
+		latestJobsQuery = latestJobsQuery.Where("job_type = ?", jobType)
 	}
-	err := query.Order("severity DESC, created_at DESC").Find(&findings).Error
+
+	// 主查询：只关联最新执行的分析发现
+	var findings []AnalysisFinding
+	err := r.db.
+		Table("analysis_findings").
+		Joins("JOIN (?) AS latest_jobs ON analysis_findings.job_id = latest_jobs.latest_job_id AND analysis_findings.job_type = latest_jobs.job_type", latestJobsQuery).
+		Where("analysis_findings.task_id = ?", taskID).
+		Where("analysis_findings.deleted_at IS NULL").
+		Order("analysis_findings.severity DESC, analysis_findings.created_at DESC").
+		Find(&findings).Error
+
 	return findings, err
 }
 
 func (r *AnalysisFindingRepository) ListByTaskID(taskID uint) ([]AnalysisFinding, error) {
+	// 只返回最后一次执行的分析结果
+	// 子查询：获取该任务下每个 job_type 的最新执行记录
+	latestJobsQuery := r.db.Table("task_analysis_jobs").
+		Select("job_type, MAX(id) as latest_job_id").
+		Where("task_id = ?", taskID).
+		Group("job_type")
+
+	// 主查询：只关联最新执行的分析发现
 	var findings []AnalysisFinding
-	err := r.db.Where("task_id = ?", taskID).Order("job_type ASC, severity DESC").Find(&findings).Error
+	err := r.db.
+		Table("analysis_findings").
+		Joins("JOIN (?) AS latest_jobs ON analysis_findings.job_id = latest_jobs.latest_job_id AND analysis_findings.job_type = latest_jobs.job_type", latestJobsQuery).
+		Where("analysis_findings.task_id = ?", taskID).
+		Where("analysis_findings.deleted_at IS NULL").
+		Order("analysis_findings.job_type ASC, analysis_findings.severity DESC, analysis_findings.created_at DESC").
+		Find(&findings).Error
+
 	return findings, err
 }
 
@@ -778,170 +834,4 @@ func (r *TaskLogRepository) CreateLog(taskID uint, jobID *uint, operation, categ
 	}
 
 	return r.Create(log)
-}
-
-// ==============================================================================
-// 向后兼容的类型别名和函数
-// ==============================================================================
-
-// TaskAnalysisResultRepository 向后兼容
-type TaskAnalysisResultRepository = TaskAnalysisJobRepository
-
-func NewTaskAnalysisResultRepository() *TaskAnalysisResultRepository {
-	return NewTaskAnalysisJobRepository()
-}
-
-// ReportRepository 向后兼容
-type ReportRepository = TaskReportRepository
-
-func NewReportRepository() *ReportRepository {
-	return NewTaskReportRepository()
-}
-
-// ==============================================================================
-// AnalysisResultRepository 向后兼容 (实际使用 AnalysisFinding)
-// ==============================================================================
-
-type AnalysisResultRepository struct {
-	db *gorm.DB
-}
-
-func NewAnalysisResultRepository() *AnalysisResultRepository {
-	return &AnalysisResultRepository{db: DB}
-}
-
-// Create 创建分析结果 (转换为 AnalysisFinding 存储)
-func (r *AnalysisResultRepository) Create(result *AnalysisResult) error {
-	finding := &AnalysisFinding{
-		JobType:     result.AnalysisType,
-		TargetType:  result.TargetType,
-		TargetKey:   result.TargetKey,
-		TargetName:  result.TargetName,
-		Severity:    "info", // 默认严重级别
-		Category:    result.AnalysisType,
-		Title:       result.TargetName,
-		Description: result.Data,
-		Action:      result.Recommendation,
-		Reason:      result.SavedAmount,
-	}
-	return r.db.Create(finding).Error
-}
-
-// BatchCreate 批量创建分析结果
-func (r *AnalysisResultRepository) BatchCreate(results []AnalysisResult) error {
-	if len(results) == 0 {
-		return nil
-	}
-	findings := make([]AnalysisFinding, len(results))
-	for i, r := range results {
-		findings[i] = AnalysisFinding{
-			JobType:     r.AnalysisType,
-			TargetType:  r.TargetType,
-			TargetKey:   r.TargetKey,
-			TargetName:  r.TargetName,
-			Severity:    "info",
-			Category:    r.AnalysisType,
-			Title:       r.TargetName,
-			Description: r.Data,
-			Action:      r.Recommendation,
-			Reason:      r.SavedAmount,
-		}
-	}
-	return r.db.CreateInBatches(findings, 100).Error
-}
-
-// ListByReportID 获取报告的分析结果 (返回空列表，因为不再使用 ReportID)
-func (r *AnalysisResultRepository) ListByReportID(reportID uint) ([]AnalysisResult, error) {
-	// 不再支持按 ReportID 查询，返回空列表
-	return []AnalysisResult{}, nil
-}
-
-// ==============================================================================
-// AlertRepository 向后兼容 (实际使用 AnalysisFinding)
-// ==============================================================================
-
-type AlertRepository struct {
-	db *gorm.DB
-}
-
-func NewAlertRepository() *AlertRepository {
-	return &AlertRepository{db: DB}
-}
-
-// Create 创建告警 (转换为 AnalysisFinding 存储)
-func (r *AlertRepository) Create(alert *Alert) error {
-	finding := &AnalysisFinding{
-		JobType:     alert.AlertType,
-		TargetType:  alert.TargetType,
-		TargetKey:   alert.TargetKey,
-		TargetName:  alert.TargetName,
-		Severity:    alert.Severity,
-		Category:    alert.AlertType,
-		Title:       alert.Title,
-		Description: alert.Message,
-		Details:     alert.Data,
-	}
-	return r.db.Create(finding).Error
-}
-
-// BatchCreate 批量创建告警
-func (r *AlertRepository) BatchCreate(alerts []Alert) error {
-	if len(alerts) == 0 {
-		return nil
-	}
-	findings := make([]AnalysisFinding, len(alerts))
-	for i, a := range alerts {
-		findings[i] = AnalysisFinding{
-			JobType:     a.AlertType,
-			TargetType:  a.TargetType,
-			TargetKey:   a.TargetKey,
-			TargetName:  a.TargetName,
-			Severity:    a.Severity,
-			Category:    a.AlertType,
-			Title:       a.Title,
-			Description: a.Message,
-			Details:     a.Data,
-		}
-	}
-	return r.db.CreateInBatches(findings, 100).Error
-}
-
-// List 获取告警列表 (从 AnalysisFinding 查询)
-func (r *AlertRepository) List(acknowledged bool, limit, offset int) ([]Alert, error) {
-	// 从 AnalysisFinding 查询并转换为 Alert
-	var findings []AnalysisFinding
-	query := r.db.Order("created_at DESC")
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	if offset > 0 {
-		query = query.Offset(offset)
-	}
-	err := query.Find(&findings).Error
-
-	alerts := make([]Alert, len(findings))
-	for i, f := range findings {
-		alerts[i] = Alert{
-			TargetType: f.TargetType,
-			TargetKey:  f.TargetKey,
-			TargetName: f.TargetName,
-			AlertType:  f.Category,
-			Severity:   f.Severity,
-			Title:      f.Title,
-			Message:    f.Description,
-			Data:       f.Details,
-			CreatedAt:  f.CreatedAt,
-		}
-	}
-	return alerts, err
-}
-
-// Acknowledge 确认告警 (空操作，因为不再需要确认功能)
-func (r *AlertRepository) Acknowledge(id uint) error {
-	return nil
-}
-
-// DeleteByTarget 删除指定目标的所有告警
-func (r *AlertRepository) DeleteByTarget(targetType, targetKey string) error {
-	return r.db.Where("target_type = ? AND target_key = ?", targetType, targetKey).Delete(&AnalysisFinding{}).Error
 }

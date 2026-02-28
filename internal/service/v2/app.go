@@ -4,7 +4,6 @@ package v2
 
 import (
 	"context"
-	"time"
 
 	"justfit/internal/connector"
 	"justfit/internal/dto/mapper"
@@ -22,7 +21,6 @@ type Services struct {
 	Connection *ConnectionService
 	Resource   *ResourceService
 	Task       *TaskService
-	Alert      *AlertService
 }
 
 // NewServices 创建所有服务
@@ -38,7 +36,6 @@ func NewServices(
 		Connection: NewConnectionService(ctx, repos, connMgr, credentialMgr),
 		Resource:   NewResourceService(ctx, repos),
 		Task:       NewTaskService(ctx, repos, taskScheduler, taskLogger),
-		Alert:      NewAlertService(ctx, repos),
 	}
 }
 
@@ -240,117 +237,4 @@ func (s *TaskService) CreateAnalysis(req *request.CreateAnalysisRequest) (uint, 
 
 	s.log.Info("创建分析任务成功", logger.Uint("task_id", t.ID))
 	return t.ID, nil
-}
-
-// AlertService 告警服务
-type AlertService struct {
-	ctx    context.Context
-	repos  *storage.Repositories
-	mapper *mapper.AlertMapper
-	log    logger.Logger
-}
-
-// NewAlertService 创建告警服务
-func NewAlertService(
-	ctx context.Context,
-	repos *storage.Repositories,
-) *AlertService {
-	return &AlertService{
-		ctx:    ctx,
-		repos:  repos,
-		mapper: mapper.NewAlertMapper(),
-		log:    logger.With(logger.Str("service", "alert")),
-	}
-}
-
-// List 获取告警列表
-func (s *AlertService) List(acknowledged *bool, limit, offset int) ([]response.AlertListItem, error) {
-	s.log.Debug("获取告警列表")
-
-	var alerts []storage.Alert
-	query := s.repos.DB().Model(&storage.Alert{}).Order("created_at DESC")
-
-	if acknowledged != nil {
-		query = query.Where("acknowledged = ?", *acknowledged)
-	}
-
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	if offset > 0 {
-		query = query.Offset(offset)
-	}
-
-	if err := query.Find(&alerts).Error; err != nil {
-		s.log.Error("获取告警列表失败", logger.Err(err))
-		return nil, apperrors.ErrInternalError.Wrap(err, "获取告警列表失败")
-	}
-
-	result := s.mapper.ToListItemList(alerts)
-	s.log.Info("获取告警列表成功", logger.Int("count", len(result)))
-	return result, nil
-}
-
-// GetStats 获取告警统计
-func (s *AlertService) GetStats() (*response.AlertStats, error) {
-	s.log.Debug("获取告警统计")
-
-	stats := &response.AlertStats{
-		BySeverity: make(map[string]int64),
-		ByType:     make(map[string]int64),
-	}
-
-	s.repos.DB().Model(&storage.Alert{}).Count(&stats.Total)
-	s.repos.DB().Model(&storage.Alert{}).Where("acknowledged = ?", false).Count(&stats.Unacknowledged)
-
-	// 按严重程度统计
-	var severityStats []struct {
-		Severity string
-		Count    int64
-	}
-	s.repos.DB().Model(&storage.Alert{}).
-		Select("severity, count(*) as count").
-		Group("severity").
-		Scan(&severityStats)
-	for _, s := range severityStats {
-		stats.BySeverity[s.Severity] = s.Count
-	}
-
-	// 按类型统计
-	var typeStats []struct {
-		AlertType string
-		Count     int64
-	}
-	s.repos.DB().Model(&storage.Alert{}).
-		Select("alert_type, count(*) as count").
-		Group("alert_type").
-		Scan(&typeStats)
-	for _, t := range typeStats {
-		stats.ByType[t.AlertType] = t.Count
-	}
-
-	return stats, nil
-}
-
-// Mark 标记告警
-func (s *AlertService) Mark(id uint, acknowledged bool) error {
-	s.log.Info("标记告警", logger.Uint("id", id), logger.Bool("acknowledged", acknowledged))
-
-	now := time.Now()
-	if acknowledged {
-		return s.repos.DB().Model(&storage.Alert{}).
-			Where("id = ?", id).
-			Updates(map[string]interface{}{
-				"acknowledged":    true,
-				"acknowledged_at": &now,
-			}).Error
-	}
-
-	// 取消确认
-	return s.repos.DB().Model(&storage.Alert{}).
-		Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"acknowledged":    false,
-			"acknowledged_at": nil,
-		}).Error
 }
