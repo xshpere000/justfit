@@ -1,326 +1,284 @@
 <template>
   <div class="analysis-mode-content">
-    <!-- 模式选择区域 -->
-    <el-card class="mode-selection-card">
-      <template #header>
-        <div class="card-header">
-          <span class="card-title">评估模式配置</span>
-          <el-tag v-if="currentMode.mode" :type="getModeTagType(currentMode.mode)" size="large">
-            {{ currentMode.modeName }}
-          </el-tag>
-        </div>
-      </template>
-
-      <!-- 模式选择下拉列表 -->
-      <div class="mode-selector">
-        <el-form-item label="选择评估模式">
-          <el-select
-            v-model="selectedMode"
-            placeholder="请选择评估模式"
-            size="large"
-            style="width: 100%"
-            :disabled="isTaskRunning"
-            @change="handleModeChange"
-          >
-            <el-option
-              v-for="mode in availableModes"
-              :key="mode.mode"
-              :label="mode.name"
-              :value="mode.mode"
-            >
-              <div class="mode-option-item">
-                <span class="mode-name">{{ mode.name }}</span>
-                <span class="mode-desc">{{ mode.description }}</span>
-              </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
-      </div>
-
-      <!-- 模式说明 -->
-      <div class="mode-description" v-if="selectedModeInfo">
-        <el-icon class="desc-icon"><InfoFilled /></el-icon>
-        <div class="desc-content">
-          <div class="desc-title">{{ selectedModeInfo.name }}</div>
-          <div class="desc-text">{{ selectedModeInfo.description }}</div>
-          <div class="desc-hint" v-if="selectedMode !== 'custom'">
-            <el-icon><Lock /></el-icon>
-            内置模式参数已优化，仅供查看。如需自定义参数，请选择"自定义模式"
-          </div>
-          <div class="desc-hint" v-else>
-            <el-icon><Edit /></el-icon>
-            自定义模式允许您手动调整各项参数
-          </div>
-        </div>
-      </div>
-
-      <!-- 参数配置区域（滚动） -->
-      <div class="config-section" v-if="modeConfig">
-        <div class="config-section-header">
-          <h4>参数配置</h4>
+    <div class="analysis-mode-layout" v-if="modeConfig">
+      <section class="params-panel">
+        <div class="panel-header">
+          <h3>参数配置</h3>
           <el-tag size="small" :type="selectedMode === 'custom' ? 'warning' : 'info'">
             {{ selectedMode === 'custom' ? '可编辑' : '只读' }}
           </el-tag>
         </div>
 
         <div class="config-scroll-area">
-          <!-- 僵尸 VM 检测 -->
-          <div class="config-group">
-            <div class="config-group-header">
-              <el-icon><Monitor /></el-icon>
-              <span>僵尸 VM 检测</span>
-            </div>
+          <el-collapse v-model="collapseActiveNames" class="config-collapse">
+            <el-collapse-item name="zombie">
+              <template #title>
+                <div class="config-group-header">
+                  <el-icon><Monitor /></el-icon>
+                  <span>僵尸 VM 检测</span>
+                </div>
+              </template>
+              <div class="param-list">
+                <ParamSlider
+                  label="分析天数"
+                  v-model="modeConfig.zombieVM.analysisDays"
+                  :min="1"
+                  :max="90"
+                  :unit="'天'"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'分析过去N天的使用数据'"
+                />
+                <ParamSlider
+                  label="CPU 阈值"
+                  v-model="modeConfig.zombieVM.cpuThreshold"
+                  :min="0"
+                  :max="100"
+                  :unit="'%'"
+                  :step="0.5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'CPU使用率低于此值视为低使用'"
+                />
+                <ParamSlider
+                  label="内存阈值"
+                  v-model="modeConfig.zombieVM.memoryThreshold"
+                  :min="0"
+                  :max="100"
+                  :unit="'%'"
+                  :step="0.5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'内存使用率低于此值视为低使用'"
+                />
+                <ParamSlider
+                  label="I/O 阈值"
+                  v-model="modeConfig.zombieVM.ioThreshold"
+                  :min="0"
+                  :max="1000"
+                  :step="10"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'I/O使用率低于此值视为低使用'"
+                />
+                <ParamSlider
+                  label="网络阈值"
+                  v-model="modeConfig.zombieVM.networkThreshold"
+                  :min="0"
+                  :max="1000"
+                  :step="10"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'网络使用率低于此值视为低使用'"
+                />
+                <ParamSlider
+                  label="最小置信度"
+                  v-model="modeConfig.zombieVM.minConfidence"
+                  :min="0"
+                  :max="100"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'判断为僵尸VM的最低置信度要求'"
+                />
+              </div>
+            </el-collapse-item>
 
-            <div class="param-list">
-              <ParamSlider
-                label="分析天数"
-                v-model="modeConfig.zombieVM.analysisDays"
-                :min="1"
-                :max="90"
-                :unit="'天'"
-                :disabled="selectedMode !== 'custom'"
-                :description="'分析过去N天的使用数据'"
-              />
-              <ParamSlider
-                label="CPU 阈值"
-                v-model="modeConfig.zombieVM.cpuThreshold"
-                :min="0"
-                :max="100"
-                :unit="'%'"
-                :step="0.5"
-                :disabled="selectedMode !== 'custom'"
-                :description="'CPU使用率低于此值视为低使用'"
-              />
-              <ParamSlider
-                label="内存阈值"
-                v-model="modeConfig.zombieVM.memoryThreshold"
-                :min="0"
-                :max="100"
-                :unit="'%'"
-                :step="0.5"
-                :disabled="selectedMode !== 'custom'"
-                :description="'内存使用率低于此值视为低使用'"
-              />
-              <ParamSlider
-                label="I/O 阈值"
-                v-model="modeConfig.zombieVM.ioThreshold"
-                :min="0"
-                :max="1000"
-                :step="10"
-                :disabled="selectedMode !== 'custom'"
-                :description="'I/O使用率低于此值视为低使用'"
-              />
-              <ParamSlider
-                label="网络阈值"
-                v-model="modeConfig.zombieVM.networkThreshold"
-                :min="0"
-                :max="1000"
-                :step="10"
-                :disabled="selectedMode !== 'custom'"
-                :description="'网络使用率低于此值视为低使用'"
-              />
-              <ParamSlider
-                label="最小置信度"
-                v-model="modeConfig.zombieVM.minConfidence"
-                :min="0"
-                :max="100"
-                :unit="'%'"
-                :step="5"
-                :disabled="selectedMode !== 'custom'"
-                :description="'判断为僵尸VM的最低置信度要求'"
-              />
+            <el-collapse-item name="rightSize">
+              <template #title>
+                <div class="config-group-header">
+                  <el-icon><TrendCharts /></el-icon>
+                  <span>Right Size 分析</span>
+                </div>
+              </template>
+              <div class="param-list">
+                <ParamSlider
+                  label="分析天数"
+                  v-model="modeConfig.rightSize.analysisDays"
+                  :min="1"
+                  :max="30"
+                  :unit="'天'"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'分析过去N天的使用数据'"
+                />
+                <ParamSlider
+                  label="缓冲比例"
+                  v-model="modeConfig.rightSize.bufferRatio"
+                  :min="1.0"
+                  :max="2.0"
+                  :step="0.05"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'资源配置时的缓冲倍数'"
+                />
+                <ParamSlider
+                  label="P95 阈值"
+                  v-model="modeConfig.rightSize.p95Threshold"
+                  :min="50"
+                  :max="99"
+                  :unit="'%'"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'使用P95百分位数作为资源使用参考'"
+                />
+                <ParamSlider
+                  label="小幅调整阈值"
+                  v-model="modeConfig.rightSize.smallMargin"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'资源配置调整幅度小于此值视为小幅调整'"
+                />
+                <ParamSlider
+                  label="大幅调整阈值"
+                  v-model="modeConfig.rightSize.largeMargin"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'资源配置调整幅度大于此值视为大幅调整'"
+                />
+              </div>
+            </el-collapse-item>
+
+            <el-collapse-item name="tidal">
+              <template #title>
+                <div class="config-group-header">
+                  <el-icon><Clock /></el-icon>
+                  <span>潮汐模式检测</span>
+                </div>
+              </template>
+              <div class="param-list">
+                <ParamSlider
+                  label="分析天数"
+                  v-model="modeConfig.tidal.analysisDays"
+                  :min="1"
+                  :max="90"
+                  :unit="'天'"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'分析过去N天的使用数据'"
+                />
+                <ParamSlider
+                  label="最小稳定性"
+                  v-model="modeConfig.tidal.minStability"
+                  :min="0"
+                  :max="100"
+                  :unit="'分'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'模式稳定性的最低评分要求'"
+                />
+                <ParamSlider
+                  label="最小变化幅度"
+                  v-model="modeConfig.tidal.minVariation"
+                  :min="0"
+                  :max="100"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'峰值与谷值的最小差异百分比'"
+                />
+              </div>
+            </el-collapse-item>
+
+            <el-collapse-item name="health">
+              <template #title>
+                <div class="config-group-header">
+                  <el-icon><DataAnalysis /></el-icon>
+                  <span>健康评分</span>
+                </div>
+              </template>
+              <div class="param-list">
+                <ParamSlider
+                  label="资源均衡度权重"
+                  v-model="modeConfig.health.resourceBalanceWeight"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'资源分配均衡性的权重占比'"
+                />
+                <ParamSlider
+                  label="超配风险权重"
+                  v-model="modeConfig.health.overcommitRiskWeight"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'资源超分配风险的权重占比'"
+                />
+                <ParamSlider
+                  label="热点集中度权重"
+                  v-model="modeConfig.health.hotspotWeight"
+                  :min="0"
+                  :max="1"
+                  :step="0.05"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'热点负载集中度的权重占比'"
+                />
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+      </section>
+
+      <aside class="control-panel">
+        <div class="control-top">
+          <div class="panel-header">
+            <h3>评估模式配置</h3>
+            <div v-if="currentMode.mode" style="display: flex; align-items: center; gap: 6px;">
+              <span>当前模式：</span>
+              <el-tag :type="getModeTagType(currentMode.mode)" size="small">
+                {{ currentMode.modeName }}
+              </el-tag>
             </div>
           </div>
 
-          <!-- Right Size 分析 -->
-          <div class="config-group">
-            <div class="config-group-header">
-              <el-icon><TrendCharts /></el-icon>
-              <span>Right Size 分析</span>
-            </div>
-
-            <div class="param-list">
-              <ParamSlider
-                label="分析天数"
-                v-model="modeConfig.rightSize.analysisDays"
-                :min="1"
-                :max="30"
-                :unit="'天'"
-                :disabled="selectedMode !== 'custom'"
-                :description="'分析过去N天的使用数据'"
-              />
-              <ParamSlider
-                label="缓冲比例"
-                v-model="modeConfig.rightSize.bufferRatio"
-                :min="1.0"
-                :max="2.0"
-                :step="0.05"
-                :disabled="selectedMode !== 'custom'"
-                :description="'资源配置时的缓冲倍数'"
-              />
-              <ParamSlider
-                label="P95 阈值"
-                v-model="modeConfig.rightSize.p95Threshold"
-                :min="50"
-                :max="99"
-                :unit="'%'"
-                :disabled="selectedMode !== 'custom'"
-                :description="'使用P95百分位数作为资源使用参考'"
-              />
-              <ParamSlider
-                label="小幅调整阈值"
-                v-model="modeConfig.rightSize.smallMargin"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :disabled="selectedMode !== 'custom'"
-                :description="'资源配置调整幅度小于此值视为小幅调整'"
-              />
-              <ParamSlider
-                label="大幅调整阈值"
-                v-model="modeConfig.rightSize.largeMargin"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :disabled="selectedMode !== 'custom'"
-                :description="'资源配置调整幅度大于此值视为大幅调整'"
-              />
-            </div>
+          <div class="mode-selector">
+            <el-form-item label="">
+              <el-select
+                v-model="selectedMode"
+                placeholder="请选择评估模式"
+                size="large"
+                style="width: 100%"
+                :disabled="isTaskRunning"
+                @change="handleModeChange"
+              >
+                <el-option
+                  v-for="mode in availableModes"
+                  :key="mode.mode"
+                  :label="mode.name"
+                  :value="mode.mode"
+                />
+              </el-select>
+            </el-form-item>
           </div>
 
-          <!-- 潮汐模式检测 -->
-          <div class="config-group">
-            <div class="config-group-header">
-              <el-icon><Clock /></el-icon>
-              <span>潮汐模式检测</span>
-            </div>
-
-            <div class="param-list">
-              <ParamSlider
-                label="分析天数"
-                v-model="modeConfig.tidal.analysisDays"
-                :min="1"
-                :max="90"
-                :unit="'天'"
-                :disabled="selectedMode !== 'custom'"
-                :description="'分析过去N天的使用数据'"
-              />
-              <ParamSlider
-                label="最小稳定性"
-                v-model="modeConfig.tidal.minStability"
-                :min="0"
-                :max="100"
-                :unit="'分'"
-                :step="5"
-                :disabled="selectedMode !== 'custom'"
-                :description="'模式稳定性的最低评分要求'"
-              />
-              <ParamSlider
-                label="最小变化幅度"
-                v-model="modeConfig.tidal.minVariation"
-                :min="0"
-                :max="100"
-                :unit="'%'"
-                :step="5"
-                :disabled="selectedMode !== 'custom'"
-                :description="'峰值与谷值的最小差异百分比'"
-              />
-            </div>
-          </div>
-
-          <!-- 健康评分 -->
-          <div class="config-group">
-            <div class="config-group-header">
-              <el-icon><DataAnalysis /></el-icon>
-              <span>健康评分</span>
-            </div>
-
-            <div class="param-list">
-              <ParamSlider
-                label="资源均衡度权重"
-                v-model="modeConfig.health.resourceBalanceWeight"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :disabled="selectedMode !== 'custom'"
-                :description="'资源分配均衡性的权重占比'"
-              />
-              <ParamSlider
-                label="超配风险权重"
-                v-model="modeConfig.health.overcommitRiskWeight"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :disabled="selectedMode !== 'custom'"
-                :description="'资源超分配风险的权重占比'"
-              />
-              <ParamSlider
-                label="热点集中度权重"
-                v-model="modeConfig.health.hotspotWeight"
-                :min="0"
-                :max="1"
-                :step="0.05"
-                :disabled="selectedMode !== 'custom'"
-                :description="'热点负载集中度的权重占比'"
-              />
+          <div class="mode-description" v-if="selectedModeInfo">
+            <el-icon class="desc-icon"><InfoFilled /></el-icon>
+            <div class="desc-content">
+              <div class="desc-title">{{ selectedModeInfo.name }}</div>
+              <div class="desc-text">{{ selectedModeInfo.description }}</div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 操作按钮 -->
-      <div class="action-buttons">
-        <el-button
-          type="primary"
-          size="large"
-          :disabled="!hasChanges || isTaskRunning"
-          :loading="saving"
-          @click="handleSave"
-        >
-          <el-icon><Check /></el-icon>
-          保存配置
-        </el-button>
-        <el-button
-          size="large"
-          :disabled="isTaskRunning"
-          @click="handleReset"
-        >
-          <el-icon><RefreshLeft /></el-icon>
-          重置为默认
-        </el-button>
-      </div>
-
-      <!-- 提示信息 -->
-      <el-alert
-        v-if="isTaskRunning"
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-top: 16px"
-      >
-        任务运行中无法修改评估模式，请等待任务完成后再试
-      </el-alert>
-
-      <el-alert
-        v-else-if="selectedMode === 'custom'"
-        type="warning"
-        :closable="false"
-        show-icon
-        style="margin-top: 16px"
-      >
-        自定义模式已启用，修改参数后请点击"保存配置"。修改后需要重新运行分析才能使用新配置
-      </el-alert>
-
-      <el-alert
-        v-else
-        type="success"
-        :closable="false"
-        show-icon
-        style="margin-top: 16px"
-      >
-        当前使用 {{ currentMode.modeName }}，参数已优化，切换模式后请点击"保存配置"
-      </el-alert>
-    </el-card>
+        <div class="control-actions">
+          <el-button
+            size="large"
+            :disabled="isTaskRunning || selectedMode !== 'custom'"
+            @click="handleResetCustom"
+          >
+            <el-icon><RefreshLeft /></el-icon>
+            重置自定义值
+          </el-button>
+          <el-button
+            type="primary"
+            size="large"
+            :disabled="!hasChanges || isTaskRunning"
+            :loading="saving"
+            @click="handleSave"
+          >
+            <el-icon><Check /></el-icon>
+            保存配置
+          </el-button>
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -329,8 +287,6 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   InfoFilled,
-  Lock,
-  Edit,
   Monitor,
   TrendCharts,
   Clock,
@@ -342,12 +298,18 @@ import * as App from '../../wailsjs/go/main/App'
 import type { AnalysisModeResponse, AnalysisModeType, AnalysisConfig } from '@/types/v2'
 import ParamSlider from './components/ParamSlider.vue'
 
+type FullAnalysisConfig = {
+  zombieVM: NonNullable<AnalysisConfig['zombieVM']>
+  rightSize: NonNullable<AnalysisConfig['rightSize']>
+  tidal: NonNullable<AnalysisConfig['tidal']>
+  health: NonNullable<AnalysisConfig['health']>
+}
+
 const props = defineProps<{
   taskId: number
   taskStatus: string
 }>()
 
-// 当前模式
 const currentMode = reactive<AnalysisModeResponse>({
   mode: 'safe',
   modeName: '安全模式',
@@ -356,11 +318,12 @@ const currentMode = reactive<AnalysisModeResponse>({
   availableModes: []
 })
 
-// 选中的模式
 const selectedMode = ref<AnalysisModeType>('safe')
+const originalMode = ref<AnalysisModeType>('safe')
+const originalConfigText = ref('')
+const collapseActiveNames = ref<string[]>([])
 
-// 模式配置
-const modeConfig = ref<AnalysisConfig>({
+const modeConfig = ref<FullAnalysisConfig>({
   zombieVM: {
     analysisDays: 30,
     cpuThreshold: 5.0,
@@ -388,28 +351,30 @@ const modeConfig = ref<AnalysisConfig>({
   }
 })
 
-// 可用模式列表
 const availableModes = computed(() => currentMode.availableModes || [])
 
-// 选中的模式信息
 const selectedModeInfo = computed(() => {
   return availableModes.value.find(m => m.mode === selectedMode.value)
 })
 
-// 保存状态
 const saving = ref(false)
 
-// 是否有变更
 const hasChanges = computed(() => {
-  return selectedMode.value !== currentMode.mode
+  if (selectedMode.value !== originalMode.value) {
+    return true
+  }
+
+  if (selectedMode.value !== 'custom') {
+    return false
+  }
+
+  return serializeConfig(modeConfig.value) !== originalConfigText.value
 })
 
-// 任务是否运行中
 const isTaskRunning = computed(() => {
   return props.taskStatus === 'running' || props.taskStatus === 'pending'
 })
 
-// 获取模式标签类型
 function getModeTagType(mode: AnalysisModeType) {
   const typeMap: Record<AnalysisModeType, string> = {
     safe: 'success',
@@ -420,40 +385,15 @@ function getModeTagType(mode: AnalysisModeType) {
   return typeMap[mode] || 'info'
 }
 
-// 加载评估模式
-async function loadAnalysisMode() {
-  if (!props.taskId) return
-
-  try {
-    const result = await App.GetAnalysisMode(props.taskId)
-    if (result) {
-      Object.assign(currentMode, result)
-      selectedMode.value = result.mode as AnalysisModeType
-
-      // 加载配置
-      if (result.config) {
-        modeConfig.value = { ...result.config }
-      }
-    }
-  } catch (error: any) {
-    console.error('加载评估模式失败:', error)
-    ElMessage.error('加载评估模式失败: ' + (error.message || '未知错误'))
-  }
+function cloneConfig(config: AnalysisConfig | FullAnalysisConfig): FullAnalysisConfig {
+  return JSON.parse(JSON.stringify(config)) as FullAnalysisConfig
 }
 
-// 模式切换
-function handleModeChange(mode: AnalysisModeType) {
-  console.log('切换模式:', mode)
-
-  // 根据选择的模式更新预设配置
-  const presets = getModePresets()
-  if (presets[mode]) {
-    modeConfig.value = JSON.parse(JSON.stringify(presets[mode]))
-  }
+function serializeConfig(config: FullAnalysisConfig): string {
+  return JSON.stringify(config)
 }
 
-// 获取模式预设配置
-function getModePresets() {
+function getModePresets(): Record<AnalysisModeType, FullAnalysisConfig> {
   return {
     safe: {
       zombieVM: {
@@ -566,9 +506,40 @@ function getModePresets() {
   }
 }
 
-// 保存配置
+async function loadAnalysisMode() {
+  if (!props.taskId) {
+    return
+  }
+
+  try {
+    const result = await App.GetAnalysisMode(props.taskId)
+    if (result) {
+      Object.assign(currentMode, result)
+      selectedMode.value = result.mode as AnalysisModeType
+      originalMode.value = result.mode as AnalysisModeType
+
+      const presets = getModePresets()
+      const nextConfig = result.config || presets[result.mode as AnalysisModeType] || presets.safe
+      modeConfig.value = cloneConfig(nextConfig as AnalysisConfig)
+      originalConfigText.value = serializeConfig(modeConfig.value)
+    }
+  } catch (error: any) {
+    console.error('加载评估模式失败:', error)
+    ElMessage.error('加载评估模式失败: ' + (error.message || '未知错误'))
+  }
+}
+
+function handleModeChange(mode: AnalysisModeType) {
+  const presets = getModePresets()
+  if (presets[mode]) {
+    modeConfig.value = cloneConfig(presets[mode])
+  }
+}
+
 async function handleSave() {
-  if (!props.taskId) return
+  if (!props.taskId) {
+    return
+  }
 
   saving.value = true
   try {
@@ -578,7 +549,6 @@ async function handleSave() {
 
     await App.SetAnalysisMode(props.taskId, selectedMode.value, configJSON)
 
-    // 更新当前模式
     currentMode.mode = selectedMode.value
     const modeInfo = availableModes.value.find(m => m.mode === selectedMode.value)
     if (modeInfo) {
@@ -596,22 +566,20 @@ async function handleSave() {
   }
 }
 
-// 重置为默认
-async function handleReset() {
-  if (!props.taskId) return
+async function handleResetCustom() {
+  if (selectedMode.value !== 'custom') {
+    return
+  }
 
   try {
     await ElMessageBox.confirm(
-      '确定要重置为默认的安全模式吗？',
+      '确定要重置当前自定义参数为默认值吗？',
       '确认重置',
       { type: 'warning' }
     )
 
-    await App.SetAnalysisMode(props.taskId, 'safe', '')
-    selectedMode.value = 'safe'
-    handleModeChange('safe')
-    await loadAnalysisMode()
-    ElMessage.success('已重置为安全模式')
+    modeConfig.value = cloneConfig(getModePresets().custom)
+    ElMessage.success('自定义参数已重置，请点击保存配置')
   } catch (error: any) {
     if (error !== 'cancel') {
       console.error('重置失败:', error)
@@ -620,10 +588,13 @@ async function handleReset() {
   }
 }
 
-// 监听任务 ID 变化
-watch(() => props.taskId, () => {
-  loadAnalysisMode()
-}, { immediate: true })
+watch(
+  () => props.taskId,
+  () => {
+    loadAnalysisMode()
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   loadAnalysisMode()
@@ -633,57 +604,100 @@ onMounted(() => {
 <style scoped lang="scss">
 .analysis-mode-content {
   height: 100%;
-  overflow-y: auto;
-  padding: 20px;
+  min-height: 0;
+  overflow: hidden;
   box-sizing: border-box;
 
-  .mode-selection-card {
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+  .analysis-mode-layout {
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(340px, 4fr);
+    gap: 16px;
+  }
 
-      .card-title {
-        font-size: 18px;
-        font-weight: 600;
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+    }
+  }
+
+  .params-panel {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 8px;
+    background: var(--el-fill-color-blank);
+
+    .config-scroll-area {
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 6px;
+
+      &::-webkit-scrollbar {
+        width: 8px;
       }
+
+      &::-webkit-scrollbar-track {
+        background: var(--el-fill-color-lighter);
+        border-radius: 4px;
+      }
+
+      &::-webkit-scrollbar-thumb {
+        background: var(--el-border-color-darker);
+        border-radius: 4px;
+
+        &:hover {
+          background: var(--el-border-color-dark);
+        }
+      }
+    }
+  }
+
+  .control-panel {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 8px;
+    background: var(--el-fill-color-blank);
+
+    .control-top {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     .mode-selector {
-      margin-bottom: 20px;
-
       :deep(.el-form-item) {
         margin-bottom: 0;
-      }
-
-      .mode-option-item {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-
-        .mode-name {
-          font-weight: 600;
-          color: var(--el-text-color-primary);
-        }
-
-        .mode-desc {
-          font-size: 12px;
-          color: var(--el-text-color-secondary);
-        }
       }
     }
 
     .mode-description {
       display: flex;
-      gap: 12px;
-      padding: 16px;
-      background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%);
+      gap: 10px;
+      padding: 12px;
+      background: var(--el-fill-color-light);
       border-radius: 8px;
-      margin-bottom: 24px;
 
       .desc-icon {
         color: var(--el-color-primary);
-        font-size: 24px;
+        font-size: 20px;
         flex-shrink: 0;
       }
 
@@ -691,123 +705,95 @@ onMounted(() => {
         flex: 1;
 
         .desc-title {
-          font-size: 16px;
+          font-size: 14px;
           font-weight: 600;
           color: var(--el-text-color-primary);
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
 
         .desc-text {
-          font-size: 14px;
+          font-size: 13px;
           color: var(--el-text-color-regular);
           line-height: 1.6;
-          margin-bottom: 8px;
-        }
-
-        .desc-hint {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 13px;
-          color: var(--el-color-warning);
-          background: rgba(var(--el-color-warning-rgb), 0.1);
-          padding: 8px 12px;
-          border-radius: 6px;
         }
       }
     }
 
-    .config-section {
-      margin-bottom: 24px;
-
-      .config-section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-
-        h4 {
-          margin: 0;
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--el-text-color-primary);
-        }
-      }
-
-      .config-scroll-area {
-        max-height: 600px;
-        overflow-y: auto;
-        padding-right: 8px;
-
-        &::-webkit-scrollbar {
-          width: 8px;
-        }
-
-        &::-webkit-scrollbar-track {
-          background: var(--el-fill-color-lighter);
-          border-radius: 4px;
-        }
-
-        &::-webkit-scrollbar-thumb {
-          background: var(--el-border-color-darker);
-          border-radius: 4px;
-
-          &:hover {
-            background: var(--el-border-color-dark);
-          }
-        }
-
-        .config-group {
-          margin-bottom: 24px;
-          padding: 16px;
-          background: var(--el-fill-color-blank);
-          border: 1px solid var(--el-border-color-lighter);
-          border-radius: 8px;
-
-          &:last-child {
-            margin-bottom: 0;
-          }
-
-          .config-group-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--el-text-color-primary);
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--el-border-color-lighter);
-
-            .el-icon {
-              color: var(--el-color-primary);
-            }
-          }
-
-          .param-list {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-          }
-        }
-      }
-    }
-
-    .action-buttons {
-      display: flex;
-      gap: 12px;
-      padding-top: 16px;
+    .control-actions {
+      margin-top: auto;
+      padding-top: 12px;
       border-top: 1px solid var(--el-border-color-lighter);
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      gap: 10px;
+
+      .el-button {
+        width: 136px;
+        margin-left: 0;
+      }
+    }
+  }
+
+  .config-collapse {
+    border-top: none;
+    border-bottom: none;
+
+    :deep(.el-collapse-item) {
+      border: 1px solid var(--el-border-color-lighter);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    :deep(.el-collapse-item__header) {
+      height: auto;
+      line-height: normal;
+      padding: 12px 14px;
+      background: var(--el-fill-color-blank);
+      border-bottom: none;
+    }
+
+    :deep(.el-collapse-item__wrap) {
+      border-bottom: none;
+    }
+
+    :deep(.el-collapse-item__content) {
+      padding: 0 14px 14px;
+    }
+
+    .config-group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+
+      .el-icon {
+        color: var(--el-color-primary);
+      }
+    }
+
+    .param-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding-top: 8px;
     }
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 960px) {
   .analysis-mode-content {
-    padding: 16px;
+    .analysis-mode-layout {
+      grid-template-columns: 1fr;
+    }
 
-    .config-scroll-area {
-      max-height: 400px !important;
+    .control-panel {
+      .control-actions {
+        margin-top: 0;
+      }
     }
   }
 }
