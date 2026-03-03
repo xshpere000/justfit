@@ -65,82 +65,99 @@
       <!-- Tab 导航 -->
       <el-tabs v-model="activeTab" class="task-tabs">
         <el-tab-pane label="概览" name="overview">
-          <div class="overview-content">
-            <!-- 任务统计 -->
-            <el-row :gutter="20" class="stats-row">
-              <el-col :span="6">
-                <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32">
-                    <Monitor />
-                  </el-icon>
-                  <div class="stat-content">
-                    <div class="stat-value">{{ task.vmCount }}</div>
-                    <div class="stat-label">虚拟机数量</div>
-                  </div>
-                </div>
-              </el-col>
-              <el-col :span="6">
-                <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32">
-                    <Clock />
-                  </el-icon>
-                  <div class="stat-content">
-                    <div class="stat-value">{{ formatDuration(task) }}</div>
-                    <div class="stat-label">采集耗时</div>
-                  </div>
-                </div>
-              </el-col>
-              <el-col :span="6">
-                <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32">
-                    <Check />
-                  </el-icon>
-                  <div class="stat-content">
-                    <div class="stat-value">{{ completedAnalyses }}</div>
-                    <div class="stat-label">已完成分析</div>
-                  </div>
-                </div>
-              </el-col>
-              <el-col :span="6">
-                <div class="stat-card">
-                  <el-icon class="stat-icon" :size="32">
-                    <TrendCharts />
-                  </el-icon>
-                  <div class="stat-content">
-                    <div class="stat-value">{{ task.platform === 'vcenter' ? 'vSphere' : 'UIS' }}</div>
-                    <div class="stat-label">平台类型</div>
-                  </div>
-                </div>
-              </el-col>
-            </el-row>
-
-            <!-- 分析功能入口 -->
-            <div class="analysis-grid">
-              <h3 class="section-title">分析功能</h3>
-              <el-row :gutter="16">
-                <el-col :span="6" v-for="analysis in analyses" :key="analysis.key">
-                  <div class="analysis-card" :class="{ completed: task.analysisResults?.[analysis.key] }"
-                    @click="runAnalysis(analysis.key)">
-                    <div class="analysis-icon" :class="'analysis-icon--' + analysis.color">
-                      <el-icon :size="28">
-                        <component :is="analysis.icon" />
-                      </el-icon>
-                    </div>
-                    <h4 class="analysis-title">{{ analysis.title }}</h4>
-                    <p class="analysis-desc">{{ analysis.description }}</p>
-                    <div class="analysis-status">
-                      <el-icon v-if="task.analysisResults?.[analysis.key]" class="status-icon">
-                        <CircleCheck />
-                      </el-icon>
-                      <el-icon v-else class="status-icon pending">
-                        <CircleClose />
-                      </el-icon>
-                      <span>{{ task.analysisResults?.[analysis.key] ? '已完成' : '未运行' }}</span>
-                    </div>
-                  </div>
-                </el-col>
-              </el-row>
+                  <div class="overview-grid">
+          <!-- 1. 顶部：平台核心长条 -->
+          <div class="o-ribbon">
+            <div class="r-left">
+              <div class="p-logo"><el-icon><component :is="task.platform === 'vcenter' ? 'Platform' : 'Cpu'" /></el-icon></div>
+              <div class="p-text">
+                <div class="p-title">{{ task.platform === 'vcenter' ? 'vSphere' : 'UIS' }} 平台分析</div>
+                <div class="p-sub">耗时: {{ formatDuration(task) }}</div>
+              </div>
             </div>
+            <div class="r-right">
+              <div class="r-stat">
+                <span class="r-val">{{ task.vmCount }}</span>
+                <span class="r-lbl">虚拟机</span>
+              </div>
+              <div class="r-div"></div>
+              <div class="r-stat">
+                <span class="r-val">{{ completedAnalyses }}<small>/{{ analyses.length }}</small></span>
+                <span class="r-lbl">已分析</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 主体区 (严格限制网格比例) -->
+          <div class="o-main">
+            <!-- 左侧：分析 -->
+            <div class="o-panel o-analysis">
+              <div class="panel-hd">
+                <span class="ph-title"><el-icon><DataAnalysis/></el-icon> 分析探索</span>
+              </div>
+              <div class="o-list">
+                <div v-for="analysis in analyses" :key="analysis.key" 
+                  class="o-item" :class="{'is-done': task.analysisResults?.[analysis.key]}"
+                  @click="!task.analysisResults?.[analysis.key] && runAnalysis(analysis.key)">
+                  
+                  <div class="i-icon" :class="'i-' + analysis.color"><el-icon><component :is="analysis.icon" /></el-icon></div>
+                  <div class="i-core">
+                    <div class="i-name">{{ analysis.title }}</div>
+                    <div class="i-desc">{{ analysis.description }}</div>
+                  </div>
+                  <div class="i-act">
+                    <el-tag v-if="task.analysisResults?.[analysis.key]" size="small" type="success" effect="light" round>已完成</el-tag>
+                    <el-button v-else type="primary" size="small" :icon="VideoPlay" plain round class="run-btn" @click.stop="runAnalysis(analysis.key)">
+                      运行
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右侧：报告 -->
+            <div class="o-panel o-report">
+              <div class="panel-hd">
+                <span class="ph-title"><el-icon><DocumentCopy/></el-icon> 分析报告</span>
+                </div>
+              
+              <div class="o-actions">
+                <el-button class="exp-btn ex-excel" @click="exportReport('xlsx')" :loading="exporting.xlsx">
+                  <el-icon><DocumentCopy /></el-icon> <span>导出 Excel</span>
+                </el-button>
+                <el-button class="exp-btn ex-pdf" @click="exportReport('pdf')" :loading="exporting.pdf">
+                  <el-icon><Notebook /></el-icon> <span>生成 PDF</span>
+                </el-button>
+              </div>
+
+              <div class="o-history">
+                <div class="hist-label">最近记录</div>
+                <div v-if="reportHistory.length > 0" class="hist-list">
+                  <div v-for="report in reportHistory" :key="report.title+report.createdAt" class="h-item">
+                    <div class="h-fmt" :class="report.format === 'xlsx' ? 'fmt-ex' : 'fmt-pd'">{{ report.format.toUpperCase() }}</div>
+                    <div class="h-info">
+                      <div class="h-name">{{ report.createdAt }}</div>
+                      <div class="h-time">{{ formatFileSize(report.fileSize) }}</div>
+                    </div>
+                    <div class="h-actions">
+                      <el-button circle size="small" type="primary" plain class="h-btn" @click="downloadReport(report)" title="下载">
+                        <el-icon><Download /></el-icon>
+                      </el-button>
+                      <el-button circle size="small" type="danger" plain class="h-btn" @click="deleteReport(report)" title="删除">
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="hist-empty">
+                  <span class="he-text">暂无历史报告</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+            
           </div>
         </el-tab-pane>
 
@@ -404,87 +421,6 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="分析报告" name="reports">
-          <div class="reports-content">
-            <!-- 导出按钮组 -->
-            <div class="export-section">
-              <el-card>
-                <div class="export-header">
-                  <div>
-                    <h3>生成报告</h3>
-                    <p style="color: var(--el-text-color-secondary); margin-top: 4px;">
-                      根据本任务的分析结果生成报告文件
-                    </p>
-                  </div>
-                  <el-space>
-                    <el-button type="primary" size="large" @click="exportReport('xlsx')" :loading="exporting.xlsx">
-                      <el-icon>
-                        <DocumentCopy />
-                      </el-icon>
-                      Excel 数据表
-                    </el-button>
-                    <el-button type="success" size="large" @click="exportReport('pdf')" :loading="exporting.pdf">
-                      <el-icon>
-                        <Notebook />
-                      </el-icon>
-                      PDF 分析报告
-                    </el-button>
-                  </el-space>
-                </div>
-
-                <!-- 报告说明 -->
-                <el-divider />
-                <el-descriptions :column="2" border size="small">
-                  <el-descriptions-item label="Excel 数据表">
-                    包含所有采集数据和分析结果的详细表格，支持数据筛选和排序
-                  </el-descriptions-item>
-                  <el-descriptions-item label="PDF 分析报告">
-                    可视化报告，包含图表和统计信息，适合阅读和分享
-                  </el-descriptions-item>
-                </el-descriptions>
-              </el-card>
-            </div>
-
-            <!-- 历史报告列表 -->
-            <div class="report-history" style="margin-top: 20px;">
-              <h4>历史报告</h4>
-              <el-card v-loading="reportsLoading">
-                <el-table v-if="reportHistory.length > 0" :data="reportHistory" stripe>
-                  <el-table-column prop="title" label="报告名称" min-width="200" />
-                  <el-table-column prop="format" label="格式" width="100">
-                    <template #default="{ row }">
-                      <el-tag :type="row.format === 'xlsx' ? 'primary' : 'success'" size="small">
-                        {{ row.format.toUpperCase() }}
-                      </el-tag>
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="createdAt" label="生成时间" width="180" />
-                  <el-table-column prop="fileSize" label="文件大小" width="120">
-                    <template #default="{ row }">
-                      {{ formatFileSize(row.fileSize) }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="操作" width="180" align="center">
-                    <template #default="{ row }">
-                      <el-button size="small" @click="downloadReport(row)">
-                        <el-icon>
-                          <Download />
-                        </el-icon> 下载
-                      </el-button>
-                      <el-button size="small" type="danger" @click="deleteReport(row)">
-                        <el-icon>
-                          <Delete />
-                        </el-icon>
-                      </el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-                <el-empty v-else description="暂无历史报告，点击上方按钮生成报告" />
-              </el-card>
-            </div>
-          </div>
-        </el-tab-pane>
-
         <el-tab-pane label="执行日志" name="logs">
           <div class="analysis-content">
             <!-- 工具栏：搜索和刷新 -->
@@ -577,13 +513,12 @@ import AnalysisModeTab from './AnalysisModeTab.vue'
 import {
   Download,
   MoreFilled,
-  Monitor,
-  Clock,
-  Check,
-  TrendCharts,
   VideoPause,
+  VideoPlay,
   CloseBold,
+  Platform,
   Coin,
+  Cpu,
   DataAnalysis,
   CircleCheck,
   CircleClose,
@@ -591,7 +526,7 @@ import {
   Search,
   DocumentCopy,
   Notebook,
-  View,
+
   Delete
 } from '@element-plus/icons-vue'
 
@@ -876,11 +811,6 @@ watch(activeTab, async (newTab) => {
       if (task.value?.id) {
         await loadAnalysisResultFromBackend(task.value.id)
       }
-      break
-    case 'reports':
-      console.log('[TaskDetail] 切换到分析报告标签')
-      // 报告列表不依赖 task.value.id，使用 taskId
-      await loadReportHistory()
       break
   }
 })
@@ -1529,6 +1459,7 @@ async function exportReport(format: string = 'xlsx') {
   }
 }
 
+
 // 加载报告历史
 async function loadReportHistory() {
   // 使用 taskId.value 而不是 task.value?.id，确保一致性
@@ -1828,129 +1759,291 @@ function getPowerStateText(state: string) {
   }
 }
 
-.overview-content {
-  .stats-row {
-    margin-bottom: $spacing-xl;
+.overview-grid {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px;
+  min-height: 0;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
 
-    .stat-card {
+  .o-ribbon {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #f4f9ff 0%, #ffffff 50%, #f4f9ff 100%);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(64, 158, 255, 0.2);
+    border-radius: 8px;
+    padding: 12px 24px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(64, 158, 255, 0.08);
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image: 
+        linear-gradient(rgba(64, 158, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(64, 158, 255, 0.05) 1px, transparent 1px);
+      background-size: 20px 20px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    &::after {
+      content: "";
+      position: absolute;
+      top: 0; right: 20%;
+      width: 150px; height: 100px;
+      background: radial-gradient(circle, rgba(64,158,255,0.15) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    > * { position: relative; z-index: 1; }
+
+    .r-left {
       display: flex;
       align-items: center;
-      gap: $spacing-md;
-      padding: $spacing-lg;
-      background: white;
-      border-radius: 12px;
-      border: 1px solid $border-color-light;
+      gap: 14px;
 
-      .stat-icon {
-        color: $primary-color;
+      .p-logo {
+        font-size: 26px;
+        color: #409eff;
+        background: #ecf5ff;
+        border: 1px solid #b3d8ff;
+        padding: 8px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 10px rgba(64, 158, 255, 0.1) inset;
+      }
+      .p-title { 
+        font-size: 15px; 
+        font-weight: bold; 
+        color: #303133; 
+        margin-bottom: 2px; 
+        letter-spacing: 0.5px;
+      }
+      .p-sub { 
+        font-size: 12px; 
+        color: #909399; 
+      }
+    }
+
+    .r-right {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+
+      .r-stat {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+
+        .r-val { 
+          font-size: 20px; 
+          font-weight: bold; 
+          color: #409eff; 
+          line-height: 1; 
+          text-shadow: 0 0 8px rgba(64, 158, 255, 0.3);
+          
+          small { 
+            font-size: 13px; 
+            color: #909399; 
+            font-weight: normal; 
+          }
+        }
+        .r-lbl { font-size: 12px; color: #606266; margin-top: 3px; }
+      }
+      .r-div { width: 1px; height: 24px; background: rgba(64, 158, 255, 0.2); }
+    }
+  }
+  .o-main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .o-panel {
+    background: var(--el-bg-color-overlay);
+    border: 1px solid var(--el-border-color-light);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    
+    .panel-hd {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--el-border-color-lighter);
+      flex-shrink: 0;
+      
+      .ph-title { 
+        font-size: 14px; 
+        font-weight: bold; 
+        color: var(--el-text-color-primary); 
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      
+    }
+  }
+
+  .o-analysis {
+    .o-list { min-height: 0;
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .o-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--el-border-color-lighter);
+      transition: all 0.2s;
+      cursor: pointer;
+      
+      &:hover {
+        background: var(--el-color-primary-light-9);
+        border-color: var(--el-color-primary-light-7);
+      }
+      &.is-done {
+        background: var(--el-color-success-light-9);
+        border-color: var(--el-color-success-light-7);
+        cursor: default;
       }
 
-      .stat-content {
-        .stat-value {
-          font-size: 24px;
-          font-weight: 600;
-          color: $text-color-primary;
-        }
+      .i-icon {
+        font-size: 18px;
+        padding: 8px;
+        border-radius: 6px;
+        background: var(--el-bg-color);
+        &.i-blue { color: var(--el-color-primary); }
+        &.i-green { color: var(--el-color-success); }
+        &.i-orange { color: var(--el-color-warning); }
+        &.i-danger, &.i-purple { color: var(--el-color-danger); }
+      }
 
-        .stat-label {
-          font-size: 13px;
-          color: $text-color-secondary;
+      .i-core {
+        flex: 1;
+        min-width: 0;
+        .i-name { font-size: 13px; font-weight: bold; color: var(--el-text-color-primary); margin-bottom: 2px;}
+        .i-desc { 
+          font-size: 12px; 
+          color: var(--el-text-color-secondary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
+      }
+      .i-act { flex-shrink: 0; }
+    }
+  }
+
+  .o-report {
+    padding: 0;
+    
+    .o-actions {
+      padding: 16px;
+      display: flex;
+      gap: 12px;
+      border-bottom: 1px dashed var(--el-border-color-lighter);
+      
+      .exp-btn {
+        flex: 1;
+        height: 36px;
+        margin: 0;
+        
+        &.ex-excel {
+          color: var(--el-color-primary);
+          background: var(--el-color-primary-light-9);
+          border-color: var(--el-color-primary-light-7);
+          &:hover { background: var(--el-color-primary); color: white; }
+        }
+        &.ex-pdf {
+          color: var(--el-color-success);
+          background: var(--el-color-success-light-9);
+          border-color: var(--el-color-success-light-7);
+          &:hover { background: var(--el-color-success); color: white; }
+        }
+      }
+    }
+
+    .o-history {
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      
+      .hist-label { font-size: 12px; font-weight: bold; color: var(--el-text-color-secondary); margin-bottom: 10px; }
+      
+      .hist-list { min-height: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        overflow-y: auto;
+      }
+      
+      .h-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        background: var(--el-fill-color-light);
+        border: 1px solid var(--el-border-color-lighter);
+        border-radius: 6px;
+        
+        .h-fmt {
+          font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px;
+          &.fmt-ex { background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
+          &.fmt-pd { background: var(--el-color-success-light-9); color: var(--el-color-success); }
+        }
+        .h-info {
+          flex: 1; min-width: 0;
+          .h-name { font-size: 12px; color: var(--el-text-color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;}
+          .h-time { font-size: 11px; color: var(--el-text-color-secondary); }
+        }
+        .h-actions { 
+          display: flex; gap: 6px; opacity: 0; transition: opacity 0.2s; 
+          .h-btn { margin: 0; }
+        }
+        &:hover .h-actions { opacity: 1; }
+      }
+      
+      .hist-empty {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px dashed var(--el-border-color-lighter);
+        border-radius: 6px;
+        .he-text { font-size: 12px; color: var(--el-text-color-placeholder); }
       }
     }
   }
 
-  .analysis-grid {
-    .section-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: $text-color-primary;
-      margin: 0 0 $spacing-lg 0;
-    }
-
-    .analysis-card {
-      padding: $spacing-lg;
-      background: white;
-      border-radius: 12px;
-      border: 1px solid $border-color-light;
-      cursor: pointer;
-      transition: all 0.3s;
-      text-align: center;
-
-      &:hover {
-        border-color: $primary-color;
-        box-shadow: 0 4px 20px rgba(64, 158, 255, 0.1);
-      }
-
-      &.completed {
-        border-color: $success-color;
-        background: rgba(103, 194, 58, 0.05);
-
-        .analysis-status {
-          color: $success-color;
-        }
-      }
-
-      .analysis-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 64px;
-        height: 64px;
-        border-radius: 12px;
-        margin-bottom: $spacing-md;
-
-        &--orange {
-          background: rgba(230, 162, 60, 0.1);
-          color: $warning-color;
-        }
-
-        &--blue {
-          background: rgba(64, 158, 255, 0.1);
-          color: $primary-color;
-        }
-
-        &--green {
-          background: rgba(103, 194, 58, 0.1);
-          color: $success-color;
-        }
-
-        &--purple {
-          background: rgba(245, 108, 108, 0.1);
-          color: $danger-color;
-        }
-      }
-
-      .analysis-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: $text-color-primary;
-        margin: 0 0 $spacing-xs 0;
-      }
-
-      .analysis-desc {
-        font-size: 13px;
-        color: $text-color-secondary;
-        margin: 0 0 $spacing-md 0;
-      }
-
-      .analysis-status {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: $spacing-xs;
-        font-size: 13px;
-        color: $text-color-secondary;
-
-        .status-icon {
-          font-size: 16px;
-
-          &.pending {
-            color: $info-color;
-          }
-        }
-      }
-    }
+  .history-table-wrapper {
+    min-height: 260px;
   }
 }
 
@@ -2112,6 +2205,17 @@ function getPowerStateText(state: string) {
   padding: $spacing-xl 0;
 }
 
+:deep(.report-history-dialog) {
+  .el-dialog__header {
+    margin-right: 0;
+    padding-bottom: 10px;
+  }
+
+  .el-dialog__body {
+    padding-top: 6px;
+  }
+}
+
 .failed-state {
   display: flex;
   justify-content: center;
@@ -2120,8 +2224,8 @@ function getPowerStateText(state: string) {
 
 @media (max-width: 1024px), (max-height: 640px) {
   .task-detail-page {
-    padding: $spacing-md;
-    gap: $spacing-md;
+    padding: 10px;
+    gap: 8px;
   }
 
   .task-header {
@@ -2159,6 +2263,13 @@ function getPowerStateText(state: string) {
         max-width: 100%;
       }
     }
+  }
+
+  }
+
+@media (max-width: 800px) {
+  .overview-grid .o-main {
+    grid-template-columns: 1fr;
   }
 }
 </style>
