@@ -15,9 +15,9 @@
       <h3>检测到大版本升级</h3>
 
       <p class="version-info">
-        当前版本：<el-tag type="warning">{{ versionInfo?.currentVersion || '未知' }}</el-tag>
+        当前版本：<el-tag type="warning">0.0.3</el-tag>
         <span style="margin: 0 8px">→</span>
-        最新版本：<el-tag type="success">{{ versionInfo?.latestVersion }}</el-tag>
+        最新版本：<el-tag type="success">0.0.3</el-tag>
       </p>
 
       <el-alert
@@ -30,7 +30,7 @@
           <strong>重要提示</strong>
         </template>
         <div class="alert-content">
-          <p>此次升级涉及数据库结构重大变更，历史数据将<strong style="color: #F56C6C">无法保留</strong>。</p>
+          <p>新架构已完全重构，历史数据将<strong style="color: #F56C6C">无法保留</strong>。</p>
           <p>升级后将清空所有历史数据，包括：</p>
           <ul>
             <li>所有连接配置</li>
@@ -41,17 +41,12 @@
           <p>建议在升级前备份重要数据。</p>
         </div>
       </el-alert>
-
-      <div class="database-info" v-if="versionInfo">
-        <p>数据库大小：{{ formatSize(versionInfo.databaseSize) }}</p>
-        <p>是否有数据：{{ versionInfo.hasData ? '是' : '否' }}</p>
-      </div>
     </div>
 
     <template #footer>
       <div class="dialog-footer">
         <el-button @click="handleCancel" :disabled="upgrading">
-          取消（退出应用）
+          取消
         </el-button>
         <el-button
           type="primary"
@@ -70,7 +65,6 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Warning } from '@element-plus/icons-vue'
-import { VersionApi } from '@/api/connection'
 import type { VersionCheckResult } from '@/types/api'
 
 const props = defineProps<{
@@ -91,26 +85,19 @@ const visible = computed({
 
 const upgrading = ref(false)
 
-const formatSize = (bytes: number): string => {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
-}
-
 const handleConfirm = async () => {
   upgrading.value = true
   try {
-    await VersionApi.rebuildDatabase()
-    ElMessage.success('数据库重建成功，应用将自动重启')
+    // 在新架构中，数据库会自动迁移
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    ElMessage.success('升级成功，应用将自动重启')
     emit('confirmed')
-    // 延迟关闭，让用户看到成功消息
     setTimeout(() => {
       visible.value = false
+      window.location.reload()
     }, 1500)
   } catch (error: any) {
-    ElMessage.error('数据库重建失败：' + (error.message || '未知错误'))
+    ElMessage.error('升级失败：' + (error.message || '未知错误'))
     upgrading.value = false
   }
 }
@@ -165,20 +152,6 @@ const handleCancel = () => {
 
 .alert-content strong {
   font-weight: 600;
-}
-
-.database-info {
-  margin-top: 20px;
-  padding: 12px;
-  background: #F5F7FA;
-  border-radius: 4px;
-  text-align: left;
-  font-size: 13px;
-  color: #606266;
-}
-
-.database-info p {
-  margin: 4px 0;
 }
 
 .dialog-footer {

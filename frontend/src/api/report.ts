@@ -1,78 +1,104 @@
-import type { ReportData } from '../types/common'
-import { utils, write } from 'xlsx'
-import * as App from '../../wailsjs/go/main/App'
+/**
+ * Report API
+ * Report generation endpoints
+ */
 
-export type ReportFormat = 'json' | 'html' | 'xlsx'
+import { apiClient } from "./client";
 
-export interface ReportExportOptions {
-  format: ReportFormat
-  outputDir?: string
+// Types
+export type ReportFormat = "excel" | "pdf";
+
+export interface ReportRequest {
+    format: ReportFormat;
+    includeRawData?: boolean;
 }
 
-// 导出报告
-// 前端直接生成文件下载，不再依赖后端接口
-export async function exportReport(
-  data: any[],
-  options: ReportExportOptions = { format: 'xlsx' }
-): Promise<string> {
-  const filename = 'justfit_report_' + Date.now() + '.' + options.format
-
-  if (options.format === 'json') {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    downloadBlob(blob, filename)
-    return filename
-  }
-
-  // XLSX export
-  const ws = utils.json_to_sheet(data)
-  const wb = utils.book_new()
-  utils.book_append_sheet(wb, ws, 'Report')
-
-  const wbout = write(wb, { bookType: 'xlsx', type: 'array' })
-  const blob = new Blob([wbout], { type: 'application/octet-stream' })
-  downloadBlob(blob, filename)
-
-  return filename
+export interface Report {
+    id: number;
+    taskId: number;
+    format: ReportFormat;
+    filePath: string;
+    fileSize: number;
+    createdAt: string;
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', filename)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+export interface ReportGenerateResponse {
+    reportId: number;
+    downloadUrl: string;
 }
 
-// 导出任务报告（后端生成）
+/**
+ * Generate report for a task
+ */
+export async function generateReport(taskId: number, request: ReportRequest): Promise<ReportGenerateResponse> {
+    const response = await apiClient.post(`/api/reports/tasks/${taskId}/reports`, request);
+    return response.data.data;
+}
+
+/**
+ * Get report download URL
+ */
+export function getReportDownloadUrl(reportId: number): string {
+    return `/api/reports/reports/${reportId}/download`;
+}
+
+/**
+ * Download report
+ */
+export async function downloadReport(reportId: number): Promise<Blob> {
+    const response = await apiClient.get(`/api/reports/reports/${reportId}/download`, {
+        responseType: "blob",
+    });
+    return response.data;
+}
+
+/**
+ * Get reports for a task
+ */
+export async function getTaskReports(taskId: number): Promise<Report[]> {
+    const response = await apiClient.get(`/api/reports/tasks/${taskId}/reports`);
+    return response.data.data;
+}
+
+/**
+ * Delete report
+ */
+export async function deleteReport(reportId: number): Promise<void> {
+    await apiClient.delete(`/api/reports/reports/${reportId}`);
+}
+
+/**
+ * Download blob helper (for frontend file download)
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * Download report by ID (triggers browser download)
+ */
+export async function downloadReportFile(reportId: number, filename: string): Promise<void> {
+    const blob = await downloadReport(reportId);
+    downloadBlob(blob, filename);
+}
+
+/**
+ * Export task report (legacy API compatibility)
+ */
 export async function exportTaskReport(params: {
-  taskId: number | string
-  connectionId: number
-  reportTypes?: string[]  // 可选，默认为 ['xlsx']
-  title?: string
-}): Promise<string> {
-  // 默认生成 Excel 和 PDF
-  const types = params.reportTypes && params.reportTypes.length > 0
-    ? params.reportTypes
-    : ['xlsx', 'pdf']
-
-  const response = await App.GenerateReport({
-    title: params.title || ('任务报告-' + params.taskId),
-    connectionId: params.connectionId,
-    taskId: typeof params.taskId === 'number' ? params.taskId : parseInt(params.taskId),
-    reportTypes: types
-  })
-
-  if (!response.success) {
-    throw new Error(response.message || '报告生成失败')
-  }
-
-  if (response.files && response.files.length > 0) {
-    // 返回第一个生成的文件路径（通常是 Excel）
-    return response.files[0]
-  }
-
-  return response.message || '报告已生成'
+    taskId: string;
+    connectionId: number;
+    reportTypes: string[];
+    title: string;
+}): Promise<void> {
+    const taskId = parseInt(params.taskId);
+    const format = params.reportTypes[0] === "xlsx" ? "excel" : "pdf";
+    await generateReport(taskId, { format });
 }

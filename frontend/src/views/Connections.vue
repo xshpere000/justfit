@@ -211,10 +211,8 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value && formData.id) {
-      await ConnectionAPI.updateConnection({
-        id: formData.id,
+      await ConnectionAPI.updateConnection(formData.id, {
         name: formData.name,
-        platform: formData.platform,
         host: formData.host,
         port: formData.port,
         username: formData.username,

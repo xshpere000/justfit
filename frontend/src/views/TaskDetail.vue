@@ -42,7 +42,6 @@
             <el-progress :percentage="task.progress" :status="task.status === 'paused' ? 'exception' : undefined"
               :stroke-width="12" />
             <div class="progress-stats">
-              <span>{{ task.collectedVMCount || 0 }} / {{ task.vmCount || 0 }} 台虚拟机</span>
               <span>{{ task.progress }}%</span>
             </div>
           </div>
@@ -77,7 +76,7 @@
             </div>
             <div class="r-right">
               <div class="r-stat">
-                <span class="r-val">{{ task.vmCount }}</span>
+                <span class="r-val">{{ task.selectedVMCount }}</span>
                 <span class="r-lbl">虚拟机</span>
               </div>
               <div class="r-div"></div>
@@ -96,17 +95,17 @@
                 <span class="ph-title"><el-icon><DataAnalysis/></el-icon> 分析探索</span>
               </div>
               <div class="o-list">
-                <div v-for="analysis in analyses" :key="analysis.key" 
-                  class="o-item" :class="{'is-done': task.analysisResults?.[analysis.key]}"
-                  @click="!task.analysisResults?.[analysis.key] && runAnalysis(analysis.key)">
-                  
+                <div v-for="analysis in analyses" :key="analysis.key"
+                  class="o-item" :class="{'is-done': hasAnalysisResults[analysis.key]}"
+                  @click="!hasAnalysisResults[analysis.key] && runAnalysis(analysis.key)">
+
                   <div class="i-icon" :class="'i-' + analysis.color"><el-icon><component :is="analysis.icon" /></el-icon></div>
                   <div class="i-core">
                     <div class="i-name">{{ analysis.title }}</div>
                     <div class="i-desc">{{ analysis.description }}</div>
                   </div>
                   <div class="i-act">
-                    <el-tag v-if="task.analysisResults?.[analysis.key]" size="small" type="success" effect="light" round>已完成</el-tag>
+                    <el-tag v-if="hasAnalysisResults[analysis.key]" size="small" type="success" effect="light" round>已完成</el-tag>
                     <el-button v-else type="primary" size="small" :icon="VideoPlay" plain round class="run-btn" @click.stop="runAnalysis(analysis.key)">
                       运行
                     </el-button>
@@ -216,7 +215,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="僵尸VM" name="zombie">
-          <div class="analysis-content" v-if="task?.analysisResults?.zombie">
+          <div class="analysis-content" v-if="hasAnalysisResults.zombie">
             <div class="analysis-toolbar">
               <el-input
                 v-model="zombieSearch"
@@ -255,7 +254,7 @@
                 :page-sizes="logsPageSizes"
                 :total="filteredZombieData.length"
                 :layout="logsPaginationLayout"
-                :small="isCompactWindow"
+                :size="paginationSize"
               />
             </div>
             <el-empty v-if="!analysisLoading.zombie && filteredZombieData.length === 0" description="暂无分析结果" />
@@ -270,7 +269,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="Right Size" name="rightsize">
-          <div class="analysis-content" v-if="task?.analysisResults?.rightsize">
+          <div class="analysis-content" v-if="hasAnalysisResults.rightsize">
             <div class="analysis-toolbar">
               <el-input
                 v-model="rightsizeSearch"
@@ -308,7 +307,7 @@
                 :page-sizes="logsPageSizes"
                 :total="filteredRightsizeData.length"
                 :layout="logsPaginationLayout"
-                :small="isCompactWindow"
+                :size="paginationSize"
               />
             </div>
             <el-empty v-if="!analysisLoading.rightsize && filteredRightsizeData.length === 0" description="暂无分析结果" />
@@ -323,7 +322,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="潮汐检测" name="tidal">
-          <div class="analysis-content" v-if="task?.analysisResults?.tidal">
+          <div class="analysis-content" v-if="hasAnalysisResults.tidal">
             <div class="analysis-toolbar">
               <el-input
                 v-model="tidalSearch"
@@ -362,7 +361,7 @@
                 :page-sizes="logsPageSizes"
                 :total="filteredTidalData.length"
                 :layout="logsPaginationLayout"
-                :small="isCompactWindow"
+                :size="paginationSize"
               />
             </div>
             <el-empty v-if="!analysisLoading.tidal && filteredTidalData.length === 0" description="暂无分析结果" />
@@ -377,7 +376,7 @@
         </el-tab-pane>
 
         <el-tab-pane label="健康评分" name="health">
-          <div class="analysis-content" v-if="task?.analysisResults?.health">
+          <div class="analysis-content" v-if="hasAnalysisResults.health">
             <el-card v-loading="analysisLoading.health">
               <el-descriptions :column="2" border>
                 <el-descriptions-item label="综合评分">
@@ -385,20 +384,21 @@
                   : '-'
                   }}
                 </el-descriptions-item>
-                <el-descriptions-item label="健康等级">{{ analysisData.health?.healthLevel ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="健康等级">
+                  {{ getHealthGradeText(analysisData.health?.grade) }}
+                </el-descriptions-item>
                 <el-descriptions-item label="资源均衡">
-                  {{ analysisData.health?.resourceBalance !== undefined ? analysisData.health.resourceBalance.toFixed(0)
-                  + '%' :
+                  {{ analysisData.health?.balanceScore !== undefined ? analysisData.health.balanceScore.toFixed(0) + '%' :
                   '-' }}
                 </el-descriptions-item>
                 <el-descriptions-item label="超配风险">
-                  {{ analysisData.health?.overcommitRisk !== undefined ? analysisData.health.overcommitRisk.toFixed(0) +
+                  {{ analysisData.health?.overcommitScore !== undefined ? analysisData.health.overcommitScore.toFixed(0) +
                   '%' :
                   '-' }}
                 </el-descriptions-item>
                 <el-descriptions-item label="热点集中">
-                  {{ analysisData.health?.hotspotConcentration !== undefined ?
-                    analysisData.health.hotspotConcentration.toFixed(0) + '%' : '-' }}
+                  {{ analysisData.health?.hotspotScore !== undefined ? analysisData.health.hotspotScore.toFixed(0) + '%' :
+                  '-' }}
                 </el-descriptions-item>
                 <el-descriptions-item label="虚机数量">{{ analysisData.health?.vmCount ?? '-' }}</el-descriptions-item>
               </el-descriptions>
@@ -467,6 +467,10 @@
                     </template>
                   </el-table-column>
                   <el-table-column prop="message" label="内容" min-width="400" show-overflow-tooltip />
+                  <!-- 空数据提示 -->
+                  <template #empty>
+                    <el-empty v-if="!logsLoading" description="暂无执行日志" />
+                  </template>
                 </el-table>
               </div>
 
@@ -481,7 +485,7 @@
                   :page-sizes="logsPageSizes"
                   :total="logsTotal"
                   :layout="logsPaginationLayout"
-                  :small="isCompactWindow"
+                  :size="paginationSize"
                 />
               </div>
             </div>
@@ -506,9 +510,11 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import * as ConnectionAPI from '@/api/connection'
+import * as TaskAPI from '@/api/task'
+import * as ReportAPI from '@/api/report'
+import * as AnalysisAPI from '@/api/analysis'
+import * as ResourceAPI from '@/api/resource'
 import { exportTaskReport } from '@/api/report'
-import * as App from '../../wailsjs/go/main/App'
 import AnalysisModeTab from './AnalysisModeTab.vue'
 import {
   Download,
@@ -573,6 +579,7 @@ const reportHistory = ref<any[]>([])
 const reportsLoading = ref(false)
 
 const isCompactWindow = computed(() => windowHeight.value <= 700 || windowWidth.value <= 1100)
+const paginationSize = computed(() => isCompactWindow.value ? 'small' : 'default')
 const listTableHeight = computed(() => (isCompactWindow.value ? 500 : 800))
 const vmPaginationLayout = computed(() =>
   isCompactWindow.value ? 'sizes, prev, pager, next' : 'sizes, prev, pager, next, jumper'
@@ -610,7 +617,7 @@ const analysisData = reactive<{
   health: null
 })
 
-const task = computed(() => taskStore.getTask(taskId.value))
+const task = computed(() => taskStore.getTask(Number(taskId.value)))
 
 // 调试：监听 task 变化
 watch(task, (newTask) => {
@@ -635,9 +642,7 @@ const analyses: AnalysisItem[] = [
 ]
 
 const completedAnalyses = computed(() => {
-  const results = task.value?.analysisResults
-  if (!results) return 0
-  return Object.values(results).filter(v => v).length
+  return Object.values(hasAnalysisResults).filter(v => v).length
 })
 
 function matchByKeyword(row: any, keyword: string, fields: string[]) {
@@ -674,10 +679,13 @@ const pagedTidalData = computed(() => {
 })
 
 // 初始化任务数据
-async function initTaskData() {
+async function initTaskData(preserveTabState = false) {
   // 重置状态
   stopPolling()
-  activeTab.value = 'overview'
+  // 保留 Tab 状态，避免在刷新任务时跳转到其他 Tab
+  if (!preserveTabState) {
+    activeTab.value = 'overview'
+  }
   vmSearch.value = ''
   zombieSearch.value = ''
   rightsizeSearch.value = ''
@@ -718,10 +726,26 @@ async function initTaskData() {
     selectedVMs: task.value.selectedVMs?.length
   })
 
+  // 根据后端的 analysisResults 初始化 hasAnalysisResults
+  if (task.value.analysisResults) {
+    console.log('[TaskDetail] 初始化 hasAnalysisResults:', task.value.analysisResults)
+    hasAnalysisResults.zombie = task.value.analysisResults.zombie || false
+    hasAnalysisResults.rightsize = task.value.analysisResults.rightsize || false
+    hasAnalysisResults.tidal = task.value.analysisResults.tidal || false
+    hasAnalysisResults.health = task.value.analysisResults.health || false
+    console.log('[TaskDetail] hasAnalysisResults 已更新:', hasAnalysisResults)
+  }
+
   // 始终从后端同步最新数据，确保显示的是最新状态
   // 因为用户可能在任务列表停留了一段时间，此时任务状态可能已经变化
   console.log('[TaskDetail] 从后端同步最新任务数据')
   await syncTaskFromBackend()
+
+  // 重新检查 task 是否存在（可能在 async 操作后失效）
+  if (!task.value) {
+    console.error('[TaskDetail] syncTaskFromBackend 后 task 变成 undefined')
+    return
+  }
 
   // 只有在任务已完成或有后端任务ID时才加载虚拟机列表
   // 任务进行中时，虚拟机列表会在任务完成后通过快照获取
@@ -745,6 +769,10 @@ async function initTaskData() {
 
 onMounted(async () => {
   window.addEventListener('resize', handleWindowResize)
+
+  // 停止 task store 的轮询，避免与 TaskDetail 的轮询重复
+  taskStore.stopPolling()
+
   await initTaskData()
 })
 
@@ -779,13 +807,18 @@ watch(activeTab, async (newTab) => {
   // 这样确保用户看到的数据是最新的
   if (task.value?.id) {
     try {
-      const taskInfo = await ConnectionAPI.getTask(task.value.id)
-      if (task.value) {
-        task.value.status = taskInfo.status as any
-        task.value.progress = taskInfo.progress
-        task.value.error = taskInfo.error
-        task.value.startedAt = taskInfo.startedAt
-        task.value.completedAt = taskInfo.completedAt
+      const taskInfo = await TaskAPI.getTask(task.value.id)
+      const storeTask = taskStore.getTask(Number(taskId.value))
+      if (storeTask) {
+        // 保存当前 Tab 状态，避免因为任务状态更新而丢失
+        const currentTab = activeTab.value
+        storeTask.status = taskInfo.status as any
+        storeTask.progress = taskInfo.progress
+        storeTask.error = taskInfo.error
+        storeTask.startedAt = taskInfo.startedAt
+        storeTask.completedAt = taskInfo.completedAt
+        // 恢复 Tab 状态
+        activeTab.value = currentTab
       }
     } catch (error) {
       console.error('[TaskDetail] 同步任务状态失败:', error)
@@ -845,7 +878,7 @@ async function loadTaskVMs() {
       offset,
       keyword: vmSearch.value
     })
-    const result = await ConnectionAPI.listTaskVMs(
+    const result = await TaskAPI.listTaskVMs(
       task.value.id,
       vmPageSize.value,
       offset,
@@ -864,8 +897,13 @@ async function loadTaskVMs() {
     if (task.value?.connectionId) {
       console.log('[TaskDetail] 快照不存在，尝试从connectionId加载虚拟机, connectionId=', task.value.connectionId)
       try {
-        vmList.value = await ConnectionAPI.listVMs(task.value.connectionId)
-        vmTotal.value = vmList.value.length
+        const vmResult = await ResourceAPI.getVMs(task.value.connectionId, {
+          search: vmSearch.value,
+          size: vmPageSize.value,
+          page: vmCurrentPage.value
+        })
+        vmList.value = vmResult.items || []
+        vmTotal.value = vmResult.total || 0
         console.log('[TaskDetail] 从connectionId加载VM成功, 数量:', vmList.value.length)
       } catch (e: any) {
         console.error('[TaskDetail] 从数据库加载虚拟机列表失败:', e)
@@ -922,19 +960,21 @@ function pollTaskStatus(id: number) {
 
   pollTimer.value = window.setInterval(async () => {
     try {
-      const taskInfo = await ConnectionAPI.getTask(id)
+      const taskInfo = await TaskAPI.getTask(id)
       console.log('[TaskDetail] pollTaskStatus 轮询结果, taskId:', id, 'status:', taskInfo.status, 'progress:', taskInfo.progress)
 
-      if (task.value) {
-        task.value.status = taskInfo.status as any
-        task.value.progress = taskInfo.progress
-        task.value.error = taskInfo.error
+      // 更新 store 中的任务对象，而不是直接修改 computed
+      const storeTask = taskStore.getTask(Number(taskId.value))
+      if (storeTask) {
+        storeTask.status = taskInfo.status as any
+        storeTask.progress = taskInfo.progress
+        storeTask.error = taskInfo.error
         // 同步时间戳，用于计算耗时
         if (taskInfo.startedAt) {
-          task.value.startedAt = taskInfo.startedAt
+          storeTask.startedAt = taskInfo.startedAt
         }
         if (taskInfo.completedAt) {
-          task.value.completedAt = taskInfo.completedAt
+          storeTask.completedAt = taskInfo.completedAt
         }
 
         // 任务运行中时，每 5 次轮询刷新一次日志（每 10 秒）
@@ -948,7 +988,7 @@ function pollTaskStatus(id: number) {
         } else if (taskInfo.status === 'completed') {
           console.log('[TaskDetail] pollTaskStatus 任务完成, 停止轮询, taskId:', id)
           stopPolling()
-          if (task.value.connectionId) {
+          if (storeTask.connectionId) {
             await loadVMList()
           }
           await loadTaskLogs()
@@ -959,11 +999,13 @@ function pollTaskStatus(id: number) {
           await loadTaskLogs()
           ElMessage.error('任务执行失败: ' + (taskInfo.error || '未知错误'))
         }
+      } else {
+        console.warn('[TaskDetail] pollTaskStatus: store 中找不到任务, taskId:', id)
       }
     } catch (error) {
       console.error('[TaskDetail] pollTaskStatus 轮询任务状态失败:', error)
     }
-  }, 2000)
+  }, 5000)
 
   pollTimeout.value = window.setTimeout(() => {
     console.log('[TaskDetail] pollTaskStatus 轮询超时, 停止轮询, taskId:', id)
@@ -977,7 +1019,7 @@ async function handleCancel() {
     await ElMessageBox.confirm('确定要取消此任务吗？', '确认取消', { type: 'warning' })
 
     console.log('[TaskDetail] handleCancel 用户确认取消, 调用 store.cancelTask')
-    await taskStore.cancelTask(taskId.value)
+    await taskStore.cancelTask(Number(taskId.value))
     ElMessage.success('任务已取消')
     console.log('[TaskDetail] handleCancel 取消成功, 返回首页')
     router.push('/')
@@ -999,7 +1041,7 @@ async function handleRetry() {
 
   try {
     console.log('[TaskDetail] handleRetry 调用 retryTask API, taskId:', task.value.id)
-    const newTaskId = await ConnectionAPI.retryTask(task.value.id)
+    const newTaskId = await TaskAPI.retryTask(task.value.id)
     console.log('[TaskDetail] handleRetry 重试成功, newTaskId:', newTaskId)
 
     // 刷新任务列表
@@ -1018,8 +1060,8 @@ async function loadTaskLogs() {
 
   logsLoading.value = true
   try {
-    // 获取所有日志数据（后端 limit 参数较大，获取全部）
-    const logs = await ConnectionAPI.getTaskLogs(task.value.id, 10000)
+    // 获取所有日志数据
+    const logs = await TaskAPI.getTaskLogs(task.value.id)
     allLogs.value = logs
 
     // 应用搜索过滤
@@ -1094,9 +1136,8 @@ function onLogsSearchChange() {
 async function loadAnalysisResultFromBackend(id: number) {
   console.log('[loadAnalysisResultFromBackend] 开始加载分析结果, id:', id)
   try {
-    // 使用正确的 API: GetTaskAnalysisResult 而不是 GetAnalysisResult
-    // GetTaskAnalysisResult 返回的是按 analysis_type 分组的结果
-    const result = await ConnectionAPI.getTaskAnalysisResult(id, '')
+    // 使用 AnalysisAPI 获取分析结果（健康评分现在也是基于任务的）
+    const result = await AnalysisAPI.getTaskAnalysisResult(id)
     console.log('[loadAnalysisResultFromBackend] 获取到结果:', result)
     if (!result) {
       console.warn('[loadAnalysisResultFromBackend] 结果为空')
@@ -1168,6 +1209,7 @@ async function loadAnalysisResultFromBackend(id: number) {
     // health_score -> health
     if (result.healthScore) {
       console.log('[loadAnalysisResultFromBackend] 找到 healthScore 数据:', result.healthScore)
+      // 直接使用后端返回的数据，不做任何转换或映射
       analysisData.health = result.healthScore
       hasAnalysisResults.health = true
       console.log('[loadAnalysisResultFromBackend] health 结果加载完成')
@@ -1207,6 +1249,12 @@ function getDefaultAnalysisConfig(type: string) {
 async function runAnalysis(type: string) {
   console.log('[runAnalysis] 开始执行分析:', type)
 
+  // 健康评分需要特殊处理，因为它需要 connectionId 而不是 taskId
+  if (type === 'health') {
+    await runHealthAnalysis()
+    return
+  }
+
   // 检查是否有有效的评估任务ID
   const assessmentTaskId = task.value?.id
   if (!assessmentTaskId) {
@@ -1215,132 +1263,105 @@ async function runAnalysis(type: string) {
     return
   }
 
-  const analysisType = type as 'zombie' | 'rightsize' | 'tidal' | 'health'
+  const analysisType = type as 'zombie' | 'rightsize' | 'tidal'
   analysisLoading[analysisType] = true
 
   try {
     const config = getDefaultAnalysisConfig(analysisType)
 
     // 前端类型映射到后端 analysis_type
-    const typeMapping: Record<string, string> = {
+    const typeMapping: Record<string, 'zombie' | 'rightsize' | 'tidal'> = {
       zombie: 'zombie',
       rightsize: 'rightsize',
-      tidal: 'tidal',
-      health: 'health'
+      tidal: 'tidal'
     }
     const backendAnalysisType = typeMapping[analysisType]
 
-    console.log('[runAnalysis] 创建分析子任务:', { assessmentTaskId, analysisType: backendAnalysisType, config })
+    console.log('[runAnalysis] 执行分析:', { assessmentTaskId, analysisType: backendAnalysisType, config })
 
-    // 使用新 API：在评估任务下创建分析子任务
-    const jobId = await ConnectionAPI.runAnalysisJob(
+    ElMessage.info('正在执行分析...')
+
+    // 后端是同步分析，直接返回结果
+    const results = await AnalysisAPI.runAnalysisJob(
       assessmentTaskId,
       backendAnalysisType,
       config
-    )
-    console.log('[runAnalysis] 分析子任务已创建，jobId:', jobId)
+    ) as unknown[]
 
-    ElMessage.info('分析任务已创建，正在执行中...')
+    console.log('[runAnalysis] 分析完成，结果数量:', results.length)
 
-    // 轮询子任务状态直到完成
-    let pollCount = 0
-    const maxPolls = 300 // 最多轮询5分钟
-    const pollInterval = setInterval(async () => {
-      pollCount++
-      try {
-        console.log(`[runAnalysis] 轮询子任务状态 #${pollCount}, jobId:`, jobId)
-        const jobStatus = await ConnectionAPI.getAnalysisJobStatus(jobId)
-        console.log('[runAnalysis] 子任务状态:', jobStatus.status, 'progress:', jobStatus.progress, 'error:', jobStatus.error)
+    // 根据类型存储结果
+    if (type === 'zombie') {
+      analysisData.zombie = results
+      hasAnalysisResults.zombie = true
+      console.log('[runAnalysis] zombie 分析结果加载完成, 数量:', results.length)
+    } else if (type === 'rightsize') {
+      analysisData.rightsize = results
+      hasAnalysisResults.rightsize = true
+      console.log('[runAnalysis] rightsize 分析结果加载完成, 数量:', results.length)
+    } else if (type === 'tidal') {
+      analysisData.tidal = results
+      hasAnalysisResults.tidal = true
+      console.log('[runAnalysis] tidal 分析结果加载完成, 数量:', results.length)
+    }
 
-        if (jobStatus.status === 'completed') {
-          clearInterval(pollInterval)
-          analysisLoading[analysisType] = false
-          console.log('[runAnalysis] 子任务完成，智能重试获取分析结果, assessmentTaskId:', assessmentTaskId)
-
-          // 智能重试获取结果：等待数据库写入完成，最多重试 5 次
-          const result = await fetchAnalysisResultWithRetry(assessmentTaskId, type)
-          console.log('[runAnalysis] 最终分析结果:', result)
-          console.log('[runAnalysis] 结果类型:', type, '结果键:', Object.keys(result))
-
-          // 后端存储的是直接数组格式，不是 {count, results} 对象
-          // 后端 Result 字段命名: zombieVM, rightSize, tidal, healthScore
-          if (type === 'zombie') {
-            // zombieVM 可能是数组或 {count, results} 格式
-            if (result.zombieVM && Array.isArray(result.zombieVM)) {
-              analysisData.zombie = result.zombieVM
-            } else if (result.zombieVM && result.zombieVM.results && Array.isArray(result.zombieVM.results)) {
-              analysisData.zombie = result.zombieVM.results
-            } else {
-              analysisData.zombie = []
-            }
-            // 无论是否有结果，只要分析完成就设置 Tab 显示状态
-            hasAnalysisResults.zombie = true
-            console.log('[runAnalysis] zombie 分析结果加载完成, 数量:', analysisData.zombie.length)
-          } else if (type === 'rightsize') {
-            // rightSize 可能是数组或 {count, results} 格式
-            if (result.rightSize && Array.isArray(result.rightSize)) {
-              analysisData.rightsize = result.rightSize
-            } else if (result.rightSize && result.rightSize.results && Array.isArray(result.rightSize.results)) {
-              analysisData.rightsize = result.rightSize.results
-            } else {
-              analysisData.rightsize = []
-            }
-            // 无论是否有结果，只要分析完成就设置 Tab 显示状态
-            hasAnalysisResults.rightsize = true
-            console.log('[runAnalysis] rightsize 分析结果加载完成, 数量:', analysisData.rightsize.length)
-          } else if (type === 'tidal') {
-            // tidal 可能是数组或 {count, results} 格式
-            if (result.tidal && Array.isArray(result.tidal)) {
-              analysisData.tidal = result.tidal
-            } else if (result.tidal && result.tidal.results && Array.isArray(result.tidal.results)) {
-              analysisData.tidal = result.tidal.results
-            } else {
-              analysisData.tidal = []
-            }
-            // 无论是否有结果，只要分析完成就设置 Tab 显示状态
-            hasAnalysisResults.tidal = true
-            console.log('[runAnalysis] tidal 分析结果加载完成, 数量:', analysisData.tidal.length)
-          } else if (type === 'health') {
-            analysisData.health = result.healthScore || null
-            // 设置本地状态，控制 Tab 显示
-            hasAnalysisResults.health = true
-            console.log('[runAnalysis] health 分析结果加载完成:', analysisData.health)
-          }
-
-          console.log('[runAnalysis] analysisData.zombie.length:', analysisData.zombie.length)
-          console.log('[runAnalysis] task.analysisResults:', task.value?.analysisResults)
-          ElMessage.success('分析完成')
-        } else if (jobStatus.status === 'failed') {
-          clearInterval(pollInterval)
-          analysisLoading[analysisType] = false
-          console.error('[runAnalysis] 子任务失败:', jobStatus.error)
-          ElMessage.error(jobStatus.error || '分析执行失败')
-        } else if (pollCount >= maxPolls) {
-          clearInterval(pollInterval)
-          analysisLoading[analysisType] = false
-          console.error('[runAnalysis] 轮询超时')
-          ElMessage.error('分析执行超时')
-        }
-      } catch (e) {
-        clearInterval(pollInterval)
-        analysisLoading[analysisType] = false
-        console.error('[runAnalysis] 轮询子任务状态失败:', e)
-      }
-    }, 1000)
+    ElMessage.success(`分析完成，发现 ${results.length} 条结果`)
 
   } catch (error: any) {
-    console.error('[runAnalysis] 创建分析子任务失败:', error)
-    ElMessage.error(error.message || '分析执行失败')
+    console.error('[runAnalysis] 分析失败:', error)
+    ElMessage.error(error.response?.data?.error?.message || error.message || '分析执行失败')
+  } finally {
     analysisLoading[analysisType] = false
   }
 }
 
 /**
- * 智能重试获取分析结果
- * - 检查结果是否包含目标类型的数据
- * - 如果没有数据，等待 300ms 后重试
- * - 最多重试 5 次（总计 1.5 秒）
- * - 如果有数据则立即返回
+ * 运行健康评分分析（需要 connectionId 而不是 taskId）
+ */
+async function runHealthAnalysis() {
+  console.log('[runHealthAnalysis] 开始执行健康评分分析')
+
+  const connectionId = task.value?.connectionId
+  if (!connectionId) {
+    console.warn('[runHealthAnalysis] 缺少 connectionId')
+    ElMessage.warning('缺少连接信息，无法执行健康评分分析')
+    return
+  }
+
+  analysisLoading.health = true
+
+  try {
+    console.log('[runHealthAnalysis] 执行分析:', { connectionId })
+
+    ElMessage.info('正在执行健康评分分析...')
+
+    // 健康评分分析使用 connectionId，API 直接返回数据对象
+    const result = await AnalysisAPI.runHealthAnalysis(connectionId, {})
+    console.log('[runHealthAnalysis] 分析完成:', result)
+
+    // 检查 result 是否为有效对象
+    if (typeof result !== 'object' || result === null) {
+      throw new Error('Invalid response data')
+    }
+
+    // 直接使用后端返回的数据，不做任何转换或映射（后端为标准）
+    analysisData.health = result
+    hasAnalysisResults.health = true
+
+    console.log('[runHealthAnalysis] 健康评分结果:', result)
+    ElMessage.success(`健康评分分析完成，评分: ${result.overallScore?.toFixed(0) || 0}`)
+
+  } catch (error: any) {
+    console.error('[runHealthAnalysis] 分析失败:', error)
+    ElMessage.error(error.response?.data?.error?.message || error.message || '健康评分分析失败')
+  } finally {
+    analysisLoading.health = false
+  }
+}
+
+/**
+ * 智能重试获取分析结果 (已废弃 - 后端改为同步分析)
+ * 保留此函数用于加载任务结果
  */
 async function fetchAnalysisResultWithRetry(
   taskId: number,
@@ -1350,7 +1371,7 @@ async function fetchAnalysisResultWithRetry(
   const retryDelay = 300
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const result = await ConnectionAPI.getTaskAnalysisResult(taskId, '')
+    const result = await AnalysisAPI.getTaskAnalysisResult(taskId, '')
     console.log(`[fetchAnalysisResultWithRetry] 第 ${attempt} 次尝试，检查 ${analysisType} 数据`)
 
     // 检查是否已有数据
@@ -1371,7 +1392,7 @@ async function fetchAnalysisResultWithRetry(
   }
 
   // 理论上不会到这里，但 TypeScript 需要返回值
-  return await ConnectionAPI.getTaskAnalysisResult(taskId, '')
+  return await AnalysisAPI.getTaskAnalysisResult(taskId, '')
 }
 
 /**
@@ -1423,7 +1444,7 @@ async function handleCommand(cmd: string) {
     try {
       await ElMessageBox.confirm('确定要删除此任务吗？', '确认删除', { type: 'warning' })
       stopPolling()
-      taskStore.deleteTask(taskId.value)
+      taskStore.deleteTask(Number(taskId.value))
       ElMessage.success('任务已删除')
       router.push('/')
     } catch {
@@ -1443,7 +1464,7 @@ async function exportReport(format: string = 'xlsx') {
     ElMessage.info(`正在生成${format === 'xlsx' ? 'Excel' : 'PDF'}报告...`)
 
     await exportTaskReport({
-      taskId: taskId.value,
+      taskId: Number(taskId.value),
       connectionId: task.value.connectionId,
       reportTypes: [format],
       title: task.value.name
@@ -1463,13 +1484,12 @@ async function exportReport(format: string = 'xlsx') {
 // 加载报告历史
 async function loadReportHistory() {
   // 使用 taskId.value 而不是 task.value?.id，确保一致性
-  if (!taskId.value) return
+  if (!task.value?.id) return
 
   try {
     reportsLoading.value = true
-    console.log('[TaskDetail] 加载报告历史, taskId:', taskId.value)
-    // taskId 是字符串，需要转换为数字
-    const reports = await App.GetTaskReports(parseInt(taskId.value))
+    console.log('[TaskDetail] 加载报告历史, taskId:', task.value.id)
+    const reports = await ReportAPI.getTaskReports(task.value.id)
     console.log('[TaskDetail] 报告列表加载成功:', reports)
     reportHistory.value = reports
   } catch (error: any) {
@@ -1483,16 +1503,12 @@ async function loadReportHistory() {
 // 下载报告
 async function downloadReport(report: any) {
   try {
-    // 调用后端保存对话框 API
-    const savedPath = await App.SaveReportAs(report.id)
-
-    if (savedPath) {
-      ElMessage.success('报告已保存到: ' + savedPath)
-    } else {
-      ElMessage.info('已取消保存')
-    }
+    // 从文件路径或生成文件名
+    const filename = report.filePath?.split('/').pop() || `report_${report.id}.${report.format}`
+    await ReportAPI.downloadReportFile(report.id, filename)
+    ElMessage.success('报告已下载')
   } catch (error: any) {
-    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
+    ElMessage.error('下载失败: ' + (error.message || '未知错误'))
   }
 }
 
@@ -1505,7 +1521,7 @@ async function deleteReport(report: any) {
       cancelButtonText: '取消'
     })
 
-    await App.DeleteReport(report.id)
+    await ReportAPI.deleteReport(report.id)
     ElMessage.success('报告已删除')
 
     // 刷新列表
@@ -1581,41 +1597,46 @@ function formatDuration(taskData: Task | undefined): string {
   return seconds + '秒'
 }
 
-// 从后端同步任务信息
+// 从后端同步任务信息（使用详情接口获取完整数据）
 async function syncTaskFromBackend() {
+  if (!taskId.value) {
+    console.warn('[TaskDetail] 无效的 taskId，跳过同步')
+    return
+  }
+
   try {
-    console.log('[TaskDetail] 从后端获取任务列表')
-    // 显式传递所有参数，包括 status 参数
-    const backendTasks = await ConnectionAPI.listTasks('', 100, 0)
-    console.log('[TaskDetail] 后端任务列表:', backendTasks)
+    console.log('[TaskDetail] 从后端获取任务详情, taskId:', taskId.value)
+    // 直接调用详情接口，获取完整数据
+    const taskDetail = await TaskAPI.getTaskDetail(Number(taskId.value))
+    console.log('[TaskDetail] 获取到任务详情:', {
+      id: taskDetail.id,
+      status: taskDetail.status,
+      progress: taskDetail.progress,
+      hasSelectedVMs: !!taskDetail.selectedVMs,
+      hasConfig: !!taskDetail.config
+    })
 
-    // 尝试匹配任务：通过前端任务的 created_at 时间或名称匹配
-    if (task.value && backendTasks.length > 0) {
-      // 按时间排序，找到最接近的前端任务
-      const frontendTime = new Date(task.value.createdAt || 0).getTime()
-      console.log('[TaskDetail] 前端任务创建时间:', frontendTime, task.value.createdAt)
+    // 更新 store 中的任务数据
+    const storeTask = taskStore.getTask(Number(taskId.value))
+    if (storeTask) {
+      Object.assign(storeTask, taskDetail)
+      console.log('[TaskDetail] 已更新 store 中的任务数据')
+    }
 
-      // 查找最近创建的后端任务（前后2分钟内）
-      const matchedBackendTask = backendTasks.find((bt: any) => {
-        if (!bt.createdAt) return false
-        const backendTime = new Date(bt.createdAt).getTime()
-        const timeDiff = Math.abs(backendTime - frontendTime)
-        return timeDiff < 2 * 60 * 1000 // 2分钟内
-      })
-
-      if (matchedBackendTask) {
-        console.log('[TaskDetail] 匹配到后端任务:', matchedBackendTask)
-        task.value.id = matchedBackendTask.id
-      } else {
-        console.log('[TaskDetail] 未找到匹配的后端任务')
-        // 列出所有后端任务供调试
-        backendTasks.forEach((bt: any) => {
-          console.log('[TaskDetail] 后端任务:', bt.id, bt.name, bt.createdAt, bt.status)
-        })
-      }
+    // 同步更新 hasAnalysisResults
+    if (taskDetail.analysisResults) {
+      hasAnalysisResults.zombie = taskDetail.analysisResults.zombie || false
+      hasAnalysisResults.rightsize = taskDetail.analysisResults.rightsize || false
+      hasAnalysisResults.tidal = taskDetail.analysisResults.tidal || false
+      hasAnalysisResults.health = taskDetail.analysisResults.health || false
+      console.log('[TaskDetail] 已更新 hasAnalysisResults:', hasAnalysisResults)
     }
   } catch (e: any) {
     console.error('[TaskDetail] 同步后端任务失败:', e)
+    if (e.response?.status === 404) {
+      ElMessage.error('任务不存在')
+      router.push('/')
+    }
   }
 }
 
@@ -1635,6 +1656,19 @@ function getPowerStateText(state: string) {
     suspended: '挂起'
   }
   return textMap[state] || state
+}
+
+function getHealthGradeText(grade: string | undefined) {
+  const gradeMap: Record<string, string> = {
+    excellent: '优秀',
+    good: '良好',
+    fair: '一般',
+    poor: '较差',
+    critical: '危急',
+    unknown: '未知',
+    no_data: '无数据'
+  }
+  return gradeMap[grade || ''] || grade || '-'
 }
 </script>
 

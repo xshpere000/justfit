@@ -2,1014 +2,429 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 硬性规则
+## 项目概述
 
-**⚠️ 版本管理规则**  
+JustFit 是一个**桌面端云平台资源评估与优化工具**，基于 **Electron** + **Python FastAPI** + **Vue 3** 构建。
 
-1. **当前版本**: v0.0.2（以 `internal/version/version.go` 中的 `Version` 常量为准）
-2. **禁止擅自创建新版本**: 除非用户明确要求"更新版本"或"发布新版本"，否则：
-   - ❌ 不得在任何地方创建 "v0.0.3"、"v0.0.4" 等新版本章节
-   - ❌ 不得在 TODO.md、CHANGELOG.md 或任何文档中添加新版本内容
-   - ❌ 不得声称"已完成 v0.0.x 开发"
-3. **当前开发原则**: 用户未要求版本迭代时，所有开发工作都是基于当前版本（v0.0.2）的增量改进
-4. **版本更新流程**: 只有用户明确要求时，才能：
-   - 修改 `internal/version/version.go` 中的 `Version` 常量
-   - 在相关文档中创建新版本章节
-   - 更新 CHANGELOG
+### 核心功能
 
-**违反此规则是严重错误，会导致版本管理混乱。**
+- **数据采集**: 连接 VMware vCenter/H3C UIS，采集集群/主机/虚拟机资源与性能指标
+- **智能分析**: 僵尸VM检测、Right Size优化、潮汐模式识别、平台健康评分
+- **报告生成**: Excel + PDF 双格式专业评估报告
+- **评估模式**: 安全/节省/激进/自定义四种预设模式
+
+### 技术栈
+
+- **桌面框架**: Electron (Node.js)
+- **前端**: Vue 3 + TypeScript + Element Plus + ECharts + Vite
+- **后端**: Python 3.14 + FastAPI + SQLAlchemy + Alembic
+- **数据库**: SQLite (aiosqlite)
+- **通信**: HTTP REST API
 
 ---
 
-## 当前版本状态
-
-**版本**: v0.0.2
-**状态**: 生产就绪
-
-### 核心特性
-
-- ✅ **数据隔离架构** - 指标数据按任务隔离，支持独立分析
-- ✅ **双平台支持** - vCenter 和 H3C UIS 统一处理
-- ✅ **6 种指标完整采集** - CPU、内存、磁盘读写、网络收发
-- ✅ **评估模式系统** - 安全/节省/激进/自定义四种预设模式
-- ✅ **报告生成功能** - 支持 Excel 和 PDF 双格式导出
-- ✅ **命名规范统一** - 全项目驼峰命名（首字母小写）
-- ✅ **DTO + Service + Mapper** - v2 分层架构
-- ✅ **结构化日志系统** - 统一的日志和错误处理
-
-## 项目概述
-
-JustFit 是一个基于 Wails v2 构建的桌面应用，用于云平台资源评估与优化。它支持 vCenter 和 H3C UIS 两个虚拟化平台，提供僵尸 VM 检测、Right Size 分析、潮汐模式检测和平台健康评分功能。
-
-- **前端**: Vue 3 + TypeScript + Vite + Element Plus + ECharts
-- **后端**: Go 1.24 + Wails v2
-- **数据库**: SQLite (GORM)
-- **构建**: `wails dev` / `wails build`
-
 ## 常用命令
 
-### 开发命令
+### 开发模式
 
 ```bash
-# 启动开发模式 (前端热重载 + 后端编译)
-wails dev
+# Linux/macOS - 使用 Makefile
+make dev              # 同时启动前后端 (端口: 后端22631, 前端22632)
+make build            # 生产构建
+make package          # Electron 打包
+make test             # 运行所有测试
+make test-backend     # 仅后端测试
+make clean            # 清理构建产物
 
-# 构建生产版本
-wails build
-
-# 前端独立开发 (进入 frontend 目录)
-cd frontend
-npm run dev    # 启动 Vite 开发服务器
-npm run build  # 构建前端
+# 或直接运行脚本
+./scripts/dev.sh      # 开发模式 (网络访问模式, 绑定 0.0.0.0)
+./scripts/build.sh    # 生产构建
 ```
+
+```powershell
+# Windows - 使用批处理脚本
+scripts\dev.bat       # 开发模式
+scripts\build.bat     # 生产构建
+```
+
+### 分别启动（调试用）
+
+```bash
+# 后端 (FastAPI) - 端口 22631
+cd backend
+python3.14 -m uvicorn app.main:app --reload --port 22631 --host 0.0.0.0
+# API 文档: http://localhost:22631/docs
+
+# 前端 (Vite Dev Server) - 端口 22632
+cd frontend
+npm run dev -- --host 0.0.0.0 --port 22632
+# 前端地址: http://localhost:22632
+```
+
+**注意**: 开发模式下后端使用端口 22631，前端使用端口 22632。
 
 ### 测试命令
 
 ```bash
-# 运行所有测试
-go test ./...
+# 后端测试
+cd backend
+PYTHONPATH=backend pytest tests/backend/integration/test_connectors.py -v -s
+PYTHONPATH=backend pytest tests/backend/e2e/ -v -s
 
-# 运行特定包的测试
-go test ./internal/analyzer
-go test ./internal/connector
-go test ./internal/logger
-go test ./internal/errors
+# 前端测试
+cd frontend
+npm test
+npm run test:coverage
 
-# 运行测试并显示覆盖率
-go test -cover ./...
-
-# 运行 v2 单元测试
-go test ./test/unit/...
-
-# 运行集成测试
-go test ./test/integration/...
-
-# 运行 E2E 测试
-go test ./test/e2e/...
-
-# 测试 vCenter 连接器
-go test ./test -run TestVCenter
+# 运行单个测试
+PYTHONPATH=backend pytest tests/backend/integration/test_connectors.py::test_vcenter_connection -v -s
 ```
 
-### 其他命令
+### 依赖安装
 
 ```bash
-# 格式化代码
-go fmt ./...
-gofmt -w .
+# 后端
+cd backend
+pip install -r requirements.txt
 
-# 代码检查
-go vet ./...
-
-# 编译检查
-go build ./internal/...
+# 前端
+cd frontend
+npm install
 ```
-
-## 项目架构
-
-### 分层架构
-
-```
-├── frontend/              # Vue 3 前端 (Wails Asset Server)
-│   └── src/
-│       ├── api/          # Wails 绑定 API 调用封装
-│       ├── components/   # 通用 Vue 组件
-│       ├── views/        # 页面组件
-│       ├── stores/       # Pinia 状态管理
-│       ├── router/       # Vue Router 配置
-│       ├── types/        # TypeScript 类型定义
-│       │   ├── v2.ts     # v2 版本类型定义（与后端 DTO 对齐）
-│       └── utils/        # 工具函数
-│
-├── internal/
-│   ├── dto/              # v2 数据传输对象层
-│   │   ├── response/     # 响应 DTO
-│   │   ├── request/      # 请求 DTO
-│   │   └── mapper/       # 数据映射器
-│   │
-│   ├── service/v2/       # v2 服务层（使用 DTO）
-│   │
-│   ├── logger/           # 结构化日志系统
-│   ├── errors/           # 统一错误处理
-│   ├── appdir/           # 应用目录管理（统一配置、数据库、日志位置）
-│   │
-│   ├── analyzer/         # 分析算法引擎
-│   ├── connector/        # 云平台连接器
-│   ├── etl/              # 数据采集与 ETL
-│   ├── storage/          # 数据持久化 (GORM + SQLite)
-│   ├── task/             # 任务调度系统
-│   ├── report/           # 报告生成
-│   ├── security/         # 安全模块
-│   └── app.go            # 主应用结构 (Wails 绑定)
-│
-├── test/
-│   ├── unit/             # 单元测试
-│   ├── integration/      # 集成测试
-│   ├── api/              # API 测试
-│   ├── e2e/              # E2E 测试
-│   └── fixtures/         # 测试辅助
-│
-├── main.go               # Wails 入口
-├── app.go                # 应用服务实现 (导出到前端)
-├── wails.json            # Wails 配置
-└── go.mod                # Go 依赖管理
-```
-
-### 应用目录管理 (appdir)
-
-**重要**: 所有配置文件、数据库、日志文件通过 `internal/appdir` 包统一管理。
-
-```go
-// 获取应用数据目录
-appdir.GetAppDataDir()
-
-// 获取日志目录
-appdir.GetLogDir()
-
-// 获取数据库路径
-appdir.GetDBPath()
-
-// 确保目录存在
-appdir.EnsureAppDirs()
-```
-
-**数据目录位置** (所有平台统一使用标准目录):
-
-- **Windows**: `%APPDATA%\justfit` (例如: `C:\Users\xxx\AppData\Roaming\justfit`)
-- **macOS**: `~/Library/Application Support/justfit`
-- **Linux**: `~/.local/share/justfit`
-
-**自定义目录**: 设置环境变量 `JUSTFIT_DATA_DIR` 可指定自定义目录。
-
-**目录结构**:
-
-```
-justfit/
-├── justfit.db          # SQLite 数据库
-├── credentials.enc     # 加密凭据
-├── .key               # 加密密钥
-└── logs/              # 日志目录
-    ├── app.log        # 应用日志
-    └── task.log       # 任务日志
-```
-
-### v2 架构 (DTO + Service + Mapper)
-
-```
-请求 → app.go (Wails绑定) → Service v2 → Mapper → Storage → 数据库
-                     ↓                ↓           ↓
-                  Logger         DTO        Domain Model
-                     ↓                ↓
-                   Errors         Response
-```
-
-- **DTO (Data Transfer Object)**: 前后端数据传输的标准格式
-- **Mapper**: Storage Model ↔ DTO 转换
-- **Service v2**: 业务逻辑，使用 DTO 和 Logger/Errors
-
-## 代码审查检查点
-
-### 快速检查（每次提交必查）
-
-```bash
-# 1. 编译检查
-go build ./internal/...
-
-# 2. 字段对齐检查
-grep -rn 'json:"' internal/dto/ app.go | grep -E '[A-Z]{2,}"'  # 不应有全大写 JSON tag
-
-# 3. 单位字段检查
-grep -rn 'json:.*[MGT][hbHB]' --include="*.go" | grep -vE '(Mhz|Mb|Gb)"'  # 单位应小写
-
-# 4. 测试通过
-go test ./test/unit/...
-```
-
-### 完整检查（发布前执行）
-
-- [ ] 快速检查项全部通过
-- [ ] **数据库**: 外键关系正确，使用 CASCADE 删除
-- [ ] **日志完整**: 关键操作有日志记录，包含足够上下文
-- [ ] **错误处理**: 使用 `internal/errors` 包，错误链完整
-- [ ] **前端联动**: `frontend/src/types/v2.ts` 已同步，API 调用已更新
-- [ ] **文档更新**: CLAUDE.md 相关部分已更新
-- [ ] **无 TODO**: 生产代码中不遗留 TODO/FIXME 注释
 
 ---
 
-## ETL 数据采集流程
+## 架构与代码组织
 
-### 采集架构
+### 整体架构
 
 ```
-用户创建任务 → TaskService 创建任务记录
-                          ↓
-          ETL.Collector 连接平台采集数据
-                          ↓
-          ProcessVMMetrics 保存指标（关联 TaskID）
-                          ↓
-          任务进度实时推送 (Progress Channel)
-                          ↓
-          采集完成 → 触发分析任务 (可选)
+Electron Shell
+├── Renderer Process (Vue 3 + TypeScript)
+│   └── HTTP API → http://localhost:22631/api/*
+└── Main Process (Node.js)
+    └── spawn → Python FastAPI (localhost:22631)
+        └── SQLite Database (~/.local/share/justfit/justfit.db)
 ```
 
-### 支持的指标类型
+### 目录结构概览
 
-| 指标类型 | 说明 | 单位 |
-|---------|------|-----|
-| `cpu` | CPU 使用率 | MHz |
-| `memory` | 内存使用量 | 字节 |
-| `disk_read` | 磁盘读速率 | bytes/s |
-| `disk_write` | 磁盘写速率 | bytes/s |
-| `net_rx` | 网络接收速率 | bytes/s |
-| `net_tx` | 网络发送速率 | bytes/s |
+```
+backend/app/
+├── routers/        # API 路由 (/api/connections, /api/tasks, 等)
+├── services/       # 业务逻辑层 (collection.py, analysis.py, task.py)
+├── models/         # SQLAlchemy 数据模型
+├── schemas/        # Pydantic DTO (请求/响应)
+├── connectors/     # 平台连接器 (vcenter.py, uis.py)
+├── analyzers/      # 分析算法 (zombie.py, rightsize.py, tidal.py, health.py)
+├── report/         # 报告生成 (excel.py, pdf.py, builder.py)
+├── repositories/   # 数据访问层
+├── security/       # 凭证加密 (credentials.py)
+└── core/           # 核心配置 (database.py, errors.py, logging.py)
 
-### 数据隔离特性
+frontend/src/
+├── api/            # HTTP API 客户端
+├── stores/         # Pinia 状态管理
+├── views/          # 页面组件
+├── components/     # 通用组件
+├── composables/    # Vue 组合式函数
+├── types/          # TypeScript 类型定义
+├── router/         # Vue Router 配置
+└── utils/          # 工具函数
 
-- **采集隔离**: 每个任务采集的指标数据独立存储（通过 TaskID）
-- **查询隔离**: 分析引擎只查询该任务的指标数据
-- **删除隔离**: 删除任务时 CASCADE 删除关联指标数据
-- **独立分析**: 使用 `taskID=0` 查询所有历史数据
+electron/
+├── main.ts         # Electron 主进程入口
+├── preload.ts      # 预加载脚本 (IPC 通信)
+├── backend.ts      # Python 子进程管理
+├── window.ts       # 窗口管理
+└── tray.ts         # 系统托盘
+```
 
-### 关键文件
+### 分析器架构
 
-- `internal/etl/collector.go` - 指标采集器
-- `internal/etl/etl.go` - ETL 处理流程
-- `internal/connector/vcenter.go` - vCenter 连接器
-- `internal/connector/uis.go` - H3C UIS 连接器
+后端 `analyzers/` 目录包含四个核心分析器：
+
+| 分析器 | 功能 | 输入 | 输出 |
+|--------|------|------|------|
+| `ZombieAnalyzer` | 检测长期闲置VM | VM资源信息 + 性能指标 | 僵尸VM列表 + 置信度 |
+| `RightSizeAnalyzer` | 资源配置优化建议 | VM CPU/内存 + 历史指标 | 推荐配置 + 节省估算 |
+| `TidalAnalyzer` | 潮汐模式识别 | VM时间序列指标 | 周期性规律 + 调度建议 |
+| `HealthAnalyzer` | 平台健康评分 | 集群/主机/VM资源数据 | 健康分数 + 风险项 |
 
 ---
 
-## 分析算法配置
+## 关键开发规则
 
-### 僵尸 VM 检测
+### 命名规范
 
-检测长期低使用的虚拟机，识别可能的资源浪费。
+| 层级 | 规范 | 示例 |
+|------|------|------|
+| 数据库列 | snake_case | `connection_id`, `created_at` |
+| Python 变量 | snake_case | `connection_id`, `get_vm` |
+| JSON API | camelCase | `connectionId`, `vmCount` |
+| TypeScript | camelCase | `connectionId`, `vmCount` |
+| Vue 组件 | PascalCase | `TaskDetail.vue`, `AppShell.vue` |
 
-```go
-type ZombieVMConfig struct {
-    DaysLowUsage         int     // 低使用率天数阈值（默认 30 天）
-    CpuThreshold         float64 // CPU 使用率阈值（默认 10%）
-    MemoryThreshold      float64 // 内存使用率阈值（默认 20%）
-    DiskIoThreshold      float64 // 磁盘 I/O 阈值（默认 5%）
-    NetworkThreshold     float64 // 网络流量阈值（默认 5%）
-    ConfidenceThreshold  float64 // 置信度阈值（默认 0.7）
-}
-```
+**重要**: JSON 响应必须使用 camelCase。使用 Pydantic `alias_generator=to_camel` 自动转换。
 
-**分析逻辑**:
+### 前后端数据对接规范（⚠️ 重要）
 
-- 统计过去 N 天内 CPU/内存/磁盘/网络使用率低于阈值的比例
-- 计算置信度（基于低使用天数和指标一致性）
-- 提供证据链（低使用天数、各指标平均使用率）
+**基本原则**: **以后端为标准**，前端不得随意添加转换、映射或适配层。
 
-### Right Size 分析
+#### 1. 字段命名统一
 
-分析 VM 资源配置是否合理，提供调整建议。
+- 后端 API 返回的字段名使用 **camelCase**（如 `overallScore`, `vmCount`, `balanceScore`）
+- 前端必须**直接使用**后端返回的字段名
+- **禁止**在前端创建字段映射、转换或别名
 
-```go
-type RightSizeConfig struct {
-    CpuBufferPercent     float64 // CPU 缓冲百分比（默认 20%）
-    MemoryBufferPercent  float64 // 内存缓冲百分比（默认 20%）
-    HighUsageThreshold   float64 // 高使用率阈值（默认 85%）
-    LowUsageThreshold    float64 // 低使用率阈值（默认 30%）
-    MinConfidence        float64 // 最小置信度（默认 0.6）
-}
-```
-
-**调整类型**:
-
-- `up`: 资源不足，建议升级
-- `down`: 资源过剩，建议降级
-- `none`: 配置合理，无需调整
-
-**风险等级**:
-
-- `low`: 低风险，建议可信
-- `medium`: 中等风险，需评估影响
-- `high`: 高风险，建议谨慎
-
-### 潮汐模式检测
-
-检测 VM 资源使用的周期性模式，识别潮汐特征。
-
-```go
-type TidalConfig struct {
-    PeakThreshold        float64 // 峰值阈值（默认 80%）
-    ValleyThreshold      float64 // 谷值阈值（默认 30%）
-    StabilityThreshold   float64 // 稳定性阈值（默认 0.7）
-    MinDays              int     // 最小分析天数（默认 7 天）
-}
-```
-
-**模式类型**:
-
-- `daily`: 日周期模式（工作日/周末差异）
-- `weekly`: 周周期模式（周一到周五变化）
-- `none`: 无明显周期模式
-
-### 健康评分
-
-评估整体云平台的资源健康状态。
-
-```go
-type HealthConfig struct {
-    OvercommitThreshold  float64 // 超分阈值（默认 150%）
-    HotspotThreshold     float64 // 热点阈值（默认 90%）
-    BalanceThreshold     float64 // 平衡阈值（默认 0.6）
-}
-```
-
-**评分维度**:
-
-- 资源平衡度: CPU/内存分配是否均衡
-- 超分风险: 资源超分配程度
-- 热点集中度: 负载是否过度集中
-
-**健康等级**:
-
-- `excellent`: 90-100 分
-- `good`: 75-89 分
-- `fair`: 60-74 分
-- `poor`: 0-59 分
-
----
-
-## 前后端接口对齐（⚠️ 硬性要求）
-
-**⚠️ 字段名大小写不匹配是严重 BUG，会导致数据丢失！每次修改字段必须执行以下检查：**
-
-- [ ] **字段名完全一致**: 后端 JSON tag 与前端类型定义**逐字符匹配**
-  - 检查命令：`grep -rn 'json:"' internal/dto/ | grep -oE 'json:"[^"]*"'`
-  - 对比前端：`grep -rn 'interface.*{' frontend/src/types/`
-  - 验证：后端 `json:"vmCount"` 必须匹配前端 `vmCount: number`（不是 `VMCount`）
-
-- [ ] **字段类型一致**: Go 类型与 TypeScript 类型正确映射
-  - `uint/int` ↔ `number`
-  - `string` ↔ `string`
-  - `bool` ↔ `boolean`
-  - `time.Time` ↔ `string` (ISO 8601)
-
-- [ ] **必填字段**: 前端 `validate` 标签与后端验证一致
-- [ ] **可选字段**: `omitempty` 在 JSON tag 和前端类型中正确处理（`?:` 标记）
-- [ ] **类型同步**: 后端 DTO 修改时**必须**同步更新 `frontend/src/types/v2.ts`、`frontend/src/types/api.ts`
-- [ ] **组件使用验证**: 搜索所有使用该字段的前端组件，确保字段名一致
-  - 检查命令：`grep -rn '字段名' frontend/src/views/ frontend/src/stores/`
-
-**🔍 字段对齐检查清单（每次修改字段后执行）**:
-
-```bash
-# 1. 搜索后端 JSON tag
-grep -rn 'json:".*字段"' internal/ app.go
-
-# 2. 搜索前端类型定义
-grep -rn '字段名:' frontend/src/types/
-
-# 3. 搜索前端组件使用
-grep -rn '字段名' frontend/src/views/ frontend/src/stores/
-
-# 4. 编译验证
-go build ./internal/... && cd frontend && npm run build
-```
-
-**验证示例**:
+#### 2. 数据传递原则
 
 ```typescript
-// 前端发送数据
-const data = {
-  vmCount: 5,           // 驼峰小写开头
-  selectedVMs: ['vm1'], // 缩写 VM 全大写
-  connectionId: 1       // 驼峰小写开头
-}
+// ✅ 正确：直接使用后端字段
+const healthScore = result.overallScore
+const balance = result.balanceScore
 
-// 后端接收
-type Config struct {
-  VMCount     int      `json:"vmCount"`       // 匹配
-  SelectedVMs []string `json:"selectedVMs"`   // 匹配
-  ConnectionID uint     `json:"connectionId"` // 匹配
+// ❌ 错误：创建映射或转换
+const healthScore = result.score  // 后端没有这个字段
+const healthData = {
+  overallScore: result.overallScore,
+  resourceBalance: result.balanceScore  // 不要这样做！
 }
 ```
 
----
+#### 3. 问题排查流程
 
-## 核心概念
+当发现前端显示问题或字段不匹配时，按以下顺序排查：
 
-### 数据隔离架构
+1. **检查后端**：确认后端 API 返回的字段名是什么
+2. **统一后端**：如果后端字段名不符合规范，修改后端
+3. **修改前端**：如果后端字段名已符合规范，修改前端模板直接使用
 
-指标数据按任务隔离，确保不同采集任务的性能数据互不影响：
+**绝对禁止**：
 
-```go
-// VMMetric 模型包含 TaskID 字段
-type VMMetric struct {
-    ID        uint      `json:"id"`
-    TaskID    uint      `json:"taskId"`    // 关联的任务 ID
-    VMID      uint      `json:"vmId"`      // 关联的虚拟机 ID
-    MetricType string   `json:"metricType"` // cpu, memory, disk_read, disk_write, net_rx, net_tx
-    Value     float64   `json:"value"`
-    Timestamp time.Time `json:"timestamp"`
+- ❌ 在前端做字段映射（如 `resourceBalance: result.balanceScore`）
+- ❌ 创建"兼容字段"（如 `score: result.overallScore`）
+- ❌ 添加转换层或适配器
+
+#### 4. 统一验证方式
+
+修改 API 后，验证以下场景：
+
+- 数据库 → 后端 API：字段名是 camelCase
+- 后端 API → 前端：前端直接使用，无映射
+- 前端模板：显示时直接访问字段
+
+### API 响应格式
+
+```python
+# 成功响应
+{
+    "success": True,
+    "data": {...},
+    "message": "操作成功"
 }
-```
 
-**关键特性**:
-
-- **采集隔离**: 每个任务采集的指标数据独立存储
-- **查询隔离**: 分析引擎只查询该任务的指标数据
-- **删除隔离**: 删除任务时自动清理关联的指标数据（CASCADE）
-- **独立分析**: 使用 `taskID=0` 查询所有历史数据（用于独立分析功能）
-
-**使用示例**:
-
-```go
-// 按任务查询指标
-metrics, err := repos.Metric.ListByTaskAndVMAndType(taskID, vmID, "cpu", start, end)
-
-// 删除任务的所有指标
-repos.Metric.DeleteByTaskID(taskID)
-
-// 独立分析（查询所有数据）
-metrics, err := repos.Metric.ListByTaskAndVMAndType(0, vmID, "cpu", start, end)
-```
-
-### 连接器接口
-
-所有云平台连接器实现 `connector.Connector` 接口:
-
-```go
-type Connector interface {
-    Close() error
-    TestConnection() error
-    GetClusters() ([]ClusterInfo, error)
-    GetHosts() ([]HostInfo, error)
-    GetVMs() ([]VMInfo, error)
-    GetVMMetrics(...) (*VMMetrics, error)
-}
-```
-
-### 任务调度系统
-
-- 任务类型: `collection` (采集), `analysis` (分析)
-- 任务状态: `pending` → `running` → `completed`/`failed`/`cancelled`
-- 任务执行器 (`Executor`) 接口: 支持自定义任务执行逻辑
-- 任务结果通过进度通道实时推送
-
-### 日志系统使用
-
-```go
-import "justfit/internal/logger"
-
-// 获取 logger
-log := logger.With(logger.Str("service", "connection"))
-
-// 记录日志
-log.Debug("调试信息", logger.String("name", name))
-log.Info("普通信息", logger.Int("count", count))
-log.Warn("警告信息", logger.String("reason", reason))
-log.Error("错误信息", logger.Err(err))
-
-// 子日志器（带预设字段）
-childLog := log.With(logger.Uint("connection_id", id))
-```
-
-### 错误处理使用
-
-```go
-import apperrors "justfit/internal/errors"
-
-// 使用预定义错误
-return apperrors.ErrConnectionNotFound
-
-// 包装错误
-return apperrors.ErrInternalError.Wrap(err, "创建连接失败")
-
-// 判断错误类型
-if apperrors.IsNotFound(err) {
-    // 处理不存在的情况
-}
-```
-
-## 重要约定
-
-### 强制命名规范
-
-**本项目使用混合命名策略，在 API 层统一为驼峰，数据库层保持 SQL 约定**
-
-| 位置 | 规范 | 示例 |
-|------|------|------|
-| 后端 Go 结构体 | 驼峰 | `ConnectionResponse`, `ConnectionID` |
-| 后端 Go 方法 | 驼峰 | `ListConnections()`, `GetByID(id uint)` |
-| 后端 JSON tag | **驼峰（首字母小写）** | `json:"connectionId"`, `json:"vmCount"` |
-| 前端 TS 类型/接口 | 驼峰 | `ConnectionResponse`, `connectionId` |
-| 前端 TS 属性 | **驼峰（首字母小写）** | `connectionId`, `vmCount` |
-| 数据库列名 | **蛇形** | `connection_id`, `created_at` (SQL 约定) |
-| 数据库表名 | 蛇形复数 | `connections`, `assessment_tasks` |
-
-**⚠️ 关键规则 - 字段命名大小写敏感性**：
-
-1. **前端 TypeScript 属性必须首字母小写**（驼峰命名）
-
-   ```typescript
-   // 正确
-   vmCount: number
-   collectedVMCount: number
-   selectedVMs: string[]
-   connectionId: number
-
-   // 错误 - 会导致后端无法解析
-   VMCount: number      // Go 期望 json:"vmCount" 不是 "VMCount"
-   ConnectionID: number // Go 期望 json:"connectionId" 不是 "ConnectionID"
-   ```
-
-2. **后端 JSON tag 必须首字母小写**
-
-   ```go
-   // 正确
-   type CollectionConfig struct {
-       VMCount     int      `json:"vmCount"`       // 首字母小写
-       SelectedVMs []string `json:"selectedVMs"`    // 后续单词首字母大写
-   }
-
-   // 错误
-   type CollectionConfig struct {
-       VMCount     int      `json:"VMCount"`       // 前端无法正确解析
-   }
-   ```
-
-3. **缩写词处理（VM, ID, URL 等）**
-   - **双字母缩写**：全部大写 → `VM`, `ID`, `IP`
-   - **三字母缩写**：全部大写 → `CPU`, `GPU`
-   - **JSON tag**：缩写保持大写，但整体驼峰（首字母小写）
-     - `vmCount` (VM 虚拟机)
-     - `cpuCount` (CPU 处理器)
-     - `ipAddress` (IP 地址)
-     - `userId` (用户 ID)
-     - `taskId` (任务 ID)
-     - `selectedVMs` (VM 复数，缩写保持大写)
-   - **错误示例**：
-     - ❌ `Vms` → 应该是 `VMs`（两个字母都大写）
-     - ❌ `vmcount` → 应该是 `vmCount`（驼峰）
-     - ❌ `CPUCount` → 应该是 `cpuCount`（首字母小写）
-
-### 单位字段命名规则
-
-**单位统一使用小写缩写**（保持一致性，避免混淆）：
-
-| 类型 | JSON tag 格式 | 示例 | 说明 |
-|------|--------------|------|------|
-| 频率 | `xxxMhz` | `cpuMhz` | 小写 h |
-| 内存（MB） | `xxxMb` | `memoryMb`, `currentMemoryMb` | 小写 b |
-| 内存（GB） | `xxxGb` | `memoryGb`, `totalMemoryGb` | 小写 b |
-| 数量 | `xxxCount` | `vmCount`, `cpuCount` | Count 后缀 |
-| 字节数 | `xxxMemory` | `totalMemory`, `freeMemory` | 原始字节数 |
-
-**重要**：
-
-- ✅ **Go 结构体字段** 使用 PascalCase + 大写单位：`MemoryMB`, `CPUMHz`, `MemoryGB`
-- ✅ **JSON tag** 使用 camelCase + 小写单位：`memoryMb`, `cpuMhz`, `memoryGb`
-- ✅ **TypeScript 属性** 使用 camelCase + 小写单位：`memoryMb`, `cpuMhz`
-
-```go
-// 正确示例
-type VMResponse struct {
-    MemoryMB  int32   `json:"memoryMb"`   // 字段名大写 MB，JSON 小写 Mb
-    MemoryGB  float64 `json:"memoryGb"`   // 字段名大写 GB，JSON 小写 Gb
-    CPUMHz    int32   `json:"cpuMhz"`     // 字段名大写 MHz，JSON 小写 Mhz
-}
-```
-
-**常见混淆字段对照表**：
-
-| 混淆字段 | 正确写法 | 错误写法 |
-|---------|---------|---------|
-| CPU 频率 | `cpuMhz` | `cpuMHz`, `CPUMhz` |
-| 内存 MB | `memoryMb` | `memoryMB`, `MemoryMB` |
-| 内存 GB | `memoryGb` | `memoryGB`, `MemoryGB` |
-| VM 数量 | `vmCount` | `VMCount`, `vmcount` |
-| CPU 数量 | `cpuCount` | `CPUCount`, `cpucount` |
-| IP 地址 | `ipAddress` | `IPAddress`, `IPaddress` |
-| 用户 ID | `userId` | `UserID`, `user_Id` |
-
-**数据流验证顺序**（每次修改字段后必须执行）:
-
-```
-后端 DTO → 后端 JSON tag → 前端类型定义 → 前端组件使用 → 前端 API 调用
-   ↓            ↓               ↓               ↓              ↓
- 验证类型    验证首字母小写   验证完全一致    验证使用正确   验证传递正确
-```
-
-**数据流转换**（GORM 自动处理）:
-
-```
-Go 对象            JSON                前端 TS
-{                    {                    {
-  ConnectionID        "connectionId": 123,   connectionId: 123,
-  Name: "test"        "name": "test",        name: "test"
-}                    }                    }
-       ↓                    ↓                    ↓
-数据库 (蛇形列名)     HTTP API (驼峰)        浏览器
-connection_id=123
-name="test"
-```
-
-**设计理由**:
-
-- API 层（JSON/TypeScript）使用驼峰：代码一致，易读易写
-- 数据库列名使用蛇形：符合 SQL 传统，工具兼容性好
-- GORM 自动处理转换，无需手动映射
-
-### 时间处理
-
-- 后端统一使用 `time.Time`
-- API 响应中时间自动格式化为 ISO 8601 字符串
-- 前端使用 dayjs 处理时间格式化
-
-### 凭据安全
-
-- 数据库 `connections` 表密码字段为空
-- 实际密码通过 `security.CredentialManager` 加密存储
-- 加密算法: AES-256-GCM
-
-## 前后端类型映射
-
-| Go 类型 | TypeScript 类型 | JSON 序列化 |
-|---------|----------------|-------------|
-| `uint` | `number` | 数字 |
-| `int` | `number` | 数字 |
-| `float64` | `number` | 数字 |
-| `string` | `string` | 字符串 |
-| `bool` | `boolean` | true/false |
-| `time.Time` | `string` | ISO 8601 |
-| `*time.Time` | `string \| undefined` | ISO 8601 或 null |
-| `[]T` | `T[]` | 数组 |
-| `map[K]V` | `Record<K, V>` | 对象 |
-
-## 扩展指南
-
-### 添加新的 API 端点
-
-1. 在 `internal/dto/response/` 添加响应 DTO
-2. 在 `internal/dto/request/` 添加请求 DTO
-3. 在 `internal/dto/mapper/` 添加 Mapper
-4. 在 `internal/service/v2/` 添加 Service 方法
-5. 在 `app.go` 添加 Wails 绑定方法
-6. 更新 `frontend/src/types/v2.ts`
-7. 添加前端 API 调用
-8. 添加单元测试
-
-### 添加新的云平台支持
-
-1. 在 `internal/connector/` 创建新文件，实现 `Connector` 接口
-2. 在 `connector.go` 的 `NewConnector` 中注册平台类型
-3. 更新前端平台选择下拉菜单
-4. 添加对应的数据采集测试
-
-### vCenter 指标采集注意事项
-
-vCenter 性能指标采集的关键配置：
-
-```go
-// internal/connector/vcenter.go
-func (c *VCenterClient) GetVMMetrics(...) (*VMMetrics, error) {
-    // 1. 使用实时间隔（20 秒）而非历史间隔（5 分钟）
-    spec.Interval = duration20s  // 正确
-    // spec.Interval = duration5m  // 错误：磁盘/网络指标不可用
-
-    // 2. 使用空字符串获取聚合数据
-    metricInfo.Instance = ""  // 正确：获取聚合数据
-    // metricInfo.Instance = "*"  // 错误：返回空数据
-
-    // 支持的指标类型
-    // - cpu: CPU 使用率 (MHz)
-    // - memory: 内存使用 (字节)
-    // - disk_read: 磁盘读速率
-    // - disk_write: 磁盘写速率
-    // - net_rx: 网络接收速率
-    // - net_tx: 网络发送速率
-}
-```
-
-**关键点**：
-
-- 实时间隔（`Realtime`）才提供全部 6 种指标
-- 历史间隔（`Historical`）仅提供 CPU 和内存指标
-- 使用空字符串 `""` 作为实例名获取聚合数据
-
----
-
-## 主机信息获取最佳实践
-
-### vCenter 主机IP获取
-
-**错误方式**（会返回 vCenter 的 IP）：
-```go
-hostIP = hostMo.Summary.ManagementServerIp  // ❌ 返回 vCenter IP
-```
-
-**正确方式**（返回主机真实管理IP）：
-```go
-// 从管理网络接口获取IP（通常是 vmk0）
-if hostMo.Config != nil && hostMo.Config.Network != nil {
-    for _, vnic := range hostMo.Config.Network.Vnic {
-        if vnic.Device == "vmk0" {
-            if vnic.Spec.Ip != nil {
-                hostIP = vnic.Spec.Ip.IpAddress  // ✅ 返回主机真实IP
-                break
-            }
-        }
+# 错误响应
+{
+    "success": False,
+    "error": {
+        "code": "ERROR_CODE",
+        "message": "错误描述"
     }
 }
-// 如果 vmk0 不存在，使用 ManagementServerIp 作为备用
-if hostIP == "" && hostMo.Summary.ManagementServerIp != "" {
-    hostIP = hostMo.Summary.ManagementServerIp
+```
+
+### 数据库会话管理
+
+**关键**: 每个请求会话必须提交，否则测试中数据不可见：
+
+```python
+async def override_get_db():
+    async with session_maker() as session:
+        try:
+            yield session
+            await session.commit()  # 必须提交！
+        except Exception:
+            await session.rollback()
+            raise
+```
+
+### 异步编程规范
+
+- 所有 I/O 操作必须使用异步库 (`aiosqlite`, `httpx`, 不是 `sqlite3`, `requests`)
+- 并发限制使用 `asyncio.Semaphore(5)` 控制同时进行的请求数
+- 使用 `asyncio.gather()` 并行执行多个异步任务
+
+### vCenter 连接器关键点
+
+1. **指标采集使用实时间隔 (20秒)**，不要用历史间隔 (5分钟)
+2. **实例名使用空字符串 `""`** 获取聚合数据
+3. **主机IP获取**: 从 `config.network.vnic[vmk0].spec.ip.ipAddress` 获取
+4. **VM Key 生成**: 优先 `uuid:<lowercase_uuid>` → `<datacenter>:<name>`
+
+### 评估模式配置
+
+分析器支持四种预设模式，配置在 `analyzers/modes.py`：
+
+| 模式 | 描述 | 适用场景 |
+|------|------|----------|
+| `safe` | 安全模式 | 保守阈值，生产环境 |
+| `saving` | 节省模式 | 平衡阈值，默认推荐 |
+| `aggressive` | 激进模式 | 最大化优化机会 |
+| `custom` | 自定义模式 | 用户自定义配置 |
+
+### ⚠️ 代码质量与兼容性准则
+
+**核心原则**: **禁止向后兼容逻辑，保持代码简洁清晰**
+
+#### 1. 零兼容原则
+
+- ❌ **禁止**向后兼容旧数据、旧字段、旧接口
+- ❌ **禁止**添加兼容逻辑（如 `if old_field: new_field = old_field`）
+- ❌ **禁止**添加数据迁移脚本
+- ❌ **禁止**创建字段映射或转换层
+
+#### 2. 修改策略
+
+当需要修改字段名、接口或数据结构时：
+
+1. **直接修改**：一次性修改到位
+2. **修改所有引用**：确保前后端完全同步
+3. **删除旧代码**：不保留任何兼容逻辑
+4. **验证完整性**：确保所有相关文件都已修改
+
+#### 3. 用户数据管理
+
+- 用户会删除旧的运行数据重新测试
+- 不需要考虑历史数据的兼容性
+- 修改完成后告知用户是否需要删除数据
+
+#### 4. 示例对比
+
+**❌ 错误做法（屎山代码）**：
+
+```python
+# 兼容旧数据
+selected_vm_count = config.get("selectedVMCount")
+if selected_vm_count is None:
+    selected_vm_count = config.get("vmCount", 0)  # 兼容逻辑
+
+return {
+    "selectedVMCount": selected_vm_count,
+    "vmCount": selected_vm_count  # 保留旧字段
 }
 ```
-
-**要点**：
-- 优先从 `config.network.vnic[vmk0].spec.ip.ipAddress` 获取
-- 使用 `RetrieveOne` 而非 `hostObj.Name()` 获取主机对象
-- 请求属性：`[]string{"name", "summary", "config.network.vnic"}`
-
-### H3C UIS 主机IP获取
-
-通过 HostID 关联主机列表获取：
-```go
-// 1. 获取主机列表
-hosts, err := c.GetHostList()
-
-// 2. 建立 HostID -> HostIP 映射
-hostIPMap := make(map[int]string)
-for _, host := range hosts {
-    hostIPMap[host.HostID] = host.HostIP
-}
-
-// 3. VM 使用时通过 HostID 查找
-hostIP = hostIPMap[vm.HostID]
-```
-
-**要点**：
-- 主机列表获取失败时不要中断 VM 采集
-- 使用 HostID 关联而非主机名（更可靠）
-
----
-
-## 报告生成系统注意事项
-
-### Excel 生成常见陷阱
-
-#### 1. Map 迭代无序导致列值错位
-
-**问题**：Go 的 map 迭代顺序随机
-```go
-// ❌ 错误：列名和值可能不匹配
-for key, value := range data {
-    // ...
-}
-```
-
-**正确做法**：使用固定数组
-```go
-// ✅ 正确：固定列顺序
-columns := []string{"vmName", "cluster", "hostIp", "cpuCores"}
-for i, key := range columns {
-    cell := fmt.Sprintf("%s%d", string(rune('A'+i)), row)
-    g.file.SetCellValue(sheet, cell, data[key])
-}
-```
-
-#### 2. Sheet1 空表问题
-
-**问题**：excelize 创建默认 Sheet1，代码直接删除导致问题
-
-**正确做法**：重命名而非删除
-```go
-// ❌ 错误
-g.file.DeleteSheet("Sheet1")
-
-// ✅ 正确
-g.file.SetSheetName("Sheet1", "概览")
-```
-
-#### 3. JSON 字段名与数据库不匹配
-
-**检查方法**：
-```bash
-# 1. 查看数据库实际存储的 JSON
-sqlite3 justfit.db "SELECT details FROM analysis_findings LIMIT 1;"
-
-# 2. 对比结构体定义
-grep "json:" internal/report/builder.go
-```
-
-**常见错误**：
-- 结构体用 `Cluster` 但数据库是 `datacenter`
-- 结构体用 `PatternType` 但数据库是 `pattern`
-
-#### 4. 文件扩展名处理
-
-**错误方式**（.xlsx 有 4 个字符）：
-```go
-ext := filepath[len(filepath)-3:]  // ❌ 假设扩展名是3字符
-```
-
-**正确方式**：
-```go
-ext := strings.TrimPrefix(filepath.Ext(filePath), ".")  // ✅ 自动识别长度
-```
-
-### PDF 生成注意事项
-
-#### 1. Go Vet 锁值复制警告
-
-**警告信息**：
-```
-wrapText passes lock by value: gopdf.GoPdf contains sync.Mutex
-```
-
-**影响**：单线程场景下无实际影响，但不符合最佳实践
-
-**解决方案**（可选）：
-```go
-// 改为只传递需要的参数
-func wrapText(text string, maxWidth float64, avgCharWidth float64) []string {
-    maxChars := int(maxWidth / avgCharWidth)
-    // ...
-}
-```
-
-#### 2. 中文字体加载
-
-确保字体文件存在：
-```go
-// internal/report/fonts/simhei.ttf
-err := pdf.AddTTFFont("wryh", "./internal/report/fonts/simhei.ttf")
-```
-
-### 数据字段对齐检查清单
-
-每次修改字段后执行以下检查：
-
-```bash
-# 1. 检查数据库模型
-grep "HostIP\|hostIp" internal/storage/models.go
-
-# 2. 检查 DTO 层
-grep "HostIP\|hostIp" internal/dto/response/*.go
-
-# 3. 检查 Mapper
-grep "HostIP\|hostIp" internal/dto/mapper/*.go
-
-# 4. 检查 app.go API 层
-grep "HostIP\|hostIp" app.go
-
-# 5. 检查前端类型定义
-grep "hostIp" frontend/src/types/*.ts
-
-# 6. 检查前端组件使用
-grep "hostIp\|hostName" frontend/src/views/*.vue
-
-# 7. 编译验证
-go build ./...
-```
-
-### 修改字段的完整流程
-
-1. **数据库模型** (`internal/storage/models.go`)
-   - 添加字段：`HostIP string \`gorm:"size:50" json:"hostIp"\``
-
-2. **DTO 响应** (`internal/dto/response/resource.go`)
-   - 添加字段：`HostIP string \`json:"hostIp,omitempty"\``
-
-3. **Mapper** (`internal/dto/mapper/vm_mapper.go`)
-   - 映射字段：`HostIP: model.HostIP`
-
-4. **API 层** (`app.go`)
-   - 结构体添加：`HostIP string \`json:"hostIp,omitempty"\```
-   - 映射数据：`HostIP: v.HostIP`
-
-5. **前端类型** (`frontend/src/types/v2.ts`, `frontend/src/types/api.ts`)
-   - 添加字段：`hostIp?: string`
-
-6. **前端组件** (`frontend/src/views/*.vue`)
-   - 表格列：`{ prop: 'hostIp', label: '主机IP' }`
-
----
-
-## 调试技巧
-
-### 启用详细日志
-
-```go
-// 在 main.go 或 app.go 开头
-log.SetLevel(logger.DebugLevel)
-```
-
-### 数据库检查
-
-```bash
-# 查看数据库位置
-echo $JUSTFIT_DATA_DIR  # 或查看 appdir.GetDBPath() 返回值
-
-# 使用 sqlite3 查询
-sqlite3 ~/.local/share/justfit/justfit.db
-sqlite3> SELECT * FROM assessment_tasks;
-```
-
-### 前端调试
 
 ```typescript
-// 在浏览器控制台
-import { useAppStore } from '@/stores/app'
-const app = useAppStore()
-console.log('当前连接:', app.connections)
+// 前端兼容处理
+const displayName = task.connectionHost || task.connectionName  // 回退逻辑
 ```
 
-### Wails 开发模式问题
+**✅ 正确做法（干净代码）**：
 
-```bash
-# 清理缓存
-rm -rf frontend/node_modules/.vite
-wails dev -clean
+```python
+# 直接使用新字段
+return {
+    "connectionHost": config.get("connectionHost", ""),
+    # 不保留旧字段，不添加兼容逻辑
+}
 ```
 
-### 常见陷阱
-
-#### 陷阱 1: 字段名大小写不匹配
-
-**问题**: 前端使用 `VMCount`（大写 V），后端期望 `vmCount`（小写 v）
-**后果**: 后端无法解析字段，数据丢失
-
-**检查命令**:
-
-```bash
-# 检查所有后端 JSON tag
-grep -rn 'json:"' internal/dto/ app.go | grep -vE 'json:"[a-z]'
-
-# 检查所有前端类型定义
-grep -rn '[A-Z][a-z]+:' frontend/src/types/ | grep -v 'interface\|type\|export'
+```typescript
+// 前端直接使用
+const displayName = task.connectionHost  // 假设字段一定存在
 ```
 
-#### 陷阱 2: 单位字段命名混淆
+#### 5. 修改完成后的输出
 
-**问题**: `cpuMhz` vs `cpuMHz` vs `CPUMhz`
-**后果**: 前后端字段不匹配，数据无法正确显示
+每次修改完成后，只需告知用户：
 
-**检查命令**:
+- ✅ **需要删除数据重新测试**：当修改了数据库结构、config 格式、API 字段等
+- ✅ **无需删除数据**：当仅修改了 UI、样式、非数据相关的逻辑
 
-```bash
-# 检查所有单位字段的 JSON tag（应全部为小写单位）
-grep -rn 'json:.*[MGT][hbHB]' --include="*.go" | grep -v '//'
+---
 
-# 查找不一致的单位命名
-grep -rn 'json:".*MHz"' --include="*.go"   # 应该是 Mhz
-grep -rn 'json:".*GB"' --include="*.go"    # 应该是 Gb
-grep -rn 'json:".*MB"' --include="*.go"    # 应该是 Mb
-```
+## 常见问题
 
-#### 陷阱 3: 修改后端 DTO 但未更新前端
+### 问题: 构建失败 "axios not found"
 
-**检查清单**:
+**解决**: 确保 `frontend/package.json` 中包含 `"axios": "^1.7.0"`
 
-- [ ] `internal/dto/response/*.go` 修改后
-- [ ] `frontend/src/types/v2.ts` 已同步
-- [ ] `frontend/src/types/api.ts` 已同步
-- [ ] `frontend/src/stores/*.ts` 已同步
-- [ ] 使用该字段的 Vue 组件已更新
+### 问题: vCenter 指标返回空值
+
+**原因**: 使用了历史间隔而非实时间隔
+
+**解决**: 设置 `intervalId=20` (实时间隔)
+
+### 问题: 测试中数据不可见
+
+**原因**: 数据库会话未提交
+
+**解决**: 在测试 fixture 中添加 `await session.commit()`
+
+### 问题: 窗口控制按钮不工作
+
+**原因**: 未在 Electron 环境中运行
+
+**解决**: 检查 `window.electronAPI` 是否存在
+
+### 问题: 端口冲突 22631/22632
+
+**原因**: 另一个开发实例正在运行
+
+**解决**: `pkill -f "uvicorn app.main:app"` 或 `pkill -f "vite.*22632"`
+
+---
+
+## 测试环境
+
+- **VMware vCenter**: 10.103.116.116
+- **用户**: <administrator@vsphere.local>
+- **密码**: Admin@123.
+
+---
+
+## 版本管理
+
+- **当前版本**: v0.0.3
+- **版本定义**: `backend/app/__init__.py` 中的 `__version__`
+- **版本格式**: MAJOR.MINOR.PATCH
+  - **MAJOR**: 重大架构变更，数据库不兼容升级
+  - **MINOR**: 新功能添加，向后兼容
+  - **PATCH**: Bug 修复，不影响功能
+
+---
+
+## 数据存储位置
+
+- **数据目录**: `~/.local/share/justfit/`
+- **数据库**: `~/.local/share/justfit/justfit.db`
+- **日志**: `~/.local/share/justfit/logs/justfit.log`
+- **加密密钥**: `~/.local/share/justfit/.key`
+- **加密凭证**: `~/.local/share/justfit/credentials.enc`
+
+---
+
+## 环境变量配置
+
+后端配置通过环境变量或 `.env` 文件设置，**所有环境变量使用 `JUSTFIT_` 前缀**：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `JUSTFIT_API_PORT` | API 监听端口 | `22631` |
+| `JUSTFIT_DEBUG` | 调试模式 | `True` |
+| `JUSTFIT_DATA_DIR` | 数据目录路径 | `~/.local/share/justfit` |
+| `JUSTFIT_DB_NAME` | 数据库文件名 | `justfit.db` |
+| `JUSTFIX_DEFAULT_METRIC_DAYS` | 默认采集天数 | `30` |
+| `JUSTFIT_METRIC_INTERVAL_SECONDS` | 指标采集间隔 | `20` |
+| `JUSTFIT_VCENTER_TIMEOUT` | vCenter 连接超时(秒) | `30` |
+| `JUSTFIT_VCENTER_MAX_RETRIES` | vCenter 最大重试次数 | `3` |
+
+---
+
+## 文件参考
+
+- 架构详细说明: `docs/REFACTORING_SUMMARY.md`
+- Debug 指南: `docs/DEBUG_GUIDE.md`
+- API 文档: `docs/API.md`
+- 部署指南: `docs/DEPLOYMENT.md`

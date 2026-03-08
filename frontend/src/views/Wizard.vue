@@ -109,6 +109,13 @@
                                     <el-input v-model="connectionForm.password" type="password" show-password
                                         placeholder="管理员密码" />
                                 </el-form-item>
+                                <el-form-item label="采集天数" class="field-metrics">
+                                    <el-input-number v-model="connectionForm.metricsDays" :min="1" :max="90"
+                                        placeholder="30" controls-position="right" style="width: 100%" />
+                                    <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+                                        性能指标采集天数（1-90天），默认30天
+                                    </div>
+                                </el-form-item>
                             </div>
                         </el-form>
                     </div>
@@ -138,7 +145,7 @@
                         </div>
                         <div class="vm-grid" v-else>
                             <div v-for="vm in filteredVMs" :key="vm.uuid || vm.id" class="vm-item" :class="{
-                                selected: selectedVMs.has(getVMKey(vm)),
+                                selected: selectedVMs.has(vm.vmKey),
                                 'state-warning': !isVMStateNormal(vm)
                             }" @click="toggleVM(vm)">
                                 <div class="vm-status-dot" :class="getVMStateDotClass(vm)"></div>
@@ -154,7 +161,7 @@
                                     {{ getVMStateText(vm) }}
                                 </div>
                                 <div class="vm-check">
-                                    <el-icon v-if="selectedVMs.has(getVMKey(vm))">
+                                    <el-icon v-if="selectedVMs.has(vm.vmKey)">
                                         <Check />
                                     </el-icon>
                                 </div>
@@ -187,6 +194,9 @@
                         </el-descriptions-item>
                         <el-descriptions-item label="评估对象">
                             <span style="color: #409EFF; font-weight: bold">{{ selectedVMs.size }}</span> 台虚拟机
+                        </el-descriptions-item>
+                        <el-descriptions-item label="采集天数">
+                            {{ connectionForm.metricsDays }} 天
                         </el-descriptions-item>
                     </el-descriptions>
                 </div>
@@ -221,7 +231,7 @@ import { ref, reactive, computed, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore, type CreateTaskParams } from '@/stores/task'
 import * as ConnectionAPI from '@/api/connection'
-import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification, type FormInstance } from 'element-plus'
 import { Monitor, Connection, Search, Check, Flag, ArrowLeft, Refresh, Cloudy } from '@element-plus/icons-vue'
 
 defineOptions({
@@ -278,7 +288,8 @@ const connectionForm = reactive({
     host: '',
     port: 443,
     username: '',
-    password: ''
+    password: '',
+    metricsDays: 30
 })
 
 const connectionRules = {
@@ -362,43 +373,89 @@ function handlePortInput(value: string) {
 }
 
 async function testConnection() {
-    if (!connectionFormRef.value) return
+    console.log('[Wizard.testConnection] 开始测试连接')
+    if (!connectionFormRef.value) {
+        console.error('[Wizard.testConnection] connectionFormRef 不存在')
+        return
+    }
 
+    // 验证表单
     try {
+        console.log('[Wizard.testConnection] 验证表单:', connectionForm)
         await connectionFormRef.value.validate()
-    } catch {
+        console.log('[Wizard.testConnection] 表单验证通过')
+    } catch (validationError: any) {
+        console.error('[Wizard.testConnection] 表单验证失败:', validationError)
+        ElMessage.error('请填写完整的连接信息')
         return
     }
 
     testLoading.value = true
+
+    // 显示 loading 提示
+    let loadingInstance = ElNotification({
+        title: '正在连接',
+        message: '正在测试连接并获取虚拟机列表...',
+        type: 'info',
+        duration: 0,
+        showClose: false,
+    })
+
     try {
+        console.log('[Wizard.testConnection] 开始创建连接...')
+
         // 1. 创建连接
-        const connId = await ConnectionAPI.ConnectionApi.create({
+        const connection = await ConnectionAPI.ConnectionApi.create({
             name: connectionForm.name,
             platform: formData.platform,
             host: connectionForm.host,
             port: connectionForm.port,
             username: connectionForm.username,
             password: connectionForm.password,
-            insecure: false
+            insecure: true  // 跳过 SSL 证书验证（vCenter 自签名证书）
         })
 
+        console.log('[Wizard.testConnection] 连接创建成功:', connection)
+
+        const connId = connection.id  // 提取 ID
         createdConnectionId.value = connId
-        ElMessage.success('连接成功，正在获取资源列表...')
 
-        // 2. 采集数据
-        await ConnectionAPI.CollectionApi.collect({
-            connectionId: connId,
-            dataTypes: ['clusters', 'hosts', 'vms'],
-            metricsDays: 30
+        // 更新提示信息 - 关闭旧的通知，创建新的
+        loadingInstance.close()
+        loadingInstance = ElNotification({
+            title: '正在获取虚拟机列表',
+            message: '连接成功，正在获取虚拟机列表...',
+            type: 'success',
+            duration: 0,
+            showClose: false,
         })
 
-        // 3. 获取虚拟机列表
-        await fetchVMList(connId)
+        // 2. 测试连接并获取虚拟机列表（不进行完整采集）
+        console.log('[Wizard.testConnection] 开始获取虚拟机列表...')
+        const result = await ConnectionAPI.testConnectionAndFetchVMs(connId)
+        console.log('[Wizard.testConnection] 获取虚拟机列表成功:', result)
 
+        // 3. 保存虚拟机列表
+        vmList.value = result.vms || []
+        vmListLoaded.value = true
+
+        // 关闭 loading 提示
+        loadingInstance.close()
+
+        ElMessage.success({
+            message: `连接成功！获取到 ${result.total} 台虚拟机`,
+            duration: 3000,
+        })
+
+        console.log('[Wizard.testConnection] 所有步骤完成，进入下一步')
         currentStep.value++
     } catch (e: any) {
-        ElMessage.error(e.message || '连接失败')
+        console.error('[Wizard.testConnection] 连接失败:', e)
+
+        // 关闭 loading 提示
+        loadingInstance.close()
+
+        ElMessage.error(e.message || '连接失败，请检查连接信息')
     } finally {
         testLoading.value = false
     }
@@ -408,7 +465,7 @@ async function fetchVMList(connId: number) {
     vmLoading.value = true
     try {
         const result = await ConnectionAPI.ResourceApi.getVMList(connId)
-        vmList.value = result.vms
+        vmList.value = result.items || []  // 修复：后端返回的是 items，不是 vms
         vmListLoaded.value = true
     } catch (e) {
         console.error(e)
@@ -433,23 +490,8 @@ async function refreshVMList() {
     }
 }
 
-// 获取虚拟机的唯一标识，必须与后端 buildVMKey 函数的格式一致
-// 后端 buildVMKey 逻辑：
-//   - 如果有 UUID，返回 "uuid:" + lowercase(uuid)
-//   - 否则如果有 datacenter，返回 "datacenter:name"
-//   - 否则返回 name
-function getVMKey(vm: any): string {
-    // 优先使用 UUID，与后端保持一致
-    if (vm.uuid && vm.uuid.trim() !== '') {
-        return 'uuid:' + vm.uuid.trim().toLowerCase()
-    }
-    // 如果有 datacenter，使用 datacenter:name 格式
-    if (vm.datacenter && vm.datacenter.trim() !== '') {
-        return vm.datacenter.trim() + ':' + (vm.name || '').trim()
-    }
-    // 最后使用 name
-    return (vm.name || '').trim()
-}
+// 虚拟机唯一标识直接使用后端返回的 vmKey 字段
+// 后端在采集时会生成唯一的 vmKey
 
 // ==================== 虚拟机状态判断 ====================
 
@@ -607,7 +649,7 @@ function toggleVM(vm: any) {
         return
     }
 
-    const key = getVMKey(vm)
+    const key = vm.vmKey
     if (selectedVMs.value.has(key)) {
         selectedVMs.value.delete(key)
     } else {
@@ -621,9 +663,9 @@ function handleSelectAll(val: boolean) {
     const normalVMs = pageVMs.filter(vm => isVMStateNormal(vm))
 
     if (val) {
-        normalVMs.forEach(vm => selectedVMs.value.add(getVMKey(vm)))
+        normalVMs.forEach(vm => selectedVMs.value.add(vm.vmKey))
     } else {
-        pageVMs.forEach(vm => selectedVMs.value.delete(getVMKey(vm)))
+        pageVMs.forEach(vm => selectedVMs.value.delete(vm.vmKey))
     }
 }
 
@@ -648,21 +690,37 @@ async function submitTask() {
     try {
         const taskParams = {
             type: 'collection' as const,
-            name: '评估任务-' + connectionForm.name,
-            platform: formData.platform,
+            name: connectionForm.name,
             connectionId: createdConnectionId.value,
-            connectionName: connectionForm.name,
-            selectedVMs: Array.from(selectedVMs.value || []),
-            vmCount: selectedVMs.value?.size || 0
+            config: {
+                platform: formData.platform,
+                connectionName: connectionForm.name,
+                connectionHost: connectionForm.host,
+                selectedVMs: Array.from(selectedVMs.value || []),
+                selectedVMCount: selectedVMs.value?.size || 0,
+                metricsDays: connectionForm.metricsDays
+            }
         }
         console.log('[Wizard.submitTask] 任务参数:', taskParams)
 
         const task = await taskStore.createTask(taskParams)
         console.log('[Wizard.submitTask] 任务创建成功, taskId:', task.id, 'taskName:', task.name)
 
-        console.log('[Wizard.submitTask] 调用 startCollectionTask')
-        await taskStore.startCollectionTask(task.id, createdConnectionId.value, Array.from(selectedVMs.value || []), 30)
-        console.log('[Wizard.submitTask] startCollectionTask 完成')
+        // 等待后台任务启动（后端有 0.5 秒延迟）
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
+        // 同步任务列表，获取最新状态
+        console.log('[Wizard.submitTask] 开始同步任务列表...')
+        await taskStore.syncTasksFromBackend()
+        console.log('[Wizard.submitTask] 任务列表同步完成, 当前任务数量:', taskStore.tasks.length)
+
+        // 验证任务状态
+        const updatedTask = taskStore.tasks.find(t => t.id === task.id)
+        if (updatedTask) {
+          console.log('[Wizard.submitTask] 任务当前状态 - status:', updatedTask.status, 'progress:', updatedTask.progress)
+        } else {
+          console.warn('[Wizard.submitTask] 未找到刚创建的任务!')
+        }
 
         ElMessage.success('任务已创建，后台正在采集中...')
         console.log('[Wizard.submitTask] ===== 任务创建流程完成 =====')
@@ -1050,6 +1108,10 @@ function handleCancel() {
         }
 
         :deep(.field-password) {
+            grid-column: 1 / -1;
+        }
+
+        :deep(.field-metrics) {
             grid-column: 1 / -1;
         }
     }

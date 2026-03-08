@@ -80,8 +80,7 @@
                 <h3 class="task-name" :title="task.name">{{ task.name }}</h3>
                 <div class="task-connection">
                   <el-icon><Connection /></el-icon>
-                  <span>{{ task.connectionName }}</span>
-                  <span class="connection-host" v-if="task.host">({{ task.host }})</span>
+                  <span>{{ task.connectionHost }}</span>
                 </div>
                 <div class="task-time">
                   <el-icon><Clock /></el-icon>
@@ -97,9 +96,6 @@
                         <el-icon class="is-loading" v-if="task.status === 'running'"><Loading /></el-icon>
                         {{ getStatusText(task.status) }}
                       </span>
-                      <span class="vm-info" v-if="task.vmCount">
-                        {{ task.collectedVMCount || 0 }}/{{ task.vmCount }} VM
-                      </span>
                       <span class="progress-val">{{ task.progress }}%</span>
                    </div>
                    <el-progress :percentage="task.progress" :show-text="false" :stroke-width="4" :status="task.status === 'paused' ? 'warning' : ''" />
@@ -110,7 +106,7 @@
                    <div class="result-stat">
                       <div class="stat-item">
                         <span class="label">虚拟机</span>
-                        <span class="val">{{ task.vmCount }}</span>
+                        <span class="val">{{ task.selectedVMCount }}</span>
                       </div>
                       <el-divider direction="vertical" />
                        <div class="stat-item">
@@ -141,7 +137,7 @@
               :total="filteredTasks.length"
               layout="total, prev, pager, next"
               background
-              small
+              size="small"
             />
           </div>
         </template>
@@ -149,7 +145,7 @@
         <!-- 空状态 -->
         <div v-else class="empty-state">
           <el-empty description="没有找到相关任务" :image-size="120" />
-          <el-button type="primary" plain @click="startNewTask" v-if="tasks.length === 0">创建一个新任务</el-button>
+          <el-button type="primary" plain @click="startNewTask" v-if="filteredTasks.length === 0">创建一个新任务</el-button>
         </div>
       </div>
     </div>
@@ -211,34 +207,34 @@ const features = [
   }
 ]
 
-onMounted(async () => {
-  console.log('[Home.vue] onMounted 初始化开始')
 
-  // 从后端同步任务数据
+onMounted(async () => {
+  console.log('[Home.vue] ===== onMounted 初始化开始 =====')
+  console.log('[Home.vue] 当前时间:', new Date().toISOString())
+
+  // 从后端同步任务数据（App.vue 已经启动了全局轮询）
   try {
     await taskStore.syncTasksFromBackend()
     console.log('[Home.vue] 任务列表同步成功, 任务数量:', taskStore.tasks.length)
-    console.log('[Home.vue] 任务详情:', taskStore.tasks.map(t => ({
-      id: t.id,
-      name: t.name,
-      vmCount: t.vmCount,
-      status: t.status,
-      progress: t.progress
-    })))
+    console.log('[Home.vue] 任务列表状态:', taskStore.tasks.map(t => ({ id: t.id, status: t.status, progress: t.progress })))
+    console.log('[Home.vue] ===== onMounted 初始化完成 =====')
   } catch (error) {
     console.error('[Home.vue] 任务列表同步失败:', error)
   }
+
 })
 
-const tasks = computed(() => {
-  const result = taskStore.tasks
-  // 添加日志检查computed值
-  console.log('[Home.vue] tasks computed 被调用, 任务数量:', result.length)
-  return result
-})
+// 监控任务列表变化
+watch(() => taskStore.tasks, (newTasks, oldTasks) => {
+  console.log('[Home.vue] ===== taskStore.tasks 发生变化 =====')
+  console.log('[Home.vue] 新任务数量:', newTasks.length)
+  console.log('[Home.vue] 旧任务数量:', oldTasks?.length || 0)
+  console.log('[Home.vue] 新任务状态:', newTasks.map(t => ({ id: t.id, name: t.name, status: t.status, progress: t.progress })))
+  console.log('[Home.vue] =======================================')
+}, { deep: true, immediate: false })
 
 const filteredTasks = computed(() => {
-  let result = tasks.value
+  let result = taskStore.tasks
 
   // 1. 状态筛选
   if (filterStatus.value === 'running') {
@@ -323,11 +319,19 @@ async function handleTaskCommand(cmd: string, task: Task) {
   switch (cmd) {
     case 'pause':
       console.log('[Home.vue] 暂停任务, taskId:', task.id)
-      await taskStore.pauseTask(task.id)
+      try {
+        await taskStore.pauseTask(task.id)
+      } catch (e: any) {
+        ElMessage.warning(e.message || '暂停任务功能暂未实现')
+      }
       break
     case 'resume':
       console.log('[Home.vue] 恢复任务, taskId:', task.id)
-      await taskStore.resumeTask(task.id)
+      try {
+        await taskStore.resumeTask(task.id)
+      } catch (e: any) {
+        ElMessage.warning(e.message || '恢复任务功能暂未实现')
+      }
       break
     case 'cancel':
       ElMessageBox.confirm('确定取消该任务吗？', '提示', { type: 'warning' })

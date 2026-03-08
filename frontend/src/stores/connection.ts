@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import type { Connection, ConnectionCreate, ConnectionUpdate, ConnectionListResponse } from '@/api/connection'
 import * as ConnectionAPI from '@/api/connection'
 
 export const useConnectionStore = defineStore('connection', () => {
   // 状态
-  const connections = ref<any[]>([])
+  const connections = ref<Connection[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -35,11 +36,12 @@ export const useConnectionStore = defineStore('connection', () => {
   }
 
   // 操作
-  async function fetchConnections() {
+  async function fetchConnections(params?: { page?: number; size?: number }) {
     loading.value = true
     error.value = null
     try {
-      connections.value = await ConnectionAPI.listConnections()
+      const result: ConnectionListResponse = await ConnectionAPI.listConnections(params)
+      connections.value = result.items
     } catch (e: any) {
       error.value = e.message || '获取连接列表失败'
       throw e
@@ -48,12 +50,13 @@ export const useConnectionStore = defineStore('connection', () => {
     }
   }
 
-  async function createConnection(data: any) {
+  async function createConnection(data: ConnectionCreate): Promise<Connection> {
     loading.value = true
     error.value = null
     try {
-      await ConnectionAPI.createConnection(data)
-      await fetchConnections()
+      const newConnection = await ConnectionAPI.createConnection(data)
+      connections.value.push(newConnection)
+      return newConnection
     } catch (e: any) {
       error.value = e.message || '创建连接失败'
       throw e
@@ -62,26 +65,45 @@ export const useConnectionStore = defineStore('connection', () => {
     }
   }
 
-  async function testConnection(id: number) {
+  async function updateConnection(id: number, data: ConnectionUpdate): Promise<Connection> {
+    loading.value = true
     error.value = null
     try {
-      const status = await ConnectionAPI.testConnection(id)
-      // 更新连接状态 - 使用索引替换确保响应式更新
+      const updated = await ConnectionAPI.updateConnection(id, data)
+      const index = findConnectionIndex(id)
+      if (index !== -1) {
+        connections.value[index] = updated
+      }
+      return updated
+    } catch (e: any) {
+      error.value = e.message || '更新连接失败'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function testConnection(id: number): Promise<string> {
+    error.value = null
+    try {
+      const result = await ConnectionAPI.testConnection(id)
+      // 更新连接状态
       const index = findConnectionIndex(id)
       if (index !== -1) {
         connections.value[index] = {
           ...connections.value[index],
-          status
+          status: result.status,
+          lastSync: new Date().toISOString()
         }
       }
-      return status
+      return result.message
     } catch (e: any) {
       error.value = e.message || '测试连接失败'
       throw e
     }
   }
 
-  async function deleteConnection(id: number) {
+  async function deleteConnection(id: number): Promise<void> {
     loading.value = true
     error.value = null
     try {
@@ -95,12 +117,13 @@ export const useConnectionStore = defineStore('connection', () => {
     }
   }
 
-  function updateConnectionStatus(id: number, status: string) {
+  function updateConnectionStatus(id: number, status: string, lastSync?: string | null) {
     const index = findConnectionIndex(id)
     if (index !== -1) {
       connections.value[index] = {
         ...connections.value[index],
-        status
+        status,
+        ...(lastSync !== undefined && { lastSync })
       }
     }
   }
@@ -116,6 +139,7 @@ export const useConnectionStore = defineStore('connection', () => {
     activeConnections,
     fetchConnections,
     createConnection,
+    updateConnection,
     testConnection,
     deleteConnection,
     updateConnectionStatus

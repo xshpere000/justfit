@@ -1,0 +1,19 @@
+{
+  "name": "justfit-electron",
+  "version": "0.0.3",
+  "description": "JustFit Electron Main Process",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsc",
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0",
+    "@types/ws": "^8.5",
+    "electron": "^34.0",
+    "electron-builder": "^25.0",
+    "typescript": "^5.7"
+  },
+  "dependencies": {}
+}

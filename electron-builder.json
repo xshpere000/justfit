@@ -1,0 +1,70 @@
+{
+  "name": "justfit",
+  "version": "0.0.3",
+  "description": "JustFit - Cloud Platform Resource Assessment Tool",
+  "main": "electron/dist/main.js",
+  "author": "JustFit Team",
+  "license": "MIT",
+
+  "scripts": {
+    "dev": "concurrently \"npm run dev:electron\" \"npm run dev:frontend\"",
+    "dev:electron": "cd electron && npm run build && npm run watch",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:frontend && npm run build:electron",
+    "build:frontend": "cd frontend && npm run build",
+    "build:electron": "cd electron && npm run build",
+    "package": "npm run build && electron-builder -w --x64",
+    "package:win": "npm run build && electron-builder -w --x64"
+  },
+
+  "devDependencies": {
+    "@types/node": "^22.0",
+    "concurrently": "^9.0",
+    "electron": "^34.0",
+    "electron-builder": "^25.0",
+    "typescript": "^5.7"
+  },
+
+  "dependencies": {},
+
+  "build": {
+    "productName": "JustFit",
+    "directories": {
+      "output": "dist/electron",
+      "buildResources": "resources"
+    },
+    "files": [
+      "electron/dist/**/*",
+      "frontend/dist/**/*",
+      "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "resources/icons/app.png",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

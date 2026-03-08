@@ -20,7 +20,7 @@ export function transformBackendTaskToFrontend(taskInfo: TaskInfo): Task {
     connectionId: taskInfo.connectionId,
     connectionName: taskInfo.connectionName,
     platform: taskInfo.platform,
-    vmCount: taskInfo.vmCount || 0,
+    selectedVMCount: taskInfo.selectedVMCount || 0,
     collectedVMCount: 0,
     analysisResults: {
       zombie: false,
@@ -64,7 +64,7 @@ export function transformFrontendTaskToBackend(
     connectionId,
     connectionName,
     platform,
-    vmCount: task.vmCount,
+    selectedVMCount: task.selectedVMCount,
     selectedVMs: JSON.stringify(task.selectedVMs || []),
     status: mapFrontendStatusToBackend(task.status),
   }
@@ -80,7 +80,7 @@ export function transformCreateTaskParams(params: CreateTaskParams): Record<stri
     connectionId: params.connectionId,
     connectionName: params.connectionName,
     platform: params.platform,
-    vmCount: params.vmCount,
+    selectedVMCount: params.selectedVMCount,
     selectedVMs: JSON.stringify(params.selectedVMs || []),
   }
 }
@@ -183,7 +183,7 @@ export function createSafeTask(taskInfo: Partial<TaskInfo>): TaskInfo {
     host: taskInfo.host,
     platform: taskInfo.platform,
     selectedVMs: taskInfo.selectedVMs,
-    vmCount: taskInfo.vmCount,
+    selectedVMCount: taskInfo.selectedVMCount,
     collectedVMCount: taskInfo.collectedVMCount,
     currentStep: taskInfo.currentStep,
     analysisResults: taskInfo.analysisResults,

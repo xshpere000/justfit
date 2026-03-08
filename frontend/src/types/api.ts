@@ -1,6 +1,6 @@
 /**
  * JustFit Backend API 类型定义
- * Version: 0.0.2
+ * Version: 0.0.3
  * 更新日期: 2026-02-25
  * 命名规范: 统一使用驼峰命名
  */
@@ -83,10 +83,11 @@ export interface CollectionConfig {
   name: string;              // 任务名称
   connectionId: number;
   connectionName: string;    // 连接名称
+  connectionHost?: string;   // 连接主机地址
   platform: string;          // 平台类型: vcenter, h3c-uis
   dataTypes: string[];       // clusters, hosts, vms, metrics
   metricsDays: number;
-  vmCount: number;          // 虚拟机总数
+  selectedVMCount: number;   // 选中的虚拟机总数
   selectedVMs: string[];     // 用户选择的虚拟机列表（vmKey 格式）
 }
 
@@ -113,10 +114,11 @@ export interface TaskInfo {
   // 任务关联信息（扩展字段）
   connectionId?: number;     // 关联的连接ID
   connectionName?: string;   // 连接名称
+  connectionHost?: string;   // 连接主机地址
   host?: string;             // 主机名
   platform?: string;         // 平台类型: vcenter, h3c-uis
   selectedVMs?: string[];    // 选中的VM列表
-  vmCount?: number;          // 虚拟机总数
+  selectedVMCount?: number;  // 选中的虚拟机总数
   collectedVMCount?: number; // 已采集的VM数量
   currentStep?: string;      // 当前执行步骤
   analysisResults?: Record<string, boolean>;  // 分析结果状态

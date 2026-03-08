@@ -154,8 +154,9 @@ export interface TaskResponse {
   durationMs?: number
   connectionId?: number
   connectionName?: string
+  connectionHost?: string
   platform?: string
-  VMCount?: number
+  selectedVMCount?: number
   collectedVMCount?: number
 }
 
@@ -181,10 +182,11 @@ export interface TaskLogEntry {
 export interface CreateCollectionRequest {
   connectionId: number
   connectionName: string
+  connectionHost?: string
   platform: string
   dataTypes: string[]
   metricsDays: number
-  vmCount: number
+  selectedVMCount: number
   selectedVMs: string[]
 }
 

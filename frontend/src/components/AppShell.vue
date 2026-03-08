@@ -87,12 +87,10 @@ import { ElMessageBox } from 'element-plus'
 import { useConnectionStore } from '@/stores/connection'
 import { useTaskStore } from '@/stores/task'
 import { useAppStore } from '@/stores/app'
-import { VersionApi } from '@/api/connection'
+import { checkBackendHealth } from '@/api/client'
 import type { AppVersionInfo } from '@/types/api'
 import {
-  DataAnalysis,
   ArrowLeft,
-  Setting,
   CircleCheck,
   CircleClose,
   Warning,
@@ -101,7 +99,6 @@ import {
   CopyDocument,
   Close
 } from '@element-plus/icons-vue'
-import * as Runtime from '../../wailsjs/runtime/runtime.js'
 
 const router = useRouter()
 const isMaximized = ref(false)
@@ -111,7 +108,7 @@ const taskStore = useTaskStore()
 const appStore = useAppStore()
 
 // 版本信息
-const appVersion = ref('')
+const appVersion = ref('0.0.3')
 const isDevVersion = ref(false)
 
 const currentRouteTitle = computed(() => route.meta?.title || '首页')
@@ -138,17 +135,28 @@ function goBack() {
 function goToSettings() {
   router.push('/settings')
 }
-// 窗口控制函数
+
+// 窗口控制函数 - 仅在 Electron 环境中可用
 function minimizeWindow() {
-  Runtime.WindowMinimise()
+  if (window.electronAPI?.minimize) {
+    window.electronAPI.minimize()
+  }
 }
 
 function toggleMaximize() {
-  Runtime.WindowToggleMaximise()
-  isMaximized.value = !isMaximized.value
+  if (window.electronAPI?.toggleMaximize) {
+    window.electronAPI.toggleMaximize()
+    isMaximized.value = !isMaximized.value
+  }
 }
 
 async function closeWindow() {
+  // 仅在 Electron 环境中允许关闭
+  if (!window.electronAPI?.close) {
+    console.log('Close window: 仅在 Electron 应用中可用')
+    return
+  }
+
   try {
     const hasRunningTasks = taskStore.hasRunningTasks
     const message = hasRunningTasks
@@ -160,15 +168,20 @@ async function closeWindow() {
       '退出确认',
       {
         type: hasRunningTasks ? 'error' : 'warning',
-        confirmButtonText: '确定关闭',
+        confirmButtonText: '确认关闭',
         cancelButtonText: '取消'
       }
     )
-    Runtime.Quit()
+    window.electronAPI.close()
   } catch {
     // 用户取消关闭
   }
 }
+
+// 检查是否在 Electron 环境中
+const isElectron = computed(() => {
+  return typeof window !== 'undefined' && window.electronAPI
+})
 
 
 onMounted(async () => {
@@ -176,16 +189,17 @@ onMounted(async () => {
   try {
     await connectionStore.fetchConnections()
   } catch (error) {
-    console.error('Failed to load connections:', error)
+    console.error('[AppShell] Failed to load connections:', error)
   }
 
-  // 获取应用版本信息
+  // 检查后端健康状态（静默检查，不弹窗）
+  // 网络错误已在 API 拦截器中处理
   try {
-    const versionInfo: AppVersionInfo = await VersionApi.getAppVersion()
-    appVersion.value = versionInfo.version
-    isDevVersion.value = versionInfo.isDevelopment
+    const isHealthy = await checkBackendHealth()
+    console.log('[AppShell] Backend health check:', isHealthy ? 'OK' : 'Not healthy')
+    // 不再弹窗，因为网络错误已经有详细的控制台日志
   } catch (error) {
-    console.error('Failed to load app version:', error)
+    console.log('[AppShell] Backend health check skipped (network error, see console for details)')
   }
 })
 </script>

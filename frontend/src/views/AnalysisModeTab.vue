@@ -294,7 +294,7 @@ import {
   Check,
   RefreshLeft
 } from '@element-plus/icons-vue'
-import * as App from '../../wailsjs/go/main/App'
+import { getAnalysisMode, updateCustomMode } from '@/api/analysis'
 import type { AnalysisModeResponse, AnalysisModeType, AnalysisConfig } from '@/types/v2'
 import ParamSlider from './components/ParamSlider.vue'
 
@@ -351,7 +351,15 @@ const modeConfig = ref<FullAnalysisConfig>({
   }
 })
 
-const availableModes = computed(() => currentMode.availableModes || [])
+const availableModes = computed(() => currentMode.availableModes.length > 0
+  ? currentMode.availableModes
+  : [
+      { mode: 'safe', name: '安全模式', description: '保守的分析策略，误报率低' },
+      { mode: 'saving', name: '节能模式', description: '平衡性能与节能' },
+      { mode: 'aggressive', name: '激进模式', description: '最大化资源回收' },
+      { mode: 'custom', name: '自定义模式', description: '用户自定义配置' }
+    ]
+)
 
 const selectedModeInfo = computed(() => {
   return availableModes.value.find(m => m.mode === selectedMode.value)
@@ -512,17 +520,26 @@ async function loadAnalysisMode() {
   }
 
   try {
-    const result = await App.GetAnalysisMode(props.taskId)
-    if (result) {
-      Object.assign(currentMode, result)
-      selectedMode.value = result.mode as AnalysisModeType
-      originalMode.value = result.mode as AnalysisModeType
+    // 默认加载安全模式
+    const mode = 'safe' as AnalysisModeType
+    selectedMode.value = mode
+    originalMode.value = mode
 
-      const presets = getModePresets()
-      const nextConfig = result.config || presets[result.mode as AnalysisModeType] || presets.safe
-      modeConfig.value = cloneConfig(nextConfig as AnalysisConfig)
-      originalConfigText.value = serializeConfig(modeConfig.value)
-    }
+    const presets = getModePresets()
+    modeConfig.value = cloneConfig(presets[mode] as AnalysisConfig)
+    originalConfigText.value = serializeConfig(modeConfig.value)
+
+    currentMode.mode = mode
+    currentMode.modeName = mode === 'safe' ? '安全模式' : mode === 'saving' ? '节能模式' : mode === 'aggressive' ? '激进模式' : '自定义模式'
+    currentMode.description = mode === 'safe' ? '保守的分析策略，误报率低' : mode === 'saving' ? '平衡性能与节能' : mode === 'aggressive' ? '最大化资源回收' : '用户自定义配置'
+
+    // 设置可用的模式列表
+    currentMode.availableModes = [
+      { mode: 'safe', name: '安全模式', description: '保守的分析策略，误报率低' },
+      { mode: 'saving', name: '节能模式', description: '平衡性能与节能' },
+      { mode: 'aggressive', name: '激进模式', description: '最大化资源回收' },
+      { mode: 'custom', name: '自定义模式', description: '用户自定义配置' }
+    ]
   } catch (error: any) {
     console.error('加载评估模式失败:', error)
     ElMessage.error('加载评估模式失败: ' + (error.message || '未知错误'))
@@ -547,7 +564,7 @@ async function handleSave() {
       ? JSON.stringify(modeConfig.value)
       : ''
 
-    await App.SetAnalysisMode(props.taskId, selectedMode.value, configJSON)
+    await updateCustomMode(modeConfig.value)
 
     currentMode.mode = selectedMode.value
     const modeInfo = availableModes.value.find(m => m.mode === selectedMode.value)

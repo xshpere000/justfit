@@ -1,0 +1,32 @@
+# JustFit Backend - Python Dependencies
+# Generated from pyproject.toml
+# Python 3.14+ required
+
+# Core Framework
+fastapi>=0.115
+uvicorn[standard]>=0.34
+
+# Database
+sqlalchemy[asyncio]>=2.0
+aiosqlite>=0.21
+
+# Data Validation
+pydantic>=2.10
+pydantic-settings>=2.7
+
+# Cloud Platform Connectors
+pyvmomi>=8.0
+httpx>=0.28
+
+# Report Generation
+openpyxl>=3.1
+reportlab>=4.2
+
+# Security
+cryptography>=44.0
+
+# Logging & Monitoring
+structlog>=24.0
+
+# WebSocket
+websockets>=14.0
