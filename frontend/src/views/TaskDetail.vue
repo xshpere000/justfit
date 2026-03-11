@@ -3,6 +3,9 @@
     <!-- 任务头部 -->
     <div class="task-header">
       <div class="header-left">
+        <el-button :icon="ArrowLeft" circle plain @click="goHome" />
+      </div>
+      <div class="header-center">
         <div class="task-title">
           <h1>{{ task?.name }}</h1>
           <el-tag :type="getStatusType(task?.status)" size="small">
@@ -939,6 +942,7 @@ import * as AnalysisAPI from '@/api/analysis'
 import * as ResourceAPI from '@/api/resource'
 import AnalysisModeTab from './AnalysisModeTab.vue'
 import {
+  ArrowLeft,
   Download,
   MoreFilled,
   VideoPause,
@@ -966,6 +970,10 @@ import {
 const router = useRouter()
 const route = useRoute()
 const taskStore = useTaskStore()
+
+function goHome() {
+  router.push('/')
+}
 
 // 使用 computed 确保 taskId 随路由变化而更新
 const taskId = computed(() => route.params.id as string)
@@ -2451,23 +2459,35 @@ function formatConfigTime(timestamp: string | undefined): string {
 }
 
 .task-header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
   align-items: center;
+  gap: $spacing-md;
 
   .header-left {
     display: flex;
+    justify-content: start;
+  }
+
+  .header-center {
+    display: flex;
     align-items: center;
-    gap: $spacing-md;
+    justify-content: center;
 
     .task-title {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: $spacing-md;
+
       h1 {
         font-size: 20px;
         font-weight: 600;
-        margin: 0 0 $spacing-xs 0;
+        margin: 0;
         display: flex;
         align-items: center;
         gap: $spacing-sm;
+        text-align: center;
       }
     }
   }
@@ -2475,6 +2495,7 @@ function formatConfigTime(timestamp: string | undefined): string {
   .header-right {
     display: flex;
     gap: $spacing-sm;
+    justify-self: end;
   }
 }
 
@@ -3535,7 +3556,13 @@ function formatConfigTime(timestamp: string | undefined): string {
   }
 
   .task-header {
-    .header-left .task-title h1 {
+    grid-template-columns: 1fr auto;
+
+    .header-left {
+      display: none;
+    }
+
+    .header-center .task-title h1 {
       font-size: 18px;
       margin-bottom: 0;
     }

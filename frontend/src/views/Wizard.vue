@@ -2,13 +2,12 @@
     <div class="wizard-page">
         <div class="wizard-header">
             <div class="header-content">
-                <h1 class="page-title">
-                    <el-button icon="ArrowLeft" circle plain @click="$router.push('/')" size="small"
-                        style="margin-right: 12px" />
-                    创建评估任务
-                </h1>
-                <el-steps :active="currentStep" simple
-                    style="flex: 1; max-width: 1200px; margin-left: 40px; background: transparent">
+                <div class="title-row">
+                    <el-button class="back-button" icon="ArrowLeft" circle plain @click="$router.push('/')" size="small" />
+                    <h1 class="page-title">创建评估任务</h1>
+                    <div class="title-row-spacer"></div>
+                </div>
+                <el-steps :active="currentStep" simple class="wizard-steps">
                     <el-step title="选择平台" icon="Monitor" />
                     <el-step title="配置连接" icon="Connection" />
                     <el-step title="选择虚拟机" icon="Search" />
@@ -996,8 +995,31 @@ function handleCancel() {
         max-width: 1400px;
         margin: 0 auto;
         display: flex;
-        align-items: center;
-        justify-content: space-between;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+
+        .title-row {
+            display: grid;
+            grid-template-columns: 32px 1fr 32px;
+            align-items: center;
+        }
+
+        .back-button {
+            justify-self: start;
+        }
+
+        .title-row-spacer {
+            width: 32px;
+            height: 32px;
+        }
+
+        .wizard-steps {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: transparent;
+        }
 
         :deep(.el-step.is-simple .el-step__title) {
             white-space: nowrap;
@@ -1010,8 +1032,7 @@ function handleCancel() {
         font-size: 20px;
         font-weight: 600;
         color: #303133;
-        display: flex;
-        align-items: center;
+        text-align: center;
     }
 }
 

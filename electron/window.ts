@@ -28,6 +28,7 @@ export function createMainWindow(): BrowserWindow {
         minHeight: 700,
         backgroundColor: "#f5f5f5",
         show: false, // Show when ready
+        autoHideMenuBar: true,
         titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
         frame: true,
         webPreferences: {
@@ -37,6 +38,8 @@ export function createMainWindow(): BrowserWindow {
             webSecurity: true,
         },
     });
+
+    mainWindow.setMenuBarVisibility(false);
 
     // Load content
     const isDev = !app.isPackaged;

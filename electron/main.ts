@@ -2,7 +2,7 @@
  * Electron Main Process Entry Point
  */
 
-import { app, ipcMain } from "electron";
+import { app, ipcMain, Menu } from "electron";
 import { backendManager } from "./backend.js";
 import { createMainWindow, getMainWindow, toggleMaximize, minimizeWindow } from "./window.js";
 import { createTray, destroyTray } from "./tray.js";
@@ -12,6 +12,8 @@ import { createTray, destroyTray } from "./tray.js";
  */
 
 app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+
     // Create main window
     createMainWindow();
 
