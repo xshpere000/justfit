@@ -10,6 +10,10 @@ import { contextBridge, ipcRenderer } from "electron";
  */
 const electronAPI = {
     // Window controls
+    minimize: () => ipcRenderer.invoke("window:minimize"),
+    toggleMaximize: () => ipcRenderer.invoke("window:maximize"),
+    close: () => ipcRenderer.invoke("window:close"),
+    isMaximized: () => ipcRenderer.invoke("window:is-maximized"),
     windowMinimize: () => ipcRenderer.invoke("window:minimize"),
     windowMaximize: () => ipcRenderer.invoke("window:maximize"),
     windowClose: () => ipcRenderer.invoke("window:close"),

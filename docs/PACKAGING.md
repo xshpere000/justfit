@@ -51,11 +51,19 @@ cd electron && npm install && cd ..
 ./scripts/package.sh
 ```
 
+`./scripts/package.sh` 在打包前会自动检查 `backend/dist/justfit_backend.exe`，如果存在会同步复制到 `resources/backend/` 后再执行 Electron 打包。
+
 **输出位置**：`dist/electron/JustFit-0.0.3-portable.exe`
 
 ---
 
 ## 📦 命令说明
+
+### 当前实际生效的打包配置
+
+当前 `./scripts/package.sh` 会进入 `electron/` 目录执行 `electron-builder`，因此**实际生效的打包配置在 `electron/package.json` 的 `build` 字段**。
+
+根目录的 `electron-builder.json` 目前**不会被这条打包链路读取**，排查打包白屏、资源路径、extraResources 或 portable 输出名时，应以 `electron/package.json` 为准。
 
 ### Makefile 命令
 

@@ -30,11 +30,19 @@ export class BackendManager {
     private unhealthyCount: number = 0;
     private readonly MAX_UNHEALTHY = 3;
 
+    private getPackagedBackendExe(): string {
+        return path.join(process.resourcesPath, "backend", "justfit_backend.exe");
+    }
+
+    private getDevPackagedBackendExe(): string {
+        return path.resolve(__dirname, "..", "..", "resources", "backend", "justfit_backend.exe");
+    }
+
     /**
      * Get backend directory path
      */
     private getBackendPath(): string {
-        return path.join(__dirname, "../backend");
+        return path.resolve(__dirname, "..", "..", "backend");
     }
 
     /**
@@ -45,9 +53,7 @@ export class BackendManager {
         // 1. 检查是否有打包好的后端 exe（生产环境）
         const isPackaged = app.isPackaged;
         if (isPackaged) {
-            // 在打包环境中，检查 resources 目录
-            const resourcesPath = process.resourcesPath;
-            const backendExe = path.join(resourcesPath, "justfit_backend.exe");
+            const backendExe = this.getPackagedBackendExe();
             if (fs.existsSync(backendExe)) {
                 console.log("[Backend] Using packaged backend exe");
                 return backendExe;
@@ -55,7 +61,7 @@ export class BackendManager {
         }
 
         // 2. 检查开发环境中的打包 exe
-        const devBackendExe = path.join(__dirname, "..", "resources", "backend", "justfit_backend.exe");
+        const devBackendExe = this.getDevPackagedBackendExe();
         if (fs.existsSync(devBackendExe)) {
             console.log("[Backend] Using dev packaged backend exe");
             return devBackendExe;

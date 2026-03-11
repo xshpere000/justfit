@@ -19,6 +19,11 @@ function getApiBaseUrl(): string {
         return import.meta.env.VITE_API_URL;
     }
 
+    // Electron 打包环境通过 file:// 加载前端资源，后端仍固定监听本地端口
+    if (typeof window !== "undefined" && window.location.protocol === "file:") {
+        return "http://localhost:22631";
+    }
+
     // 动态检测
     if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
@@ -59,7 +64,7 @@ apiClient.interceptors.request.use(
         }
 
         // 调试：输出请求信息
-        console.log("[API Request]", config.method?.toUpperCase(), config.baseURL + config.url);
+        console.log("[API Request]", config.method?.toUpperCase(), `${config.baseURL ?? ""}${config.url ?? ""}`);
 
         return config;
     },
