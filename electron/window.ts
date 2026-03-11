@@ -39,13 +39,23 @@ export function createMainWindow(): BrowserWindow {
     });
 
     // Load content
-    const isDev = process.env.NODE_ENV === "development";
+    const isDev = !app.isPackaged;
     if (isDev) {
         mainWindow.loadURL("http://localhost:22632");
         mainWindow.webContents.openDevTools();
     } else {
-        mainWindow.loadFile(path.join(__dirname, "../frontend/dist/index.html"));
+        const packagedIndexPath = path.join(process.resourcesPath, "frontend", "dist", "index.html");
+        mainWindow.loadFile(packagedIndexPath);
     }
+
+    mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+        console.error("[Window] Failed to load:", {
+            errorCode,
+            errorDescription,
+            validatedURL,
+        });
+        mainWindow?.show();
+    });
 
     // Handle window events
     mainWindow.once("ready-to-show", () => {

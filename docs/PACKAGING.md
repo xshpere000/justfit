@@ -65,6 +65,8 @@ cd electron && npm install && cd ..
 
 根目录的 `electron-builder.json` 目前**不会被这条打包链路读取**，排查打包白屏、资源路径、extraResources 或 portable 输出名时，应以 `electron/package.json` 为准。
 
+当前打包链路会把前端构建产物复制到 `resources/frontend/dist/`，Electron 生产环境从该目录加载 `index.html`。
+
 ### Makefile 命令
 
 | 命令 | 作用 | 说明 |

@@ -22,10 +22,13 @@
     },
     "files": [
       "dist/**/*",
-      "../frontend/dist/**/*",
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist"
+      },
       {
         "from": "../resources/backend/justfit_backend.exe",
         "to": "backend/justfit_backend.exe"
