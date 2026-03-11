@@ -87,7 +87,7 @@ class TaskAnalysisJob(Base):
     task_id: Mapped[int] = mapped_column(
         ForeignKey("assessment_tasks.id", ondelete="CASCADE")
     )
-    job_type: Mapped[str] = mapped_column(String(20))  # zombie|rightsize|tidal|health
+    job_type: Mapped[str] = mapped_column(String(20))  # idle|resource|health
     status: Mapped[str] = mapped_column(String(20), default="pending")
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

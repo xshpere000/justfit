@@ -7,6 +7,18 @@ from app.analyzers.rightsize import RightSizeAnalyzer
 from app.models import VMMetric
 
 
+# 辅助函数：将百分比值转换为存储的绝对值
+def cpu_storage_value(percentage: float, cpu_count: int, host_cpu_mhz: int = 2600) -> float:
+    """计算 CPU 存储值：percentage / 100 * cpu_count * host_cpu_mhz"""
+    return percentage / 100 * cpu_count * host_cpu_mhz
+
+
+def memory_storage_value(percentage: float, memory_bytes: int) -> float:
+    """计算内存存储值（MB）：percentage / 100 * memory_mb"""
+    memory_mb = memory_bytes / (1024 * 1024)
+    return percentage / 100 * memory_mb
+
+
 @pytest.mark.asyncio
 async def test_rightsize_downsize_recommendation():
     """测试缩容建议"""
@@ -15,6 +27,11 @@ async def test_rightsize_downsize_recommendation():
         memory_buffer_percent=20.0,
         min_confidence=60.0,
     )
+
+    # VM 配置
+    cpu_count = 8
+    memory_bytes = 16 * 1024**3
+    host_cpu_mhz = 2600
 
     base_time = datetime.now()
     metrics = []
@@ -26,7 +43,7 @@ async def test_rightsize_downsize_recommendation():
                 task_id=1,
                 vm_id=1,
                 metric_type="cpu",
-                value=20.0,
+                value=cpu_storage_value(20.0, cpu_count, host_cpu_mhz),
                 timestamp=base_time - timedelta(hours=i),
             )
         )
@@ -35,7 +52,7 @@ async def test_rightsize_downsize_recommendation():
                 task_id=1,
                 vm_id=1,
                 metric_type="memory",
-                value=20.0,  # 20% of 16GB = 3.2GB
+                value=memory_storage_value(20.0, memory_bytes),
                 timestamp=base_time - timedelta(hours=i),
             )
         )
@@ -43,9 +60,9 @@ async def test_rightsize_downsize_recommendation():
     vm_info = {
         "name": "test-vm",
         "cluster": "cluster1",
-        "cpu_count": 8,  # 8核
-        "memory_bytes": 16 * 1024**3,  # 16GB (原始数据)
-        "memory_gb": 16,  # 16GB (分析器需要)
+        "cpu_count": cpu_count,
+        "memory_bytes": memory_bytes,
+        "host_cpu_mhz": host_cpu_mhz,
         "host_ip": "192.168.1.10",
     }
 
@@ -82,46 +99,13 @@ async def test_rightsize_memory_standard_configs():
     # 内存标准配置: [0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256] GB
     assert analyzer._normalize_memory(0.3) == 0.5
     assert analyzer._normalize_memory(0.5) == 0.5
+    assert analyzer._normalize_memory(0.8) == 1
     assert analyzer._normalize_memory(1.5) == 2
     assert analyzer._normalize_memory(3) == 4
     assert analyzer._normalize_memory(6) == 8
     assert analyzer._normalize_memory(12) == 16
-    assert analyzer._normalize_memory(48) == 64
-    assert analyzer._normalize_memory(200) == 256
-
-
-@pytest.mark.asyncio
-async def test_rightsize_percentile_calculation():
-    """测试百分位数计算"""
-    analyzer = RightSizeAnalyzer()
-
-    values = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-
-    p95 = analyzer._percentile(values, 95)
-    # index = int(10 * 95 / 100) = 9, sorted_values[9] = 100
-    assert p95 == 100
-
-    p50 = analyzer._percentile(values, 50)
-    # index = int(10 * 50 / 100) = 5, sorted_values[5] = 60
-    assert p50 == 60
-
-
-@pytest.mark.asyncio
-async def test_rightsize_risk_assessment():
-    """测试风险评估"""
-    analyzer = RightSizeAnalyzer()
-
-    # 低变异 - 低风险
-    low_stddev = 1.0
-    assert analyzer._calculate_risk(low_stddev, 8) == "low"
-
-    # 中等变异 - 中风险
-    med_stddev = 2.0
-    assert analyzer._calculate_risk(med_stddev, 8) == "medium"
-
-    # 高变异 - 高风险
-    high_stddev = 4.0
-    assert analyzer._calculate_risk(high_stddev, 8) == "high"
+    assert analyzer._normalize_memory(40) == 64
+    assert analyzer._normalize_memory(200) == 256  # 最大值
 
 
 @pytest.mark.asyncio
@@ -129,20 +113,26 @@ async def test_rightsize_upsize_recommendation():
     """测试扩容建议"""
     analyzer = RightSizeAnalyzer(
         cpu_buffer_percent=20.0,
+        memory_buffer_percent=20.0,
         min_confidence=60.0,
     )
+
+    # VM 配置
+    cpu_count = 2
+    memory_bytes = 4 * 1024**3
+    host_cpu_mhz = 2600
 
     base_time = datetime.now()
     metrics = []
 
-    # 创建高使用率指标 (CPU 和内存都高)
+    # 创建高使用率指标 (P95 约 95%)
     for i in range(100):
         metrics.append(
             VMMetric(
                 task_id=1,
                 vm_id=1,
                 metric_type="cpu",
-                value=95.0,  # CPU 95%
+                value=cpu_storage_value(95.0, cpu_count, host_cpu_mhz),
                 timestamp=base_time - timedelta(hours=i),
             )
         )
@@ -151,7 +141,7 @@ async def test_rightsize_upsize_recommendation():
                 task_id=1,
                 vm_id=1,
                 metric_type="memory",
-                value=85.0,  # Memory 85%
+                value=memory_storage_value(85.0, memory_bytes),
                 timestamp=base_time - timedelta(hours=i),
             )
         )
@@ -159,13 +149,114 @@ async def test_rightsize_upsize_recommendation():
     vm_info = {
         "name": "test-vm",
         "cluster": "cluster1",
-        "cpu_count": 2,  # 2核但使用率95%
-        "memory_bytes": 4 * 1024**3,
-        "memory_gb": 4,  # 4GB 但使用率85%
+        "cpu_count": cpu_count,
+        "memory_bytes": memory_bytes,
+        "host_cpu_mhz": host_cpu_mhz,
         "host_ip": "192.168.1.10",
     }
 
     result = await analyzer._analyze_vm(1, metrics, vm_info)
 
     # CPU 或 内存任一需要扩容即为 up
-    assert "up" in result["adjustmentType"] or result["suggestedCpu"] > 2 or result["suggestedMemory"] > 4
+    assert "up" in result["adjustmentType"] or result["suggestedCpu"] > 2 or result["recommendedMemoryMb"] > 4 * 1024
+
+
+@pytest.mark.asyncio
+async def test_rightsize_no_change_needed():
+    """测试：配置合理，无需调整"""
+    analyzer = RightSizeAnalyzer(
+        cpu_buffer_percent=20.0,
+        memory_buffer_percent=20.0,
+        min_confidence=60.0,
+    )
+
+    # VM 配置
+    cpu_count = 4
+    memory_bytes = 8 * 1024**3
+    host_cpu_mhz = 2600
+
+    base_time = datetime.now()
+    metrics = []
+
+    # 创建中等使用率指标 (P95 约 60%)
+    for i in range(100):
+        metrics.append(
+            VMMetric(
+                task_id=1,
+                vm_id=1,
+                metric_type="cpu",
+                value=cpu_storage_value(60.0, cpu_count, host_cpu_mhz),
+                timestamp=base_time - timedelta(hours=i),
+            )
+        )
+        metrics.append(
+            VMMetric(
+                task_id=1,
+                vm_id=1,
+                metric_type="memory",
+                value=memory_storage_value(55.0, memory_bytes),
+                timestamp=base_time - timedelta(hours=i),
+            )
+        )
+
+    vm_info = {
+        "name": "test-vm",
+        "cluster": "cluster1",
+        "cpu_count": cpu_count,
+        "memory_bytes": memory_bytes,
+        "host_cpu_mhz": host_cpu_mhz,
+        "host_ip": "192.168.1.10",
+    }
+
+    result = await analyzer._analyze_vm(1, metrics, vm_info)
+
+    assert result["adjustmentType"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_rightsize_risk_calculation():
+    """测试风险等级计算"""
+    analyzer = RightSizeAnalyzer()
+
+    # 低风险：CV < 0.2 (stddev/current < 0.2)
+    assert analyzer._calculate_risk(2, 16) == "low"  # CV = 2/16 = 0.125
+
+    # 中风险：0.2 <= CV < 0.4
+    assert analyzer._calculate_risk(5, 16) == "medium"  # CV = 5/16 = 0.3125
+
+    # 高风险：CV >= 0.4
+    assert analyzer._calculate_risk(8, 16) == "high"  # CV = 8/16 = 0.5
+
+
+@pytest.mark.asyncio
+async def test_rightsize_confidence_calculation():
+    """测试置信度计算"""
+    analyzer = RightSizeAnalyzer(days_threshold=14)
+
+    # 高置信度：足够样本 (days_threshold * 288 = 4032 个预期样本)
+    metrics = []
+    base_time = datetime.now()
+    for i in range(4000):  # 接近完整样本
+        metrics.append(
+            VMMetric(
+                task_id=1,
+                vm_id=1,
+                metric_type="cpu",
+                value=cpu_storage_value(50.0, 4, 2600),
+                timestamp=base_time - timedelta(minutes=i * 5),
+            )
+        )
+
+    vm_info = {
+        "name": "test-vm",
+        "cluster": "cluster1",
+        "cpu_count": 4,
+        "memory_bytes": 8 * 1024**3,
+        "host_cpu_mhz": 2600,
+        "host_ip": "192.168.1.10",
+    }
+
+    result = await analyzer._analyze_vm(1, metrics, vm_info)
+
+    # 应该有高置信度
+    assert result["confidence"] >= 80

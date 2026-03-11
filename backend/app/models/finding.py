@@ -24,7 +24,7 @@ class AnalysisFinding(Base, TimestampMixin):
     job_id: Mapped[int] = mapped_column(
         ForeignKey("task_analysis_jobs.id", ondelete="CASCADE")
     )
-    job_type: Mapped[str] = mapped_column(String(20))  # zombie|rightsize|tidal|health
+    job_type: Mapped[str] = mapped_column(String(20))  # idle|resource|health
     vm_name: Mapped[str] = mapped_column(String(255), default="")
     severity: Mapped[str] = mapped_column(
         String(20), default="info"

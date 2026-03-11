@@ -14,6 +14,9 @@ class TaskCreate(BaseSchema):
     type: str = Field(..., pattern="^(collection|analysis)$")
     connection_id: Optional[int] = None
     config: Optional[dict] = None
+    mode: str = Field(default="saving", pattern="^(safe|saving|aggressive|custom)$", alias="mode")
+    base_mode: Optional[str] = Field(default=None, pattern="^(safe|saving|aggressive)$", alias="baseMode")
+    metric_days: Optional[int] = Field(default=None, ge=1, le=90, alias="metricDays")
 
 
 class TaskResponse(BaseSchema):

@@ -33,11 +33,13 @@ class CollectionService:
     async def collect_resources(
         self,
         connection_id: int,
+        selected_vm_keys: Optional[List[str]] = None,
     ) -> dict:
         """Collect resources (clusters, hosts, VMs) from connection.
 
         Args:
             connection_id: Connection ID
+            selected_vm_keys: Optional list of VM keys to collect (filters VMs only)
 
         Returns:
             Collection summary with counts
@@ -63,7 +65,7 @@ class CollectionService:
             hosts = await self._collect_hosts(connection_id, connector)
 
             # Collect VMs
-            vms = await self._collect_vms(connection_id, connector)
+            vms = await self._collect_vms(connection_id, connector, selected_vm_keys)
 
             # Update connection status
             await self.connection_repo.update_status(connection_id, "connected", last_sync="now")
@@ -185,23 +187,40 @@ class CollectionService:
         self,
         connection_id: int,
         connector: Connector,
+        selected_vm_keys: Optional[List[str]] = None,
     ) -> List[VMModel]:
         """Collect VMs from connector.
 
         Args:
             connection_id: Connection ID
             connector: Platform connector
+            selected_vm_keys: Optional list of VM keys to collect (filters VMs)
 
         Returns:
             List of VM models
         """
+        # 准备筛选集合：统一转换为带前缀的格式
+        filter_keys: Optional[set] = None
+        if selected_vm_keys:
+            filter_keys = set()
+            for key in selected_vm_keys:
+                if key.startswith(f"conn{connection_id}:"):
+                    filter_keys.add(key)
+                else:
+                    filter_keys.add(f"conn{connection_id}:{key}")
+
         vm_infos = await connector.get_vms()
         vms = []
 
         for info in vm_infos:
-            # 在 vm_key 前添加 connection_id，确保不同连接可以有相同名称的 VM
+            # 生成 VM 的唯一 key
             base_vm_key = self._generate_vm_key(info)
             unique_vm_key = f"conn{connection_id}:{base_vm_key}"
+
+            # 如果有筛选条件，跳过不在列表中的 VM
+            if filter_keys and unique_vm_key not in filter_keys:
+                continue
+
             vm = VMModel(
                 connection_id=connection_id,
                 name=info.name,
@@ -217,6 +236,9 @@ class CollectionService:
                 host_ip=info.host_ip,
                 connection_state=info.connection_state,
                 overall_status=info.overall_status,
+                vm_create_time=info.vm_create_time,
+                uptime_duration=info.uptime_duration,
+                downtime_duration=info.downtime_duration,
                 collected_at=datetime.now(),
             )
             self.session.add(vm)

@@ -1,9 +1,28 @@
 """Application Configuration."""
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _get_default_data_dir() -> Path:
+    """Get platform-specific default data directory.
+
+    Returns:
+        - Windows: %LOCALAPPDATA%\\justfit (e.g., C:\\Users\\<user>\\AppData\\Local\\justfit)
+        - Linux/macOS: ~/.local/share/justfit
+    """
+    if os.name == "nt":  # Windows
+        # Use LOCALAPPDATA environment variable on Windows
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "justfit"
+        # Fallback to user home directory
+        return Path.home() / "AppData" / "Local" / "justfit"
+    else:  # Linux, macOS, etc.
+        return Path.home() / ".local" / "share" / "justfit"
 
 
 class Settings(BaseSettings):
@@ -14,6 +33,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # Ignore extra fields from .env
     )
 
     # API Settings
@@ -21,7 +41,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # Database Settings
-    DATA_DIR: Path = Path.home() / ".local" / "share" / "justfit"
+    DATA_DIR: Path = _get_default_data_dir()
     DB_NAME: str = "justfit.db"
 
     # Security Settings

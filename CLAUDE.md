@@ -7,14 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 JustFit 是一个**桌面端云平台资源评估与优化工具**，基于 **Electron** + **Python FastAPI** + **Vue 3** 构建。
 
 ### 核心功能
-
 - **数据采集**: 连接 VMware vCenter/H3C UIS，采集集群/主机/虚拟机资源与性能指标
 - **智能分析**: 僵尸VM检测、Right Size优化、潮汐模式识别、平台健康评分
 - **报告生成**: Excel + PDF 双格式专业评估报告
 - **评估模式**: 安全/节省/激进/自定义四种预设模式
 
 ### 技术栈
-
 - **桌面框架**: Electron (Node.js)
 - **前端**: Vue 3 + TypeScript + Element Plus + ECharts + Vite
 - **后端**: Python 3.14 + FastAPI + SQLAlchemy + Alembic
@@ -31,7 +29,10 @@ JustFit 是一个**桌面端云平台资源评估与优化工具**，基于 **El
 # Linux/macOS - 使用 Makefile
 make dev              # 同时启动前后端 (端口: 后端22631, 前端22632)
 make build            # 生产构建
-make package          # Electron 打包
+make package          # Electron 打包（不含 Python exe）
+make package-backend  # 仅打包 Python 后端为 exe
+make package-all      # 完整打包（Python exe + Electron）
+make setup            # 一键设置打包环境
 make test             # 运行所有测试
 make test-backend     # 仅后端测试
 make clean            # 清理构建产物
@@ -63,21 +64,39 @@ npm run dev -- --host 0.0.0.0 --port 22632
 
 **注意**: 开发模式下后端使用端口 22631，前端使用端口 22632。
 
+### 停止开发服务
+
+```bash
+# Linux/macOS - 停止所有开发服务
+pkill -f "uvicorn app.main:app"      # 停止后端
+pkill -f "vite.*22632"                # 停止前端
+
+# 或使用 Ctrl+C 在运行 dev.sh 的终端中停止
+```
+
+```powershell
+# Windows - 使用停止脚本
+scripts\stop.bat
+```
+
 ### 测试命令
 
 ```bash
-# 后端测试
-cd backend
-PYTHONPATH=backend pytest tests/backend/integration/test_connectors.py -v -s
-PYTHONPATH=backend pytest tests/backend/e2e/ -v -s
+# 后端测试 - 从项目根目录运行
+cd backend && PYTHONPATH=. python3.14 -m pytest tests/ -v                           # 所有后端测试
+cd backend && PYTHONPATH=. python3.14 -m pytest tests/backend/integration/ -v -s   # 集成测试（带输出）
+cd backend && PYTHONPATH=. python3.14 -m pytest tests/backend/e2e/ -v -s           # E2E 测试
+cd backend && PYTHONPATH=. python3.14 -m pytest tests/backend/integration/test_connectors.py::test_vcenter_connection -v -s  # 单个测试
+
+# 或使用 Makefile
+make test              # 运行所有后端测试
+make test-frontend     # 运行前端测试
 
 # 前端测试
 cd frontend
-npm test
-npm run test:coverage
-
-# 运行单个测试
-PYTHONPATH=backend pytest tests/backend/integration/test_connectors.py::test_vcenter_connection -v -s
+npm test               # Vitest 交互模式
+npm run test:run       # 运行一次
+npm run test:coverage  # 带覆盖率报告
 ```
 
 ### 依赖安装
@@ -90,6 +109,21 @@ pip install -r requirements.txt
 # 前端
 cd frontend
 npm install
+```
+
+### 代码质量检查
+
+```bash
+# 后端 - 代码检查和格式化
+cd backend
+ruff check .                # 检查代码问题
+ruff check . --fix          # 自动修复问题
+ruff format .               # 格式化代码
+mypy app/                   # 类型检查
+
+# 前端 - 代码检查和格式化
+cd frontend
+npm run test:coverage       # 测试覆盖率报告
 ```
 
 ---
@@ -142,13 +176,15 @@ electron/
 
 ### 分析器架构
 
-后端 `analyzers/` 目录包含四个核心分析器：
+后端 `analyzers/` 目录包含核心分析器：
 
 | 分析器 | 功能 | 输入 | 输出 |
 |--------|------|------|------|
-| `ZombieAnalyzer` | 检测长期闲置VM | VM资源信息 + 性能指标 | 僵尸VM列表 + 置信度 |
+| `IdleDetector` | 检测长期闲置VM | VM资源信息 + 性能指标 | 闲置VM列表 + 置信度 |
 | `RightSizeAnalyzer` | 资源配置优化建议 | VM CPU/内存 + 历史指标 | 推荐配置 + 节省估算 |
-| `TidalAnalyzer` | 潮汐模式识别 | VM时间序列指标 | 周期性规律 + 调度建议 |
+| `ResourceAnalyzer` | 资源使用分析 | VM时间序列指标 | 使用模式 + 配置不匹配 |
+| `UsagePatternAnalyzer` | 使用模式识别 | VM时间序列指标 | 峰谷波动 + 周期性规律 |
+| `MismatchDetector` | 配置不匹配检测 | VM CPU/内存使用率 | 配置不当VM列表 |
 | `HealthAnalyzer` | 平台健康评分 | 集群/主机/VM资源数据 | 健康分数 + 风险项 |
 
 ---
@@ -172,13 +208,11 @@ electron/
 **基本原则**: **以后端为标准**，前端不得随意添加转换、映射或适配层。
 
 #### 1. 字段命名统一
-
 - 后端 API 返回的字段名使用 **camelCase**（如 `overallScore`, `vmCount`, `balanceScore`）
 - 前端必须**直接使用**后端返回的字段名
 - **禁止**在前端创建字段映射、转换或别名
 
 #### 2. 数据传递原则
-
 ```typescript
 // ✅ 正确：直接使用后端字段
 const healthScore = result.overallScore
@@ -193,23 +227,18 @@ const healthData = {
 ```
 
 #### 3. 问题排查流程
-
 当发现前端显示问题或字段不匹配时，按以下顺序排查：
-
 1. **检查后端**：确认后端 API 返回的字段名是什么
 2. **统一后端**：如果后端字段名不符合规范，修改后端
 3. **修改前端**：如果后端字段名已符合规范，修改前端模板直接使用
 
 **绝对禁止**：
-
 - ❌ 在前端做字段映射（如 `resourceBalance: result.balanceScore`）
 - ❌ 创建"兼容字段"（如 `score: result.overallScore`）
 - ❌ 添加转换层或适配器
 
 #### 4. 统一验证方式
-
 修改 API 后，验证以下场景：
-
 - 数据库 → 后端 API：字段名是 camelCase
 - 后端 API → 前端：前端直接使用，无映射
 - 前端模板：显示时直接访问字段
@@ -278,23 +307,19 @@ async def override_get_db():
 **核心原则**: **禁止向后兼容逻辑，保持代码简洁清晰**
 
 #### 1. 零兼容原则
-
 - ❌ **禁止**向后兼容旧数据、旧字段、旧接口
 - ❌ **禁止**添加兼容逻辑（如 `if old_field: new_field = old_field`）
 - ❌ **禁止**添加数据迁移脚本
 - ❌ **禁止**创建字段映射或转换层
 
 #### 2. 修改策略
-
 当需要修改字段名、接口或数据结构时：
-
 1. **直接修改**：一次性修改到位
 2. **修改所有引用**：确保前后端完全同步
 3. **删除旧代码**：不保留任何兼容逻辑
 4. **验证完整性**：确保所有相关文件都已修改
 
 #### 3. 用户数据管理
-
 - 用户会删除旧的运行数据重新测试
 - 不需要考虑历史数据的兼容性
 - 修改完成后告知用户是否需要删除数据
@@ -302,7 +327,6 @@ async def override_get_db():
 #### 4. 示例对比
 
 **❌ 错误做法（屎山代码）**：
-
 ```python
 # 兼容旧数据
 selected_vm_count = config.get("selectedVMCount")
@@ -321,7 +345,6 @@ const displayName = task.connectionHost || task.connectionName  // 回退逻辑
 ```
 
 **✅ 正确做法（干净代码）**：
-
 ```python
 # 直接使用新字段
 return {
@@ -336,9 +359,7 @@ const displayName = task.connectionHost  // 假设字段一定存在
 ```
 
 #### 5. 修改完成后的输出
-
 每次修改完成后，只需告知用户：
-
 - ✅ **需要删除数据重新测试**：当修改了数据库结构、config 格式、API 字段等
 - ✅ **无需删除数据**：当仅修改了 UI、样式、非数据相关的逻辑
 
@@ -379,7 +400,7 @@ const displayName = task.connectionHost  // 假设字段一定存在
 ## 测试环境
 
 - **VMware vCenter**: 10.103.116.116
-- **用户**: <administrator@vsphere.local>
+- **用户**: administrator@vsphere.local
 - **密码**: Admin@123.
 
 ---

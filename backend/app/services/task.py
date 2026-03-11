@@ -329,6 +329,7 @@ class TaskService:
         task_id: int,
         connection_id: int,
         selected_vm_keys: List[str],
+        metric_days: int = 30,
     ) -> Dict[str, int]:
         """Collect VM metrics for analysis.
 
@@ -336,6 +337,7 @@ class TaskService:
             task_id: Task ID
             connection_id: Connection ID
             selected_vm_keys: List of VM keys to collect metrics for
+            metric_days: Number of days of metrics to collect (1-90)
 
         Returns:
             Dictionary with collection stats
@@ -380,7 +382,7 @@ class TaskService:
                 # Get metrics from vCenter (realtime data)
                 from datetime import timedelta
                 end_time = now
-                start_time = now - timedelta(minutes=5)  # Get last 5 minutes of data
+                start_time = now - timedelta(days=metric_days)  # Get metrics for specified days
 
                 metrics = await connector.get_vm_metrics(
                     datacenter=vm.datacenter or "",
@@ -389,6 +391,7 @@ class TaskService:
                     start_time=start_time,
                     end_time=end_time,
                     cpu_count=vm.cpu_count or 1,
+                    total_memory_bytes=vm.memory_bytes or 0,
                 )
 
                 # Save metrics
@@ -418,24 +421,70 @@ class TaskService:
     ) -> None:
         """Save VM metrics to database.
 
+        如果 metrics.hourly_series 存在，则保存按小时聚合的时间序列数据；
+        否则保存单个聚合值。
+
         Args:
             task_id: Task ID
             vm_id: VM ID
             metrics: VMMetrics object
             timestamp: Timestamp for metrics
         """
-        # Save different metric types
-        metric_types = [
-            ("cpu", metrics.cpu_mhz if hasattr(metrics, 'cpu_mhz') else 0),
-            ("memory", metrics.memory_bytes if hasattr(metrics, 'memory_bytes') else 0),
-            ("disk_read", metrics.disk_read_bytes_per_sec if hasattr(metrics, 'disk_read_bytes_per_sec') else 0),
-            ("disk_write", metrics.disk_write_bytes_per_sec if hasattr(metrics, 'disk_write_bytes_per_sec') else 0),
-            ("net_rx", metrics.net_rx_bytes_per_sec if hasattr(metrics, 'net_rx_bytes_per_sec') else 0),
-            ("net_tx", metrics.net_tx_bytes_per_sec if hasattr(metrics, 'net_tx_bytes_per_sec') else 0),
-        ]
+        from datetime import timedelta, datetime as dt
 
-        for metric_type, value in metric_types:
-            await self.save_metric(task_id, vm_id, metric_type, float(value), timestamp)
+        # 检查是否有按小时聚合的时间序列数据
+        hourly_series = getattr(metrics, 'hourly_series', None)
+
+        if hourly_series and isinstance(hourly_series, list):
+            # 保存每个小时的聚合数据
+            saved_count = 0
+            for data_point in hourly_series:
+                try:
+                    # data_point 格式：(hour_timestamp_ms, cpu_avg, cpu_min, cpu_max, memory_avg, memory_min, memory_max,
+                    #                  disk_read_avg, disk_write_avg, net_rx_avg, net_tx_avg)
+                    hour_timestamp_ms = data_point[0]
+                    cpu_avg = data_point[1]
+                    memory_avg = data_point[4]
+                    disk_read_avg = data_point[7]
+                    disk_write_avg = data_point[8]
+                    net_rx_avg = data_point[9]
+                    net_tx_avg = data_point[10]
+
+                    # 将毫秒时间戳转换为 datetime
+                    point_timestamp = dt.fromtimestamp(hour_timestamp_ms / 1000)
+
+                    # 保存该小时的平均值，暂只保存平均值，后续可扩展 min/max）
+                    # 注意：hourly_series 中的单位已经是标准单位：cpu=MHz, memory=bytes, disk/net=bytes/s
+                    await self.save_metric(task_id, vm_id, "cpu", float(cpu_avg), point_timestamp)
+                    await self.save_metric(task_id, vm_id, "memory", float(memory_avg), point_timestamp)  # 已经是 bytes
+                    await self.save_metric(task_id, vm_id, "disk_read", float(disk_read_avg), point_timestamp)
+                    await self.save_metric(task_id, vm_id, "disk_write", float(disk_write_avg), point_timestamp)
+                    await self.save_metric(task_id, vm_id, "net_rx", float(net_rx_avg), point_timestamp)
+                    await self.save_metric(task_id, vm_id, "net_tx", float(net_tx_avg), point_timestamp)
+                    saved_count += 1
+
+                except Exception as e:
+                    logger.warning("failed_to_save_hourly_metric_point", vm_id=vm_id, error=str(e))
+
+            logger.info(
+                "saved_hourly_metrics",
+                task_id=task_id,
+                vm_id=vm_id,
+                hours_count=saved_count,
+            )
+        else:
+            # 没有时间序列数据，保存单个聚合值
+            metric_types = [
+                ("cpu", metrics.cpu_mhz if hasattr(metrics, 'cpu_mhz') else 0),
+                ("memory", metrics.memory_bytes if hasattr(metrics, 'memory_bytes') else 0),
+                ("disk_read", metrics.disk_read_bytes_per_sec if hasattr(metrics, 'disk_read_bytes_per_sec') else 0),
+                ("disk_write", metrics.disk_write_bytes_per_sec if hasattr(metrics, 'disk_write_bytes_per_sec') else 0),
+                ("net_rx", metrics.net_rx_bytes_per_sec if hasattr(metrics, 'net_rx_bytes_per_sec') else 0),
+                ("net_tx", metrics.net_tx_bytes_per_sec if hasattr(metrics, 'net_tx_bytes_per_sec') else 0),
+            ]
+
+            for metric_type, value in metric_types:
+                await self.save_metric(task_id, vm_id, metric_type, float(value), timestamp)
 
     async def get_task_logs(self, task_id: int) -> List[dict]:
         """Get task logs.

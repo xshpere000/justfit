@@ -61,6 +61,14 @@ export const useTaskStore = defineStore('task', () => {
     return tasks.value.find(t => t.id === id)
   }
 
+  // 更新任务状态（使用对象替换确保响应式更新）
+  function updateTask(id: number, updates: Partial<Task>) {
+    const index = tasks.value.findIndex(t => t.id === id)
+    if (index !== -1) {
+      tasks.value[index] = { ...tasks.value[index], ...updates }
+    }
+  }
+
   // 获取任务详情
   async function fetchTaskDetail(id: number) {
     loading.value = true
@@ -87,10 +95,7 @@ export const useTaskStore = defineStore('task', () => {
     error.value = null
     try {
       await TaskAPI.cancelTask(id)
-      const index = tasks.value.findIndex(t => t.id === id)
-      if (index !== -1) {
-        tasks.value[index].status = 'cancelled'
-      }
+      updateTask(id, { status: 'cancelled' })
     } catch (e: any) {
       error.value = e.message || '取消任务失败'
       throw e
@@ -136,19 +141,68 @@ export const useTaskStore = defineStore('task', () => {
   // 轮询运行中的任务
   let pollInterval: ReturnType<typeof setInterval> | null = null
   let isPolling = false
+  let consecutiveFailures = 0
+  let currentPollInterval = 2000
+  const MAX_CONSECUTIVE_FAILURES = 3
+  const MAX_POLL_INTERVAL = 30000 // 最大轮询间隔30秒
 
   async function pollOnce() {
-    console.log('[TaskStore] 轮询触发，开始同步任务列表...')
+    const pollStart = Date.now()
+    console.log(`[TaskStore] 轮询开始`, { time: new Date().toLocaleTimeString() })
     try {
-      await syncTasksFromBackend()
+      // 轮询请求使用默认超时（API 慢是正常的）
+      const result: TaskListResponse = await TaskAPI.listTasks()
+      const pollElapsed = Date.now() - pollStart
+      console.log(`[TaskStore] 轮询完成，收到 ${result.items.length} 个任务`, { elapsed: `${pollElapsed}ms` })
+
+      // 直接更新任务列表
+      tasks.value = result.items
+
+      // 成功后重置失败计数和轮询间隔
+      consecutiveFailures = 0
+      if (currentPollInterval > 2000) {
+        currentPollInterval = 2000
+        console.log('[TaskStore] 后端恢复正常，重置轮询间隔为 2000ms')
+        restartPollingWithInterval(2000)
+      }
     } catch (error) {
-      console.error('[TaskStore] 轮询同步失败:', error)
+      const pollElapsed = Date.now() - pollStart
+      console.error(`[TaskStore] 轮询同步失败`, { error, elapsed: `${pollElapsed}ms` })
+
+      consecutiveFailures++
+      console.warn(`[TaskStore] 连续失败次数: ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}`)
+
+      // 连续失败后，降低轮询频率，避免控制台刷屏
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        const newInterval = Math.min(currentPollInterval * 2, MAX_POLL_INTERVAL)
+        if (newInterval !== currentPollInterval) {
+          currentPollInterval = newInterval
+          console.warn(`[TaskStore] 连续失败${consecutiveFailures}次，降低轮询频率为 ${newInterval}ms`)
+          restartPollingWithInterval(newInterval)
+        }
+      }
     }
+  }
+
+  function restartPollingWithInterval(intervalMs: number) {
+    if (pollInterval) {
+      clearInterval(pollInterval)
+    }
+    pollInterval = setInterval(() => {
+      if (isPolling) {
+        console.log('[TaskStore] setInterval 触发')
+        pollOnce()
+      } else {
+        console.log('[TaskStore] setInterval 触发但 isPolling=false，跳过')
+      }
+    }, intervalMs)
   }
 
   function startPolling(intervalMs: number = 2000) {
     stopPolling()
     isPolling = true
+    consecutiveFailures = 0
+    currentPollInterval = intervalMs
     console.log('[TaskStore] startPolling: 启动轮询，间隔', intervalMs, 'ms')
 
     // 使用具名函数而不是箭头函数，便于调试
@@ -165,12 +219,14 @@ export const useTaskStore = defineStore('task', () => {
   }
 
   function stopPolling() {
-    console.log('[TaskStore] stopPolling: 停止轮询')
+    console.log('[TaskStore] stopPolling: 停止轮询, pollInterval:', pollInterval)
     isPolling = false
     if (pollInterval) {
       clearInterval(pollInterval)
       pollInterval = null
       console.log('[TaskStore] 轮询已停止')
+    } else {
+      console.warn('[TaskStore] stopPolling: pollInterval 为 null，没有需要停止的轮询')
     }
   }
 
@@ -189,6 +245,7 @@ export const useTaskStore = defineStore('task', () => {
     syncTasksFromBackend,
     createTask,
     getTask,
+    updateTask,
     fetchTaskDetail,
     cancelTask,
     deleteTask,

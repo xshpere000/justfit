@@ -39,8 +39,29 @@ export class BackendManager {
 
     /**
      * Get Python executable path
+     * 优先使用打包好的 exe，否则使用系统 Python
      */
     private getPythonExe(): string {
+        // 1. 检查是否有打包好的后端 exe（生产环境）
+        const isPackaged = app.isPackaged;
+        if (isPackaged) {
+            // 在打包环境中，检查 resources 目录
+            const resourcesPath = process.resourcesPath;
+            const backendExe = path.join(resourcesPath, "justfit_backend.exe");
+            if (fs.existsSync(backendExe)) {
+                console.log("[Backend] Using packaged backend exe");
+                return backendExe;
+            }
+        }
+
+        // 2. 检查开发环境中的打包 exe
+        const devBackendExe = path.join(__dirname, "..", "resources", "backend", "justfit_backend.exe");
+        if (fs.existsSync(devBackendExe)) {
+            console.log("[Backend] Using dev packaged backend exe");
+            return devBackendExe;
+        }
+
+        // 3. 回退到使用 Python 解释器
         const backendPath = this.getBackendPath();
         const venvPath = path.join(backendPath, ".venv");
 
@@ -56,6 +77,14 @@ export class BackendManager {
     }
 
     /**
+     * 检查是否使用打包好的 exe
+     */
+    private usePackagedExe(): boolean {
+        const exePath = this.getPythonExe();
+        return exePath.endsWith("justfit_backend.exe") && fs.existsSync(exePath);
+    }
+
+    /**
      * Start the Python backend
      */
     start(): ChildProcess {
@@ -65,17 +94,32 @@ export class BackendManager {
         }
 
         const pythonExe = this.getPythonExe();
+        const useExe = this.usePackagedExe();
         const backendPath = this.getBackendPath();
 
         console.log(`[Backend] Starting with: ${pythonExe}`);
+        console.log(`[Backend] Mode: ${useExe ? "Packaged EXE" : "Python + Uvicorn"}`);
 
-        this.process = spawn(pythonExe, [
-            "-m", "uvicorn",
-            "app.main:app",
-            "--port", String(PYTHON_PORT),
-            "--host", "127.0.0.1",
-        ], {
-            cwd: backendPath,
+        let args: string[];
+        let cwd: string;
+
+        if (useExe) {
+            // 使用打包好的 exe，直接运行，不需要额外参数
+            args = [];
+            cwd = path.dirname(pythonExe);
+        } else {
+            // 使用 Python + uvicorn
+            args = [
+                "-m", "uvicorn",
+                "app.main:app",
+                "--port", String(PYTHON_PORT),
+                "--host", "127.0.0.1",
+            ];
+            cwd = backendPath;
+        }
+
+        this.process = spawn(pythonExe, args, {
+            cwd,
             env: {
                 ...process.env,
                 PYTHONUNBUFFERED: "1",

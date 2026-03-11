@@ -13,6 +13,7 @@ import structlog
 from app.config import settings
 from app.core.database import engine, Base
 from app.core.logging import setup_logging
+from app.core.migration import migrate
 from app.routers import connection, task, resource, analysis, report
 
 
@@ -23,6 +24,9 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
+    # Run version migration (cleans legacy data on version change)
+    migrate()
+
     logger.info("application_starting", version="0.0.3")
     # Create database tables
     async with engine.begin() as conn:

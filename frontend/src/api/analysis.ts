@@ -5,76 +5,144 @@
 
 import { apiClient } from "./client";
 
-// Types
-export interface AnalysisModes {
-    safe: AnalysisModeConfig;
-    saving: AnalysisModeConfig;
-    aggressive: AnalysisModeConfig;
-    custom: AnalysisModeConfig;
-}
+// ============ 分析结果类型定义 ============
+// 直接使用后端返回的字段名，不做任何映射
 
-export interface AnalysisModeConfig {
-    zombie: {
-        days: number;
-        cpuThreshold: number;
-        memoryThreshold: number;
-        minConfidence: number;
-    };
-    rightsize: {
-        days: number;
-        bufferPercent: number;
-        p95Threshold: number;
-    };
-    tidal: {
-        days: number;
-        minStability: number;
-    };
-}
-
-export interface ZombieResult {
+/**
+ * 闲置检测分析结果
+ * API: GET /api/analysis/tasks/{task_id}/idle
+ */
+export interface IdleResult {
     vmName: string;
     cluster: string;
     hostIp: string;
-    cpuCores: number;
-    memoryGb: number;
-    cpuUsage: number;
-    memoryUsage: number;
-    diskIoUsage: number;
-    networkUsage: number;
+    isIdle: boolean;
+    idleType: string;
     confidence: number;
+    riskLevel: string;
+    daysInactive: number;
+    lastActivityTime: string | null;
     recommendation: string;
 }
 
+/**
+ * 资源配置优化分析结果
+ * API: GET /api/analysis/tasks/{task_id}/resource -> rightSize
+ */
 export interface RightSizeResult {
     vmName: string;
     cluster: string;
-    currentCPU: number;
-    suggestedCPU: number;
+    hostIp: string;
+    currentCpu: number;
+    suggestedCpu: number;
     currentMemory: number;
     suggestedMemory: number;
+    cpuP95: number;
+    memoryP95: number;
     adjustmentType: string;
-    riskLevel: string;
     confidence: number;
+}
+
+/**
+ * 使用模式分析结果
+ * API: GET /api/analysis/tasks/{task_id}/resource -> usagePattern
+ */
+export interface UsagePatternResult {
+    vmName: string;
+    datacenter: string;
+    cluster: string;
+    hostIp: string;
+    optimizationType: string;
+    usagePattern: string;
+    volatilityLevel: string;
+    coefficientOfVariation: number;
+    peakHour: number | null;
+    peakDay: string | null;
     recommendation: string;
 }
 
-export interface TidalResult {
+/**
+ * 资源错配分析结果
+ * API: GET /api/analysis/tasks/{task_id}/resource -> mismatch
+ */
+export interface MismatchResult {
     vmName: string;
     cluster: string;
-    patternType: string;
-    stabilityScore: number;
-    peakHours: number[];
-    peakDays: number[];
+    hostIp: string;
+    mismatchType: string;
+    currentConfig: {
+        cpu: number;
+        memoryGb: number;
+    };
+    suggestedConfig: {
+        cpu: number;
+        memoryGb: number;
+    };
     recommendation: string;
 }
 
+/**
+ * 资源分析完整响应
+ * API: GET /api/analysis/tasks/{task_id}/resource
+ */
+export interface ResourceAnalysisResponse {
+    rightSize: RightSizeResult[];
+    usagePattern: UsagePatternResult[];
+    mismatch: MismatchResult[];
+    summary: {
+        rightSizeCount: number;
+        usagePatternCount: number;
+        mismatchCount: number;
+        totalVmsAnalyzed: number;
+    };
+}
+
+/**
+ * 健康评分分析结果
+ * API: GET /api/analysis/tasks/{task_id}/health
+ */
 export interface HealthScoreResult {
     overallScore: number;
-    level: string;
-    balanceScore: number;
+    grade: string;
+    subScores: {
+        overcommit: number;
+        balance: number;
+        hotspot: number;
+    };
+    clusterCount: number;
+    hostCount: number;
+    vmCount: number;
+    overcommitResults: Array<{
+        clusterName: string;
+        cpuOvercommit: number;
+        memoryOvercommit: number;
+        cpuRisk: string;
+        memoryRisk: string;
+    }>;
+    balanceResults: Array<{
+        clusterName: string;
+        coefficientOfVariation: number;
+        balanceLevel: string;
+    }>;
+    hotspotHosts: Array<{
+        hostName: string;
+        clusterName: string;
+        vmDensity: number;
+        vmCount: number;
+        cpuCores: number;
+        riskLevel: string;
+    }>;
     overcommitScore: number;
+    balanceScore: number;
     hotspotScore: number;
-    risks: string[];
+    findings: Array<{
+        severity: string;
+        category: string;
+        cluster?: string;
+        host?: string;
+        description: string;
+        details: Record<string, unknown>;
+    }>;
     recommendations: string[];
 }
 
@@ -92,142 +160,184 @@ export interface AnalysisResult<T> {
     };
 }
 
+// ============ 评估模式配置类型定义 ============
+
 /**
- * Get all analysis modes
+ * 闲置检测配置
  */
-export async function getAnalysisModes(): Promise<AnalysisModes> {
-    const response = await apiClient.get("/api/analysis/modes");
-    return response.data.data;
+export interface IdleConfig {
+    days: number;
+    cpuThreshold: number;
+    memoryThreshold: number;
+    minConfidence: number;
 }
 
 /**
- * Get specific analysis mode
+ * 资源配置优化配置
+ */
+export interface RightSizeConfig {
+    days: number;
+    cpuBufferPercent: number;
+    memoryBufferPercent: number;
+    highUsageThreshold: number;
+    lowUsageThreshold: number;
+    minConfidence: number;
+}
+
+/**
+ * 使用模式分析配置
+ */
+export interface UsagePatternConfig {
+    cvThreshold: number;
+    peakValleyRatio: number;
+}
+
+/**
+ * 配置错配分析配置
+ */
+export interface MismatchConfig {
+    cpuLowThreshold: number;
+    cpuHighThreshold: number;
+    memoryLowThreshold: number;
+    memoryHighThreshold: number;
+}
+
+/**
+ * 资源分析配置（包含三个子分析）
+ */
+export interface ResourceConfig {
+    rightsize: RightSizeConfig;
+    usagePattern: UsagePatternConfig;
+    mismatch: MismatchConfig;
+}
+
+/**
+ * 健康评分配置
+ */
+export interface HealthConfig {
+    overcommitThreshold: number;
+    hotspotThreshold: number;
+    balanceThreshold: number;
+}
+
+/**
+ * 完整评估模式配置
+ */
+export interface AnalysisModeConfig {
+    idle: IdleConfig;
+    resource: ResourceConfig;
+    health: HealthConfig;
+}
+
+/**
+ * 评估模式类型
+ */
+export type AnalysisModeType = 'safe' | 'saving' | 'aggressive' | 'custom';
+
+/**
+ * 评估模式响应
+ */
+export interface AnalysisModeResponse {
+    mode: AnalysisModeType;
+    modeName: string;
+    description: string;
+    config: AnalysisModeConfig;
+    availableModes: Array<{
+        mode: AnalysisModeType;
+        name: string;
+        description: string;
+    }>;
+}
+
+// ============ 分析 API 函数 ============
+
+/**
+ * 获取闲置检测分析结果
+ * API: GET /api/analysis/tasks/{task_id}/idle
+ */
+export async function getIdleResults(taskId: number): Promise<IdleResult[]> {
+    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/idle`);
+    return response.data.data as IdleResult[];
+}
+
+/**
+ * 运行闲置检测分析
+ * API: POST /api/analysis/tasks/{task_id}/idle
+ */
+export async function runIdleAnalysis(taskId: number, config?: Record<string, unknown>): Promise<IdleResult[]> {
+    // 如果 config 未定义，发送空对象，让后端从任务配置中读取自定义配置
+    const body = config ?? {};
+    const response = await apiClient.post(`/api/analysis/tasks/${taskId}/idle`, body);
+    return response.data.data as IdleResult[];
+}
+
+/**
+ * 获取资源分析结果
+ * API: GET /api/analysis/tasks/{task_id}/resource
+ */
+export async function getResourceResults(taskId: number): Promise<ResourceAnalysisResponse> {
+    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/resource`);
+    return response.data.data as ResourceAnalysisResponse;
+}
+
+/**
+ * 运行资源分析
+ * API: POST /api/analysis/tasks/{task_id}/resource
+ */
+export async function runResourceAnalysis(taskId: number, config?: Record<string, unknown>): Promise<ResourceAnalysisResponse> {
+    // 如果 config 未定义，发送空对象，让后端从任务配置中读取自定义配置
+    const body = config ?? {};
+    const response = await apiClient.post(`/api/analysis/tasks/${taskId}/resource`, body);
+    return response.data.data as ResourceAnalysisResponse;
+}
+
+/**
+ * 获取健康评分分析结果
+ * API: GET /api/analysis/tasks/{task_id}/health
+ */
+export async function getHealthResults(taskId: number): Promise<HealthScoreResult> {
+    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/health`);
+    return response.data.data as HealthScoreResult;
+}
+
+/**
+ * 运行健康评分分析
+ * API: POST /api/analysis/tasks/{task_id}/health
+ */
+export async function runHealthAnalysis(taskId: number, config?: Record<string, unknown>): Promise<HealthScoreResult> {
+    // 如果 config 未定义，发送空对象，让后端从任务配置中读取自定义配置
+    const body = config ?? {};
+    const response = await apiClient.post(`/api/analysis/tasks/${taskId}/health`, body);
+    return response.data.data as HealthScoreResult;
+}
+
+// ============ 评估模式相关 API (供 AnalysisModeTab 使用) ============
+
+/**
+ * 获取所有评估模式
+ * API: GET /api/analysis/modes
+ */
+export async function getAnalysisModes(): Promise<Record<string, unknown>> {
+    const response = await apiClient.get("/api/analysis/modes");
+    return response.data.data as Record<string, unknown>;
+}
+
+/**
+ * 获取特定评估模式配置
+ * API: GET /api/analysis/modes/{mode}
  */
 export async function getAnalysisMode(mode: string): Promise<AnalysisModeConfig> {
     const response = await apiClient.get(`/api/analysis/modes/${mode}`);
-    return response.data.data;
+    return response.data.data as AnalysisModeConfig;
 }
 
 /**
- * Update custom mode
+ * 更新任务的自定义评估配置
+ * API: PUT /api/tasks/{task_id}/custom-config
+ *
+ * 将自定义配置保存到任务的 config.customConfig 字段中，
+ * 重新评估时会使用此配置。
  */
-export async function updateCustomMode(config: Partial<AnalysisModeConfig>): Promise<void> {
-    await apiClient.put("/api/analysis/modes/custom", config);
+export async function updateTaskCustomConfig(taskId: number, analysisType: string, config: Record<string, unknown>): Promise<void> {
+    await apiClient.put(`/api/tasks/${taskId}/custom-config`, { analysisType, config });
 }
-
-/**
- * Get zombie analysis results
- */
-export async function getZombieResults(taskId: number): Promise<AnalysisResult<ZombieResult>> {
-    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/zombie`);
-    return response.data.data;
-}
-
-/**
- * Get rightsize analysis results
- */
-export async function getRightSizeResults(taskId: number): Promise<AnalysisResult<RightSizeResult>> {
-    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/rightsize`);
-    return response.data.data;
-}
-
-/**
- * Get tidal analysis results
- */
-export async function getTidalResults(taskId: number): Promise<AnalysisResult<TidalResult>> {
-    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/tidal`);
-    return response.data.data;
-}
-
-/**
- * Get health score results (based on task, like other analyses)
- */
-export async function getHealthResults(taskId: number): Promise<AnalysisResult<HealthScoreResult>> {
-    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/health`);
-    return response.data.data;
-}
-
-/**
- * Run zombie analysis
- */
-export async function runZombieAnalysis(taskId: number, config?: Record<string, unknown>): Promise<void> {
-    await apiClient.post(`/api/analysis/tasks/${taskId}/zombie`, config);
-}
-
-/**
- * Run rightsize analysis
- */
-export async function runRightSizeAnalysis(taskId: number, config?: Record<string, unknown>): Promise<void> {
-    await apiClient.post(`/api/analysis/tasks/${taskId}/rightsize`, config);
-}
-
-/**
- * Run tidal analysis
- */
-export async function runTidalAnalysis(taskId: number, config?: Record<string, unknown>): Promise<void> {
-    await apiClient.post(`/api/analysis/tasks/${taskId}/tidal`, config);
-}
-
-/**
- * Run health analysis (based on task, like other analyses)
- */
-export async function runHealthAnalysis(taskId: number, config?: Record<string, unknown>): Promise<any> {
-    const response = await apiClient.post(`/api/analysis/tasks/${taskId}/health`, config);
-    return response.data.data;
-}
-
-/**
- * Get all analysis results for a task
- */
-export async function getTaskAnalysisResult(
-  taskId: number,
-  analysisType?: string
-): Promise<Record<string, unknown>> {
-  // If specific type requested, fetch only that
-  if (analysisType) {
-    const url = `/api/analysis/tasks/${taskId}/${analysisType}`;
-    const response = await apiClient.get(url);
-    return response.data.data;
-  }
-
-  // Fetch zombie, rightsize, tidal, health in parallel
-  const [zombieResp, rightsizeResp, tidalResp, healthResp] = await Promise.allSettled([
-    apiClient.get(`/api/analysis/tasks/${taskId}/zombie`).catch(() => null),
-    apiClient.get(`/api/analysis/tasks/${taskId}/rightsize`).catch(() => null),
-    apiClient.get(`/api/analysis/tasks/${taskId}/tidal`).catch(() => null),
-    apiClient.get(`/api/analysis/tasks/${taskId}/health`).catch(() => null),
-  ]);
-
-  const result: Record<string, unknown> = {};
-
-  if (zombieResp.status === 'fulfilled' && zombieResp.value?.data?.data) {
-    result.zombieVM = zombieResp.value.data.data;
-  }
-  if (rightsizeResp.status === 'fulfilled' && rightsizeResp.value?.data?.data) {
-    result.rightSize = rightsizeResp.value.data.data;
-  }
-  if (tidalResp.status === 'fulfilled' && tidalResp.value?.data?.data) {
-    result.tidal = tidalResp.value.data.data;
-  }
-  if (healthResp.status === 'fulfilled' && healthResp.value?.data?.data) {
-    result.healthScore = healthResp.value.data.data;
-  }
-
-  return result;
-}
-
-/**
- * Run an analysis job
- * Note: Backend runs analysis synchronously and returns results directly
- * This function returns the analysis results, not a job ID
- */
-export async function runAnalysisJob(
-    taskId: number,
-    analysisType: "zombie" | "rightsize" | "tidal",
-    config?: Record<string, unknown>
-): Promise<unknown[]> {
-    const response = await apiClient.post(`/api/analysis/tasks/${taskId}/${analysisType}`, config || {});
-    return response.data.data as unknown[];
-}
-
-// Note: getAnalysisJobStatus removed - backend uses synchronous analysis

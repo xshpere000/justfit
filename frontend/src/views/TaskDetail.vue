@@ -15,6 +15,12 @@
           <el-button :icon="MoreFilled" circle />
           <template #dropdown>
             <el-dropdown-menu>
+              <el-dropdown-item command="reEvaluate" v-if="task?.status === 'completed'">
+                <el-icon>
+                  <Refresh />
+                </el-icon>
+                重新评估
+              </el-dropdown-item>
               <el-dropdown-item command="delete" v-if="task?.status !== 'running'">
                 删除任务
               </el-dropdown-item>
@@ -24,37 +30,70 @@
       </div>
     </div>
 
-    <!-- 任务进行中状态 -->
-    <div v-if="task?.status === 'running' || task?.status === 'paused' || task?.status === 'pending'"
-      class="running-state">
-      <el-card>
-        <div class="progress-content">
-          <div class="progress-info">
-            <el-icon :size="48" class="progress-icon">
-              <component :is="(task.status === 'running' || task.status === 'pending') ? 'Loading' : 'VideoPause'" />
-            </el-icon>
-            <div class="progress-text">
-              <h3>{{ (task.status === 'running' || task.status === 'pending') ? '正在采集数据...' : '任务已暂停' }}</h3>
-              <p>{{ task.currentStep || '初始化中...' }}</p>
-            </div>
+    <!-- 任务运行中状态 -->
+    <div v-if="task?.status === 'running' || task?.status === 'pending'" class="running-state">
+      <el-card class="running-card">
+        <div class="running-header">
+          <el-icon :size="64" class="running-icon is-loading">
+            <Loading />
+          </el-icon>
+          <h2 class="running-title">任务执行中</h2>
+          <p class="running-step">{{ task.currentStep || '正在初始化...' }}</p>
+        </div>
+
+        <div class="running-progress">
+          <el-progress :percentage="task.progress" :stroke-width="16" :show-text="true" striped striped-flow />
+        </div>
+
+        <div class="running-stats">
+          <div class="stat-item">
+            <span class="stat-label">采集状态</span>
+            <span class="stat-value">正在采集虚拟机数据...</span>
           </div>
-          <div class="progress-bar">
-            <el-progress :percentage="task.progress" :status="task.status === 'paused' ? 'exception' : undefined"
-              :stroke-width="12" />
-            <div class="progress-stats">
-              <span>{{ task.progress }}%</span>
-            </div>
+          <div class="stat-item">
+            <span class="stat-label">当前进度</span>
+            <span class="stat-value">{{ task.progress }}%</span>
           </div>
-          <div class="progress-actions">
-            <el-button-group>
-              <el-button @click="handleCancel">
-                <el-icon>
-                  <CloseBold />
-                </el-icon>
-                取消任务
-              </el-button>
-            </el-button-group>
+        </div>
+
+        <div class="running-actions">
+          <el-button type="danger" plain :icon="CloseBold" @click="handleCancel">
+            取消任务
+          </el-button>
+        </div>
+      </el-card>
+    </div>
+
+    <!-- 任务已暂停状态 -->
+    <div v-else-if="task?.status === 'paused'" class="paused-state">
+      <el-card class="paused-card">
+        <div class="paused-header">
+          <el-icon :size="64" class="paused-icon">
+            <VideoPause />
+          </el-icon>
+          <h2 class="paused-title">任务已暂停</h2>
+          <p class="paused-step">{{ task.currentStep || '任务暂停中...' }}</p>
+        </div>
+
+        <div class="paused-progress">
+          <el-progress :percentage="task.progress" :stroke-width="16" status="exception" />
+        </div>
+
+        <div class="paused-stats">
+          <div class="stat-item">
+            <span class="stat-label">采集状态</span>
+            <span class="stat-value">正在采集虚拟机数据...</span>
           </div>
+          <div class="stat-item">
+            <span class="stat-label">暂停时进度</span>
+            <span class="stat-value">{{ task.progress }}%</span>
+          </div>
+        </div>
+
+        <div class="paused-actions">
+          <el-button type="danger" plain :icon="CloseBold" @click="handleCancel">
+            取消任务
+          </el-button>
         </div>
       </el-card>
     </div>
@@ -63,100 +102,139 @@
     <div v-else-if="task?.status === 'completed'" class="completed-state">
       <!-- Tab 导航 -->
       <el-tabs v-model="activeTab" class="task-tabs">
-        <el-tab-pane label="概览" name="overview">
-                  <div class="overview-grid">
-          <!-- 1. 顶部：平台核心长条 -->
-          <div class="o-ribbon">
-            <div class="r-left">
-              <div class="p-logo"><el-icon><component :is="task.platform === 'vcenter' ? 'Platform' : 'Cpu'" /></el-icon></div>
-              <div class="p-text">
-                <div class="p-title">{{ task.platform === 'vcenter' ? 'vSphere' : 'UIS' }} 平台分析</div>
-                <div class="p-sub">耗时: {{ formatDuration(task) }}</div>
-              </div>
-            </div>
-            <div class="r-right">
-              <div class="r-stat">
-                <span class="r-val">{{ task.selectedVMCount }}</span>
-                <span class="r-lbl">虚拟机</span>
-              </div>
-              <div class="r-div"></div>
-              <div class="r-stat">
-                <span class="r-val">{{ completedAnalyses }}<small>/{{ analyses.length }}</small></span>
-                <span class="r-lbl">已分析</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 2. 主体区 (严格限制网格比例) -->
-          <div class="o-main">
-            <!-- 左侧：分析 -->
-            <div class="o-panel o-analysis">
-              <div class="panel-hd">
-                <span class="ph-title"><el-icon><DataAnalysis/></el-icon> 分析探索</span>
-              </div>
-              <div class="o-list">
-                <div v-for="analysis in analyses" :key="analysis.key"
-                  class="o-item" :class="{'is-done': hasAnalysisResults[analysis.key]}"
-                  @click="!hasAnalysisResults[analysis.key] && runAnalysis(analysis.key)">
-
-                  <div class="i-icon" :class="'i-' + analysis.color"><el-icon><component :is="analysis.icon" /></el-icon></div>
-                  <div class="i-core">
-                    <div class="i-name">{{ analysis.title }}</div>
-                    <div class="i-desc">{{ analysis.description }}</div>
+        <el-tab-pane label="任务概览" name="overview">
+          <div class="overview-grid">
+            <!-- 完成横幅 -->
+            <div class="completion-banner">
+              <div class="cb-left">
+                <el-icon :size="48" class="cb-icon">
+                  <CircleCheck />
+                </el-icon>
+                <div class="cb-text">
+                  <div class="cb-title">评估任务已完成</div>
+                  <div class="cb-sub">
+                    <span class="cb-platform">{{ task.platform === 'vcenter' ? 'vSphere' : 'UIS' }}</span>
+                    <span class="cb-divider-inline">·</span>
+                    <span class="cb-conn">{{ task.connectionName || task.connectionHost || '未知平台' }}</span>
                   </div>
-                  <div class="i-act">
-                    <el-tag v-if="hasAnalysisResults[analysis.key]" size="small" type="success" effect="light" round>已完成</el-tag>
-                    <el-button v-else type="primary" size="small" :icon="VideoPlay" plain round class="run-btn" @click.stop="runAnalysis(analysis.key)">
-                      运行
-                    </el-button>
-                  </div>
+                </div>
+              </div>
+              <div class="cb-right">
+                <div class="cb-stat">
+                  <span class="cbs-value">{{ task.selectedVMCount }}</span>
+                  <span class="cbs-label">台虚拟机</span>
+                </div>
+                <div class="cb-divider"></div>
+                <div class="cb-stat">
+                  <span class="cbs-value">{{ task.collectedVMCount || task.selectedVMCount }}</span>
+                  <span class="cbs-label">已采集</span>
+                </div>
+                <div class="cb-divider"></div>
+                <div class="cb-stat">
+                  <span class="cbs-value">{{ completedAnalyses }}</span>
+                  <span class="cbs-label">已完成分析</span>
                 </div>
               </div>
             </div>
 
-            <!-- 右侧：报告 -->
-            <div class="o-panel o-report">
-              <div class="panel-hd">
-                <span class="ph-title"><el-icon><DocumentCopy/></el-icon> 分析报告</span>
+            <!-- 主体区 (严格限制网格比例) -->
+            <div class="o-main">
+              <!-- 左侧：分析 -->
+              <div class="o-panel o-analysis">
+                <div class="panel-hd">
+                  <span class="ph-title"><el-icon>
+                      <DataAnalysis />
+                    </el-icon> 分析探索</span>
                 </div>
-              
-              <div class="o-actions">
-                <el-button class="exp-btn ex-excel" @click="exportReport('xlsx')" :loading="exporting.xlsx">
-                  <el-icon><DocumentCopy /></el-icon> <span>导出 Excel</span>
-                </el-button>
-                <el-button class="exp-btn ex-pdf" @click="exportReport('pdf')" :loading="exporting.pdf">
-                  <el-icon><Notebook /></el-icon> <span>生成 PDF</span>
-                </el-button>
-              </div>
+                <div class="o-list">
+                  <div v-for="analysis in analyses" :key="analysis.key" class="o-item"
+                    :class="{ 'is-done': getAnalysisStatus(analysis.key), 'is-loading': isAnalysisLoading(analysis.key) }"
+                    @click="!getAnalysisStatus(analysis.key) && !isAnalysisLoading(analysis.key) && runAnalysis(analysis.key)">
 
-              <div class="o-history">
-                <div class="hist-label">最近记录</div>
-                <div v-if="reportHistory.length > 0" class="hist-list">
-                  <div v-for="report in reportHistory" :key="report.title+report.createdAt" class="h-item">
-                    <div class="h-fmt" :class="report.format === 'xlsx' ? 'fmt-ex' : 'fmt-pd'">{{ report.format.toUpperCase() }}</div>
-                    <div class="h-info">
-                      <div class="h-name">{{ report.createdAt }}</div>
-                      <div class="h-time">{{ formatFileSize(report.fileSize) }}</div>
+                    <div class="i-icon" :class="'i-' + analysis.color">
+                      <el-icon v-if="isAnalysisLoading(analysis.key)" class="is-loading" :size="18">
+                        <Loading />
+                      </el-icon>
+                      <el-icon v-else>
+                        <component :is="analysis.icon" />
+                      </el-icon>
                     </div>
-                    <div class="h-actions">
-                      <el-button circle size="small" type="primary" plain class="h-btn" @click="downloadReport(report)" title="下载">
-                        <el-icon><Download /></el-icon>
+                    <div class="i-core">
+                      <div class="i-name">{{ analysis.title }}</div>
+                      <div class="i-desc">{{ analysis.description }}</div>
+                    </div>
+                    <div class="i-act">
+                      <el-tag v-if="getAnalysisStatus(analysis.key)" size="small" type="success" effect="light"
+                        round>已完成</el-tag>
+                      <el-button v-else-if="isAnalysisLoading(analysis.key)" type="primary" size="small" :loading="true"
+                        round class="run-btn" disabled>
+                        分析中
                       </el-button>
-                      <el-button circle size="small" type="danger" plain class="h-btn" @click="deleteReport(report)" title="删除">
-                        <el-icon><Delete /></el-icon>
+                      <el-button v-else type="primary" size="small" :icon="VideoPlay" plain round class="run-btn"
+                        @click.stop="runAnalysis(analysis.key)">
+                        运行
                       </el-button>
                     </div>
                   </div>
                 </div>
-                <div v-else class="hist-empty">
-                  <span class="he-text">暂无历史报告</span>
+              </div>
+
+              <!-- 右侧：报告 -->
+              <div class="o-panel o-report">
+                <div class="panel-hd">
+                  <span class="ph-title"><el-icon>
+                      <DocumentCopy />
+                    </el-icon> 分析报告</span>
+                </div>
+
+                <div class="o-actions">
+                  <el-button class="exp-btn ex-excel" @click="exportReport('xlsx')" :loading="exporting.xlsx">
+                    <el-icon>
+                      <DocumentCopy />
+                    </el-icon> <span>导出 Excel</span>
+                  </el-button>
+                  <el-button class="exp-btn ex-pdf" @click="exportReport('pdf')" :loading="exporting.pdf">
+                    <el-icon>
+                      <Notebook />
+                    </el-icon> <span>生成 PDF</span>
+                  </el-button>
+                </div>
+
+                <div class="o-history">
+                  <div class="hist-label">最近生成</div>
+                  <div v-if="reportHistory.length > 0" class="hist-list">
+                    <div v-for="report in reportHistory" :key="report.id" class="h-item">
+                      <div class="h-fmt" :class="report.format === 'excel' ? 'fmt-ex' : 'fmt-pd'">{{ report.format ===
+                        'excel' ? 'Excel' : 'PDF' }}</div>
+                      <div class="h-info">
+                        <div class="h-name">{{ formatReportTime(report.createdAt) }}</div>
+                        <div class="h-time">{{ formatFileSize(report.fileSize) }}</div>
+                      </div>
+                      <div class="h-actions">
+                        <el-button circle size="small" type="primary" plain class="h-btn"
+                          @click="downloadReport(report)" title="下载">
+                          <el-icon>
+                            <Download />
+                          </el-icon>
+                        </el-button>
+                        <el-button circle size="small" type="danger" plain class="h-btn" @click="deleteReport(report)"
+                          title="删除">
+                          <el-icon>
+                            <Delete />
+                          </el-icon>
+                        </el-button>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="hist-empty">
+                    <span class="he-text">暂无历史报告</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
 
-            
+
           </div>
         </el-tab-pane>
 
@@ -214,161 +292,332 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="僵尸VM" name="zombie">
-          <div class="analysis-content" v-if="hasAnalysisResults.zombie">
+        <el-tab-pane label="闲置检测" name="idle">
+          <!-- 闲置检测 - 分析结果 -->
+          <div class="analysis-content analysis-idle" v-if="hasAnalysisResults.idle">
+            <!-- 统计卡片 -->
+            <div class="zombie-stats-row">
+              <div class="zombie-stat-card stat-total">
+                <div class="stat-icon-bg bg-orange">
+                  <el-icon>
+                    <Monitor />
+                  </el-icon>
+                </div>
+                <div class="stat-content">
+                  <div class="stat-value">{{ analysisData.idle.length }}</div>
+                  <div class="stat-label">闲置VM数量</div>
+                </div>
+              </div>
+              <div class="zombie-stat-card stat-critical">
+                <div class="stat-icon-bg bg-red">
+                  <el-icon>
+                    <Warning />
+                  </el-icon>
+                </div>
+                <div class="stat-content">
+                  <div class="stat-value">{{ getIdleCountByRisk('critical') }}</div>
+                  <div class="stat-label">严重风险</div>
+                </div>
+              </div>
+              <div class="zombie-stat-card stat-high">
+                <div class="stat-icon-bg bg-orange">
+                  <el-icon>
+                    <Warning />
+                  </el-icon>
+                </div>
+                <div class="stat-content">
+                  <div class="stat-value">{{ getIdleCountByRisk('high') }}</div>
+                  <div class="stat-label">高风险</div>
+                </div>
+              </div>
+              <div class="zombie-stat-card stat-avg">
+                <div class="stat-icon-bg bg-blue">
+                  <el-icon>
+                    <TrendCharts />
+                  </el-icon>
+                </div>
+                <div class="stat-content">
+                  <div class="stat-value">{{ getAverageIdleDays() }}</div>
+                  <div class="stat-label">平均闲置天数</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 表格区域 -->
+            <div class="zombie-table-section">
+              <!-- 工具栏 -->
+              <div class="zombie-toolbar">
+                <div class="toolbar-left">
+                  <el-input v-model="zombieSearch" placeholder="搜索虚拟机名称、集群、主机IP..." clearable class="search-input"
+                    prefix-icon="Search" />
+                  <el-select v-model="idleTypeFilter" placeholder="闲置类型" clearable class="filter-select">
+                    <el-option label="全部类型" value="" />
+                    <el-option label="已关机" value="powered_off" />
+                    <el-option label="开机闲置" value="idle_powered_on" />
+                    <el-option label="低活跃" value="low_activity" />
+                  </el-select>
+                  <el-select v-model="riskLevelFilter" placeholder="风险等级" clearable class="filter-select">
+                    <el-option label="全部等级" value="" />
+                    <el-option label="严重" value="critical" />
+                    <el-option label="高" value="high" />
+                    <el-option label="中" value="medium" />
+                    <el-option label="低" value="low" />
+                  </el-select>
+                </div>
+                <div class="toolbar-right">
+                  <el-button :icon="Refresh" @click="refreshIdleData" :loading="analysisLoading.idle">
+                    刷新
+                  </el-button>
+                </div>
+              </div>
+
+              <!-- 表格 -->
+              <div class="table-wrapper" :style="{ height: idleTableHeight + 'px' }">
+                <el-table :data="pagedIdleData" stripe v-loading="analysisLoading.idle" :height="idleTableHeight"
+                  class="detail-table zombie-table" :empty-text="filteredIdleData.length === 0 ? '未找到匹配的结果' : '暂无分析结果'"
+                  flex>
+                  <el-table-column prop="vmName" label="虚拟机" min-width="160" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <div class="vm-cell">
+                        <el-icon class="vm-icon">
+                          <Monitor />
+                        </el-icon>
+                        <span class="vm-name">{{ row.vmName }}</span>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="isIdle" label="状态" width="80" align="center">
+                    <template #default="{ row }">
+                      <el-tag :type="row.isIdle ? 'danger' : 'info'" size="small">
+                        {{ row.isIdle ? '闲置' : '正常' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="cluster" label="集群" min-width="100" show-overflow-tooltip />
+                  <el-table-column prop="hostIp" label="主机IP" width="120" show-overflow-tooltip />
+                  <el-table-column prop="idleType" label="闲置类型" width="100" align="center">
+                    <template #default="{ row }">
+                      <el-tag :type="getIdleTypeTagType(row.idleType)" size="small">
+                        {{ getIdleTypeText(row.idleType) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="riskLevel" label="风险等级" width="90" align="center">
+                    <template #default="{ row }">
+                      <div class="risk-cell">
+                        <el-icon :class="getRiskIconClass(row.riskLevel)">
+                          <component :is="getRiskIcon(row.riskLevel)" />
+                        </el-icon>
+                        <span>{{ getRiskLevelText(row.riskLevel) }}</span>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="daysInactive" label="闲置天数" width="90" align="center">
+                    <template #default="{ row }">
+                      <span :class="getDaysInactiveClass(row.daysInactive)">{{ row.daysInactive }} 天</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="lastActivityTime" label="最后活动" width="150" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <span class="activity-time">{{ formatLastActivityTime(row.lastActivityTime) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="confidence" label="置信度" width="80" align="center">
+                    <template #default="{ row }">
+                      <el-progress :percentage="row.confidence" :color="getConfidenceColor(row.confidence)"
+                        :show-text="false" :stroke-width="6" />
+                      <span class="confidence-text">{{ row.confidence }}%</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="recommendation" label="优化建议" min-width="180" show-overflow-tooltip />
+                </el-table>
+              </div>
+
+              <!-- 分页 -->
+              <div class="logs-pagination" v-if="filteredIdleData.length > 0">
+                <span class="logs-total">
+                  共 {{ filteredIdleData.length }} 条
+                </span>
+                <el-pagination v-model:current-page="zombieCurrentPage" v-model:page-size="analysisPageSize"
+                  :page-sizes="logsPageSizes" :total="filteredIdleData.length" :layout="logsPaginationLayout"
+                  :size="paginationSize" />
+              </div>
+            </div>
+          </div>
+
+          <!-- 空状态 - 分析尚未运行 -->
+          <div v-else class="zombie-empty-state">
+            <div class="empty-illustration">
+              <div class="empty-icon-circle">
+                <el-icon class="empty-main-icon">
+                  <Monitor />
+                </el-icon>
+              </div>
+            </div>
+            <h3 class="empty-title">闲置检测分析</h3>
+            <p class="empty-desc">识别长期低负载或已关机的闲置虚拟机，帮助您优化资源使用</p>
+            <ul class="empty-features">
+              <li><el-icon>
+                  <Check />
+                </el-icon> 检测已关机且长期未活动的虚拟机</li>
+              <li><el-icon>
+                  <Check />
+                </el-icon> 识别开机但CPU/内存使用率极低的VM</li>
+              <li><el-icon>
+                  <Check />
+                </el-icon> 分析闲置天数和风险等级</li>
+              <li><el-icon>
+                  <Check />
+                </el-icon> 提供资源优化建议</li>
+            </ul>
+            <el-button type="primary" size="large" :loading="analysisLoading.idle" :icon="VideoPlay"
+              @click="runAnalysis('idle')" class="run-analysis-btn">
+              开始分析
+            </el-button>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="资源配置优化" name="rightsize">
+          <div class="analysis-content" v-if="hasAnalysisResults.resource">
             <div class="analysis-toolbar">
-              <el-input
-                v-model="zombieSearch"
-                placeholder="搜索虚拟机"
-                clearable
-                class="search-input"
-              >
+              <el-input v-model="rightsizeSearch" placeholder="搜索虚拟机" clearable class="search-input">
                 <template #prefix>
-                  <el-icon><Search /></el-icon>
+                  <el-icon>
+                    <Search />
+                  </el-icon>
                 </template>
               </el-input>
             </div>
-            <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
-              <el-table :data="pagedZombieData" stripe v-loading="analysisLoading.zombie" :height="listTableHeight" class="detail-table">
-                <el-table-column prop="vmName" label="虚拟机" min-width="180" />
-                <el-table-column prop="datacenter" label="数据中心" min-width="140" />
-                <el-table-column prop="cpuUsage" label="CPU使用率" width="120">
-                  <template #default="{ row }">{{ row.cpuUsage.toFixed(1) }}%</template>
+            <div class="table-wrapper" :style="{ height: rightsizeTableHeight + 'px' }">
+              <el-table :data="pagedRightSizeData" stripe v-loading="analysisLoading.resource"
+                :height="rightsizeTableHeight" class="detail-table">
+                <el-table-column prop="vmName" label="虚拟机" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="cluster" label="集群" min-width="120" />
+                <el-table-column prop="hostIp" label="主机IP" width="120" />
+                <el-table-column label="当前配置" width="140">
+                  <template #default="{ row }">
+                    <div class="config-cell">
+                      <div>CPU: {{ row.currentCpu }} vCPU</div>
+                      <div>内存: {{ row.currentMemory }} GB</div>
+                    </div>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="memoryUsage" label="内存使用率" width="120">
-                  <template #default="{ row }">{{ row.memoryUsage.toFixed(1) }}%</template>
+                <el-table-column label="建议配置" width="140">
+                  <template #default="{ row }">
+                    <div class="config-cell">
+                      <div
+                        :class="{ 'text-success': row.suggestedCpu < row.currentCpu, 'text-warning': row.suggestedCpu > row.currentCpu }">
+                        CPU: {{ row.suggestedCpu }} vCPU
+                      </div>
+                      <div
+                        :class="{ 'text-success': row.suggestedMemory < row.currentMemory, 'text-warning': row.suggestedMemory > row.currentMemory }">
+                        内存: {{ row.suggestedMemory }} GB
+                      </div>
+                    </div>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="confidence" label="置信度" width="100">
-                  <template #default="{ row }">{{ row.confidence.toFixed(0) }}%</template>
+                <el-table-column label="P95使用率" width="120">
+                  <template #default="{ row }">
+                    <div class="p95-cell">
+                      <div>CPU: {{ row.cpuP95 }}%</div>
+                      <div>内存: {{ row.memoryP95 }}%</div>
+                    </div>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="adjustmentType" label="调整类型" width="100">
+                  <template #default="{ row }">
+                    <el-tag :type="getAdjustmentTypeTagType(row.adjustmentType)" size="small">
+                      {{ getAdjustmentTypeText(row.adjustmentType) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="confidence" label="置信度" width="90" align="center">
+                  <template #default="{ row }">
+                    <el-progress :percentage="row.confidence" :color="getConfidenceColor(row.confidence)"
+                      :show-text="false" :stroke-width="8" style="width: 60px" />
+                    <span class="confidence-text">{{ row.confidence }}%</span>
+                  </template>
+                </el-table-column>
               </el-table>
             </div>
-            <div class="logs-pagination" v-if="filteredZombieData.length > 0">
+            <div class="logs-pagination" v-if="filteredRightSizeData.length > 0">
               <span class="logs-total">
-                共 {{ filteredZombieData.length }} 条
+                共 {{ filteredRightSizeData.length }} 条
               </span>
-              <el-pagination
-                v-model:current-page="zombieCurrentPage"
-                v-model:page-size="analysisPageSize"
-                :page-sizes="logsPageSizes"
-                :total="filteredZombieData.length"
-                :layout="logsPaginationLayout"
-                :size="paginationSize"
-              />
+              <el-pagination v-model:current-page="rightsizeCurrentPage" v-model:page-size="analysisPageSize"
+                :page-sizes="logsPageSizes" :total="filteredRightSizeData.length" :layout="logsPaginationLayout"
+                :size="paginationSize" />
             </div>
-            <el-empty v-if="!analysisLoading.zombie && filteredZombieData.length === 0" description="暂无分析结果" />
+            <el-empty v-if="!analysisLoading.resource && filteredRightSizeData.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
-              <el-button type="primary" :loading="analysisLoading.zombie" @click="runAnalysis('zombie')">
+              <el-button type="primary" :loading="analysisLoading.resource" @click="runAnalysis('rightsize')">
                 开始分析
               </el-button>
             </el-empty>
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="Right Size" name="rightsize">
-          <div class="analysis-content" v-if="hasAnalysisResults.rightsize">
+        <el-tab-pane label="使用模式" name="tidal">
+          <div class="analysis-content" v-if="hasAnalysisResults.resource">
             <div class="analysis-toolbar">
-              <el-input
-                v-model="rightsizeSearch"
-                placeholder="搜索虚拟机"
-                clearable
-                class="search-input"
-              >
+              <el-input v-model="tidalSearch" placeholder="搜索虚拟机" clearable class="search-input">
                 <template #prefix>
-                  <el-icon><Search /></el-icon>
+                  <el-icon>
+                    <Search />
+                  </el-icon>
                 </template>
               </el-input>
             </div>
-            <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
-              <el-table :data="pagedRightsizeData" stripe v-loading="analysisLoading.rightsize" :height="listTableHeight" class="detail-table">
-                <el-table-column prop="vmName" label="虚拟机" min-width="180" />
-                <el-table-column prop="datacenter" label="数据中心" min-width="140" />
-                <el-table-column prop="currentCpu" label="当前CPU" width="110" />
-                <el-table-column prop="recommendedCpu" label="建议CPU" width="110" />
-                <el-table-column prop="currentMemoryMb" label="当前内存" width="130">
-                  <template #default="{ row }">{{ formatMemory(row.currentMemoryMb) }}</template>
+            <div class="table-wrapper" :style="{ height: tidalTableHeight + 'px' }">
+              <el-table :data="pagedUsagePatternData" stripe v-loading="analysisLoading.resource"
+                :height="tidalTableHeight" class="detail-table">
+                <el-table-column prop="vmName" label="虚拟机" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="cluster" label="集群" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="hostIp" label="主机IP" width="130" />
+                <el-table-column prop="usagePattern" label="使用模式" width="100">
+                  <template #default="{ row }">
+                    <el-tag :type="getUsagePatternTagType(row.usagePattern)" size="small">
+                      {{ getUsagePatternText(row.usagePattern) }}
+                    </el-tag>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="recommendedMemoryMb" label="建议内存" width="130">
-                  <template #default="{ row }">{{ formatMemory(row.recommendedMemoryMb) }}</template>
+                <el-table-column prop="volatilityLevel" label="波动性" width="90">
+                  <template #default="{ row }">
+                    <el-tag :type="getVolatilityLevelTagType(row.volatilityLevel)" size="small">
+                      {{ getVolatilityLevelText(row.volatilityLevel) }}
+                    </el-tag>
+                  </template>
                 </el-table-column>
-                <el-table-column prop="estimatedSaving" label="预计节省" min-width="120" />
+                <el-table-column prop="coefficientOfVariation" label="变异系数" width="110">
+                  <template #default="{ row }">
+                    <span>{{ row.coefficientOfVariation !== null && row.coefficientOfVariation !== undefined ?
+                      row.coefficientOfVariation.toFixed(2) : '-' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="peakValleyRatio" label="峰谷比" width="100">
+                  <template #default="{ row }">
+                    <span>{{ row.peakValleyRatio !== null && row.peakValleyRatio !== undefined ?
+                      row.peakValleyRatio.toFixed(2) : '-' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="recommendation" label="建议" min-width="200" show-overflow-tooltip />
               </el-table>
             </div>
-            <div class="logs-pagination" v-if="filteredRightsizeData.length > 0">
+            <div class="logs-pagination" v-if="filteredUsagePatternData.length > 0">
               <span class="logs-total">
-                共 {{ filteredRightsizeData.length }} 条
+                共 {{ filteredUsagePatternData.length }} 条
               </span>
-              <el-pagination
-                v-model:current-page="rightsizeCurrentPage"
-                v-model:page-size="analysisPageSize"
-                :page-sizes="logsPageSizes"
-                :total="filteredRightsizeData.length"
-                :layout="logsPaginationLayout"
-                :size="paginationSize"
-              />
+              <el-pagination v-model:current-page="tidalCurrentPage" v-model:page-size="analysisPageSize"
+                :page-sizes="logsPageSizes" :total="filteredUsagePatternData.length" :layout="logsPaginationLayout"
+                :size="paginationSize" />
             </div>
-            <el-empty v-if="!analysisLoading.rightsize && filteredRightsizeData.length === 0" description="暂无分析结果" />
+            <el-empty v-if="!analysisLoading.resource && filteredUsagePatternData.length === 0" description="暂无分析结果" />
           </div>
           <div v-else class="analysis-placeholder">
             <el-empty description="该分析尚未运行">
-              <el-button type="primary" :loading="analysisLoading.rightsize" @click="runAnalysis('rightsize')">
-                开始分析
-              </el-button>
-            </el-empty>
-          </div>
-        </el-tab-pane>
-
-        <el-tab-pane label="潮汐检测" name="tidal">
-          <div class="analysis-content" v-if="hasAnalysisResults.tidal">
-            <div class="analysis-toolbar">
-              <el-input
-                v-model="tidalSearch"
-                placeholder="搜索虚拟机"
-                clearable
-                class="search-input"
-              >
-                <template #prefix>
-                  <el-icon><Search /></el-icon>
-                </template>
-              </el-input>
-            </div>
-            <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
-              <el-table :data="pagedTidalData" stripe v-loading="analysisLoading.tidal" :height="listTableHeight" class="detail-table">
-                <el-table-column prop="vmName" label="虚拟机" min-width="180" />
-                <el-table-column prop="pattern" label="模式" width="120" />
-                <el-table-column prop="stabilityScore" label="稳定性" width="100">
-                  <template #default="{ row }">{{ row.stabilityScore.toFixed(0) }}%</template>
-                </el-table-column>
-                <el-table-column label="高峰时段" min-width="160">
-                  <template #default="{ row }">{{ (row.peakHours || []).join(', ') || '-' }}</template>
-                </el-table-column>
-                <el-table-column label="高峰日期" min-width="160">
-                  <template #default="{ row }">{{ (row.peakDays || []).join(', ') || '-' }}</template>
-                </el-table-column>
-                <el-table-column prop="recommendation" label="建议" min-width="220" show-overflow-tooltip />
-              </el-table>
-            </div>
-            <div class="logs-pagination" v-if="filteredTidalData.length > 0">
-              <span class="logs-total">
-                共 {{ filteredTidalData.length }} 条
-              </span>
-              <el-pagination
-                v-model:current-page="tidalCurrentPage"
-                v-model:page-size="analysisPageSize"
-                :page-sizes="logsPageSizes"
-                :total="filteredTidalData.length"
-                :layout="logsPaginationLayout"
-                :size="paginationSize"
-              />
-            </div>
-            <el-empty v-if="!analysisLoading.tidal && filteredTidalData.length === 0" description="暂无分析结果" />
-          </div>
-          <div v-else class="analysis-placeholder">
-            <el-empty description="该分析尚未运行">
-              <el-button type="primary" :loading="analysisLoading.tidal" @click="runAnalysis('tidal')">
+              <el-button type="primary" :loading="analysisLoading.resource" @click="runAnalysis('resource')">
                 开始分析
               </el-button>
             </el-empty>
@@ -378,30 +627,69 @@
         <el-tab-pane label="健康评分" name="health">
           <div class="analysis-content" v-if="hasAnalysisResults.health">
             <el-card v-loading="analysisLoading.health">
-              <el-descriptions :column="2" border>
-                <el-descriptions-item label="综合评分">
-                  {{ analysisData.health?.overallScore !== undefined ? analysisData.health.overallScore.toFixed(0) + '%'
-                  : '-'
-                  }}
-                </el-descriptions-item>
+              <template #header>
+                <div class="health-score-header">
+                  <span class="health-score-title">平台健康评分</span>
+                  <span class="health-score-value" :class="getHealthScoreClass(analysisData.health?.overallScore)">
+                    {{ analysisData.health?.overallScore !== undefined ? analysisData.health.overallScore.toFixed(0) :
+                      '-' }}
+                  </span>
+                </div>
+              </template>
+              <el-descriptions :column="2" border class="health-descriptions">
                 <el-descriptions-item label="健康等级">
-                  {{ getHealthGradeText(analysisData.health?.grade) }}
+                  <el-tag :type="getHealthGradeTagType(analysisData.health?.grade)" size="large">
+                    {{ getHealthGradeText(analysisData.health?.grade) }}
+                  </el-tag>
                 </el-descriptions-item>
+                <el-descriptions-item label="集群数">{{ analysisData.health?.clusterCount ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="主机数">{{ analysisData.health?.hostCount ?? '-' }}</el-descriptions-item>
+                <el-descriptions-item label="虚拟机数">{{ analysisData.health?.vmCount ?? '-' }}</el-descriptions-item>
                 <el-descriptions-item label="资源均衡">
-                  {{ analysisData.health?.balanceScore !== undefined ? analysisData.health.balanceScore.toFixed(0) + '%' :
-                  '-' }}
+                  <el-progress :percentage="analysisData.health?.balanceScore ?? 0"
+                    :color="getScoreColor(analysisData.health?.balanceScore)" :show-text="true" />
                 </el-descriptions-item>
                 <el-descriptions-item label="超配风险">
-                  {{ analysisData.health?.overcommitScore !== undefined ? analysisData.health.overcommitScore.toFixed(0) +
-                  '%' :
-                  '-' }}
+                  <el-progress :percentage="100 - (analysisData.health?.overcommitScore ?? 0)"
+                    :color="getOvercommitScoreColor(analysisData.health?.overcommitScore)" :show-text="true" />
                 </el-descriptions-item>
                 <el-descriptions-item label="热点集中">
-                  {{ analysisData.health?.hotspotScore !== undefined ? analysisData.health.hotspotScore.toFixed(0) + '%' :
-                  '-' }}
+                  <el-progress :percentage="100 - (analysisData.health?.hotspotScore ?? 0)"
+                    :color="getHotspotScoreColor(analysisData.health?.hotspotScore)" :show-text="true" />
                 </el-descriptions-item>
-                <el-descriptions-item label="虚机数量">{{ analysisData.health?.vmCount ?? '-' }}</el-descriptions-item>
               </el-descriptions>
+
+              <!-- 发现的问题 -->
+              <div v-if="analysisData.health?.findings && analysisData.health.findings.length > 0"
+                class="health-findings">
+                <h4>发现的问题</h4>
+                <el-table :data="analysisData.health.findings" stripe class="detail-table">
+                  <el-table-column prop="category" label="类别" width="100">
+                    <template #default="{ row }">
+                      <el-tag :type="getFindingCategoryTagType(row.category)" size="small">
+                        {{ getFindingCategoryText(row.category) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="severity" label="严重程度" width="90">
+                    <template #default="{ row }">
+                      <el-tag :type="getSeverityTagType(row.severity)" size="small">
+                        {{ getSeverityText(row.severity) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="description" label="描述" min-width="300" show-overflow-tooltip />
+                </el-table>
+              </div>
+
+              <!-- 改进建议 -->
+              <div v-if="analysisData.health?.recommendations && analysisData.health.recommendations.length > 0"
+                class="health-recommendations">
+                <h4>改进建议</h4>
+                <ul>
+                  <li v-for="(rec, index) in analysisData.health.recommendations" :key="index">{{ rec }}</li>
+                </ul>
+              </div>
             </el-card>
             <el-empty v-if="!analysisLoading.health && !analysisData.health" description="暂无分析结果" />
           </div>
@@ -421,26 +709,136 @@
           </div>
         </el-tab-pane>
 
+        <el-tab-pane label="任务配置" name="config">
+          <div class="config-content">
+            <el-card v-loading="!task">
+              <template #header>
+                <div class="config-header">
+                  <el-icon>
+                    <Setting />
+                  </el-icon>
+                  <span>任务配置信息</span>
+                </div>
+              </template>
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="任务名称">
+                  {{ task?.name || '-' }}
+                </el-descriptions-item>
+                <el-descriptions-item label="任务类型">
+                  <el-tag :type="task?.type === 'collection' ? 'primary' : 'success'" size="small">
+                    {{ getTaskTypeText(task?.type) }}
+                  </el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="任务状态">
+                  <el-tag :type="getStatusType(task?.status)" size="small">
+                    {{ getStatusText(task?.status) }}
+                  </el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="平台类型">
+                  {{ getPlatformText(task?.platform) }}
+                </el-descriptions-item>
+                <el-descriptions-item label="连接名称">
+                  {{ task?.connectionName || '-' }}
+                </el-descriptions-item>
+                <el-descriptions-item label="连接主机">
+                  {{ task?.connectionHost || '-' }}
+                </el-descriptions-item>
+                <el-descriptions-item label="评估对象数量">
+                  {{ task?.selectedVMCount ?? '-' }} 台虚拟机
+                </el-descriptions-item>
+                <el-descriptions-item label="评估模式">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <el-tag :type="analysisModeOptions.find(m => m.value === task?.config?.mode)?.type || 'info'"
+                      size="small">
+                      {{analysisModeOptions.find(m => m.value === task?.config?.mode)?.label || (task?.config?.mode ||
+                        '-')}}
+                    </el-tag>
+                    <el-dropdown v-if="task?.status === 'completed'" trigger="click"
+                      @command="(cmd) => handleModeChange(cmd)">
+                      <el-button text size="small" style="padding: 0;">
+                        <el-icon>
+                          <Setting />
+                        </el-icon>
+                      </el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item v-for="mode in analysisModeOptions" :key="mode.value" :command="mode.value"
+                            :disabled="mode.value === task?.mode">
+                            <el-tag :type="mode.type" size="small" style="margin-right: 8px;">
+                              {{ mode.label }}
+                            </el-tag>
+                          </el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </div>
+                </el-descriptions-item>
+                <el-descriptions-item label="采集天数">
+                  {{ task?.config?.metricDays ?? '-' }} 天
+                </el-descriptions-item>
+                <el-descriptions-item label="开始时间">
+                  {{ formatConfigTime(task?.startedAt) }}
+                </el-descriptions-item>
+                <el-descriptions-item label="完成时间" :span="task?.completedAt ? 1 : 2">
+                  {{ formatConfigTime(task?.completedAt) }}
+                </el-descriptions-item>
+                <el-descriptions-item v-if="task?.completedAt" label="执行耗时">
+                  {{ formatDuration(task) }}
+                </el-descriptions-item>
+              </el-descriptions>
+
+              <!-- 选中的虚拟机列表 -->
+              <div v-if="task?.selectedVMs && task.selectedVMs.length > 0" class="selected-vms-section">
+                <div class="section-title">
+                  <el-icon>
+                    <Monitor />
+                  </el-icon>
+                  <span>选中的虚拟机 ({{ task.selectedVMs.length }})</span>
+                </div>
+                <div class="selected-vms-list">
+                  <el-tag v-for="(vm, index) in displayedSelectedVMs" :key="index" size="small" class="vm-tag">
+                    {{ vm }}
+                  </el-tag>
+                  <el-button v-if="task.selectedVMs.length > maxDisplayVMs" text size="small"
+                    @click="showAllVMs = !showAllVMs">
+                    {{ showAllVMs ? '收起' : `展开剩余 ${task.selectedVMs.length - maxDisplayVMs} 台` }}
+                  </el-button>
+                </div>
+              </div>
+            </el-card>
+          </div>
+        </el-tab-pane>
+
         <el-tab-pane label="执行日志" name="logs">
           <div class="analysis-content">
-            <!-- 工具栏：搜索和刷新 -->
+            <!-- 工具栏：级别筛选、搜索和刷新 -->
             <div class="logs-toolbar">
-              <el-input
-                v-model="logsSearchText"
-                placeholder="搜索日志内容..."
-                clearable
-                class="search-input"
-                @input="onLogsSearchChange"
-              >
-                <template #prefix>
-                  <el-icon>
-                    <Search />
-                  </el-icon>
-                </template>
-              </el-input>
+              <div class="logs-filters">
+                <!-- 日志级别筛选 -->
+                <el-select v-model="selectedLogLevels" placeholder="选择日志级别" multiple collapse-tags collapse-tags-tooltip
+                  clearable class="log-level-select" @change="onLogsFilterChange">
+                  <el-option label="全部" value="" />
+                  <el-option label="Debug" value="debug" />
+                  <el-option label="Info" value="info" />
+                  <el-option label="Warning" value="warn" />
+                  <el-option label="Error" value="error" />
+                </el-select>
+                <!-- 关键字搜索 -->
+                <el-input v-model="logsSearchText" placeholder="搜索日志内容..." clearable class="search-input"
+                  @input="onLogsSearchChange">
+                  <template #prefix>
+                    <el-icon>
+                      <Search />
+                    </el-icon>
+                  </template>
+                </el-input>
+              </div>
               <div class="logs-actions">
                 <el-button size="small" :disabled="!task?.id" @click="manualRefreshLogs" :loading="logsLoading">
-                  刷新日志
+                  <el-icon>
+                    <Refresh />
+                  </el-icon>
+                  刷新
                 </el-button>
               </div>
             </div>
@@ -449,20 +847,18 @@
 
             <!-- 日志表格区域 -->
             <div v-else class="logs-content">
-              <div class="table-wrapper" :style="{ height: listTableHeight + 'px' }">
-                <el-table
-                  :data="paginatedLogs"
-                  stripe
-                  v-loading="logsLoading"
-                  :height="listTableHeight"
-                  class="detail-table"
-                  :default-sort="{ prop: 'timestamp', order: 'descending' }"
-                >
-                  <el-table-column prop="timestamp" label="时间" width="180" sortable />
+              <div class="table-wrapper" :style="{ height: logsTableHeight + 'px' }">
+                <el-table :data="paginatedLogs" stripe v-loading="logsLoading" :height="logsTableHeight"
+                  class="detail-table" :default-sort="{ prop: 'timestamp', order: 'descending' }">
+                  <el-table-column prop="timestamp" label="时间" width="180" sortable>
+                    <template #default="{ row }">
+                      {{ formatLogTimestamp(row.timestamp) }}
+                    </template>
+                  </el-table-column>
                   <el-table-column prop="level" label="级别" width="100">
                     <template #default="{ row }">
                       <el-tag :type="getLogLevelType(row.level)" size="small">
-                        {{ row.level }}
+                        {{ row.level.toUpperCase() }}
                       </el-tag>
                     </template>
                   </el-table-column>
@@ -479,14 +875,9 @@
                 <span class="logs-total">
                   共 {{ logsTotal }} 条
                 </span>
-                <el-pagination
-                  v-model:current-page="logsCurrentPage"
-                  v-model:page-size="logsPageSize"
-                  :page-sizes="logsPageSizes"
-                  :total="logsTotal"
-                  :layout="logsPaginationLayout"
-                  :size="paginationSize"
-                />
+                <el-pagination v-model:current-page="logsCurrentPage" v-model:page-size="logsPageSize"
+                  :page-sizes="logsPageSizes" :total="logsTotal" :layout="logsPaginationLayout"
+                  :size="paginationSize" />
               </div>
             </div>
           </div>
@@ -496,25 +887,56 @@
 
     <!-- 任务失败状态 -->
     <div v-else-if="task?.status === 'failed'" class="failed-state">
-      <el-result icon="error" title="任务执行失败" :sub-title="task.error">
-        <template #extra>
-          <el-button type="primary" :disabled="!task?.id" @click="handleRetry">重试任务</el-button>
-        </template>
-      </el-result>
+      <el-card class="failed-card">
+        <div class="failed-icon">
+          <el-icon :size="80">
+            <CircleClose />
+          </el-icon>
+        </div>
+        <h2 class="failed-title">任务执行失败</h2>
+        <p class="failed-message">{{ task.error || '未知错误' }}</p>
+
+        <div class="failed-details" v-if="task.connectionName || task.connectionHost">
+          <div class="detail-item">
+            <span class="detail-label">连接名称:</span>
+            <span class="detail-value">{{ task.connectionName || '-' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">主机地址:</span>
+            <span class="detail-value">{{ task.connectionHost || '-' }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">平台类型:</span>
+            <span class="detail-value">{{ task.platform === 'vcenter' ? 'VMware vSphere' : 'H3C UIS' }}</span>
+          </div>
+        </div>
+
+        <div class="failed-actions">
+          <el-button @click="router.push('/')">
+            返回首页
+          </el-button>
+          <el-button type="primary" :disabled="!task?.id" @click="handleRetry">
+            <el-icon>
+              <Refresh />
+            </el-icon>
+            重试任务
+          </el-button>
+        </div>
+      </el-card>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { ref, computed, onBeforeMount, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as TaskAPI from '@/api/task'
+import type { TaskMode } from '@/api/task'
 import * as ReportAPI from '@/api/report'
 import * as AnalysisAPI from '@/api/analysis'
 import * as ResourceAPI from '@/api/resource'
-import { exportTaskReport } from '@/api/report'
 import AnalysisModeTab from './AnalysisModeTab.vue'
 import {
   Download,
@@ -532,8 +954,13 @@ import {
   Search,
   DocumentCopy,
   Notebook,
-
-  Delete
+  Delete,
+  Setting,
+  Monitor,
+  Refresh,
+  Warning,
+  TrendCharts,
+  Check
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -546,6 +973,8 @@ const taskId = computed(() => route.params.id as string)
 const activeTab = ref('overview')
 const vmSearch = ref('')
 const zombieSearch = ref('')
+const idleTypeFilter = ref('')
+const riskLevelFilter = ref('')
 const rightsizeSearch = ref('')
 const tidalSearch = ref('')
 const vmList = ref<any[]>([])
@@ -564,6 +993,9 @@ const logsTotal = ref(0)
 const logsCurrentPage = ref(1)
 const logsPageSize = ref(30)
 const logsSearchText = ref('')
+const selectedLogLevels = ref<string[]>([])  // 日志级别筛选
+const showAllVMs = ref(false)  // 是否显示所有选中的VM
+const maxDisplayVMs = 20  // 最多显示多少个VM
 const windowHeight = ref(window.innerHeight)
 const windowWidth = ref(window.innerWidth)
 const pollTimer = ref<number | null>(null)
@@ -580,7 +1012,12 @@ const reportsLoading = ref(false)
 
 const isCompactWindow = computed(() => windowHeight.value <= 700 || windowWidth.value <= 1100)
 const paginationSize = computed(() => isCompactWindow.value ? 'small' : 'default')
-const listTableHeight = computed(() => (isCompactWindow.value ? 500 : 800))
+
+// 各表格独立高度
+const idleTableHeight = 280        // 闲置检测表格
+const rightsizeTableHeight = 380  // 资源配置优化表格
+const tidalTableHeight = 380       // 使用模式表格
+const logsTableHeight = 380        // 执行日志表格
 const vmPaginationLayout = computed(() =>
   isCompactWindow.value ? 'sizes, prev, pager, next' : 'sizes, prev, pager, next, jumper'
 )
@@ -591,29 +1028,37 @@ const vmPageSizes = computed(() => (isCompactWindow.value ? [10, 20, 50, 100] : 
 const logsPageSizes = computed(() => (isCompactWindow.value ? [10, 20, 30, 50] : [10, 15, 30, 50, 100]))
 
 const analysisLoading = reactive({
-  zombie: false,
-  rightsize: false,
-  tidal: false,
+  idle: false,
+  resource: false,
   health: false
 })
 
 // 本地状态：跟踪哪些分析已完成（用于控制 Tab 显示）
+// 直接使用后端字段名：idle, resource, health
 const hasAnalysisResults = reactive({
-  zombie: false,
-  rightsize: false,
-  tidal: false,
+  idle: false,
+  resource: false,
   health: false
 })
 
+// 评估模式相关
+const analysisModeOptions = [
+  { value: 'safe' as const, label: '安全模式', type: 'success' },
+  { value: 'saving' as const, label: '节省模式', type: 'primary' },
+  { value: 'aggressive' as const, label: '激进模式', type: 'danger' },
+  { value: 'custom' as const, label: '自定义模式', type: 'info' }
+]
+
+// 分析数据存储 - 使用后端返回的字段结构
 const analysisData = reactive<{
-  zombie: any[]
-  rightsize: any[]
-  tidal: any[]
-  health: any | null
+  idle: AnalysisAPI.IdleResult[]
+  rightSize: AnalysisAPI.RightSizeResult[]
+  usagePattern: AnalysisAPI.UsagePatternResult[]
+  health: AnalysisAPI.HealthScoreResult | null
 }>({
-  zombie: [],
-  rightsize: [],
-  tidal: [],
+  idle: [],
+  rightSize: [],
+  usagePattern: [],
   health: null
 })
 
@@ -635,9 +1080,9 @@ interface AnalysisItem {
 }
 
 const analyses: AnalysisItem[] = [
-  { key: 'zombie', title: '僵尸 VM 检测', description: '识别长期低负载的虚拟机', icon: 'Monitor', color: 'orange' },
-  { key: 'rightsize', title: 'Right Sizing', description: '资源配置优化建议', icon: 'TrendCharts', color: 'blue' },
-  { key: 'tidal', title: '潮汐模式', description: '发现周期性规律', icon: 'Coin', color: 'green' },
+  { key: 'idle', title: '闲置检测', description: '识别长期低负载或已关机的虚拟机', icon: 'Monitor', color: 'orange' },
+  { key: 'rightsize', title: '资源配置优化', description: 'CPU和内存配置优化建议', icon: 'TrendCharts', color: 'blue' },
+  { key: 'tidal', title: '使用模式', description: '发现周期性使用规律', icon: 'Coin', color: 'green' },
   { key: 'health', title: '健康评分', description: '平台健康度评估', icon: 'DataAnalysis', color: 'purple' }
 ]
 
@@ -645,37 +1090,91 @@ const completedAnalyses = computed(() => {
   return Object.values(hasAnalysisResults).filter(v => v).length
 })
 
+// 显示的选中VM列表（支持展开/收起）
+const displayedSelectedVMs = computed(() => {
+  if (!task.value?.selectedVMs) return []
+  if (showAllVMs.value) return task.value.selectedVMs
+  return task.value.selectedVMs.slice(0, maxDisplayVMs)
+})
+
+// 映射前端 Tab key 到 hasAnalysisResults 的键
+// 前端 Tab key：zombie, rightsize, tidal, health
+// hasAnalysisResults 键：idle, resource, health
+function getAnalysisStatus(analysisKey: string): boolean {
+  const keyMapping: Record<string, 'idle' | 'resource' | 'health'> = {
+    idle: 'idle',
+    rightsize: 'resource',
+    tidal: 'resource',
+    health: 'health'
+  }
+  const hasKey = keyMapping[analysisKey]
+  return hasKey ? hasAnalysisResults[hasKey] : false
+}
+
+// 检查分析是否正在加载
+function isAnalysisLoading(analysisKey: string): boolean {
+  const loadingMapping: Record<string, 'idle' | 'resource' | 'health'> = {
+    zombie: 'idle',
+    rightsize: 'resource',
+    tidal: 'resource',
+    health: 'health'
+  }
+  const loadingKey = loadingMapping[analysisKey]
+  return loadingKey ? analysisLoading[loadingKey] : false
+}
+
 function matchByKeyword(row: any, keyword: string, fields: string[]) {
   if (!keyword) return true
   const q = keyword.toLowerCase().trim()
   return fields.some((field) => String(row?.[field] ?? '').toLowerCase().includes(q))
 }
 
-const filteredZombieData = computed(() => {
-  return analysisData.zombie.filter((row) => matchByKeyword(row, zombieSearch.value, ['vmName', 'datacenter', 'recommendation']))
+// 闲置检测 (Idle) Tab 过滤 - 支持关键字、类型和风险等级筛选
+const filteredIdleData = computed(() => {
+  return analysisData.idle.filter((row) => {
+    // 关键字筛选
+    if (!matchByKeyword(row, zombieSearch.value, ['vmName', 'cluster', 'hostIp', 'recommendation'])) {
+      return false
+    }
+    // 闲置类型筛选
+    if (idleTypeFilter.value && row.idleType !== idleTypeFilter.value) {
+      return false
+    }
+    // 风险等级筛选
+    if (riskLevelFilter.value && row.riskLevel !== riskLevelFilter.value) {
+      return false
+    }
+    return true
+  })
 })
 
-const filteredRightsizeData = computed(() => {
-  return analysisData.rightsize.filter((row) => matchByKeyword(row, rightsizeSearch.value, ['vmName', 'datacenter', 'estimatedSaving']))
+// 资源配置优化 (Right Size) Tab 过滤
+const filteredRightSizeData = computed(() => {
+  return analysisData.rightSize.filter((row) =>
+    matchByKeyword(row, rightsizeSearch.value, ['vmName', 'cluster', 'hostIp'])
+  )
 })
 
-const filteredTidalData = computed(() => {
-  return analysisData.tidal.filter((row) => matchByKeyword(row, tidalSearch.value, ['vmName', 'pattern', 'recommendation']))
+// 使用模式分析 (Usage Pattern) Tab 过滤
+const filteredUsagePatternData = computed(() => {
+  return analysisData.usagePattern.filter((row) =>
+    matchByKeyword(row, tidalSearch.value, ['vmName', 'cluster', 'usagePattern', 'recommendation'])
+  )
 })
 
-const pagedZombieData = computed(() => {
+const pagedIdleData = computed(() => {
   const start = (zombieCurrentPage.value - 1) * analysisPageSize.value
-  return filteredZombieData.value.slice(start, start + analysisPageSize.value)
+  return filteredIdleData.value.slice(start, start + analysisPageSize.value)
 })
 
-const pagedRightsizeData = computed(() => {
+const pagedRightSizeData = computed(() => {
   const start = (rightsizeCurrentPage.value - 1) * analysisPageSize.value
-  return filteredRightsizeData.value.slice(start, start + analysisPageSize.value)
+  return filteredRightSizeData.value.slice(start, start + analysisPageSize.value)
 })
 
-const pagedTidalData = computed(() => {
+const pagedUsagePatternData = computed(() => {
   const start = (tidalCurrentPage.value - 1) * analysisPageSize.value
-  return filteredTidalData.value.slice(start, start + analysisPageSize.value)
+  return filteredUsagePatternData.value.slice(start, start + analysisPageSize.value)
 })
 
 // 初始化任务数据
@@ -698,9 +1197,9 @@ async function initTaskData(preserveTabState = false) {
   tidalCurrentPage.value = 1
   taskLogs.value = []
   allLogs.value = []
-  analysisData.zombie = []
-  analysisData.rightsize = []
-  analysisData.tidal = []
+  analysisData.idle = []
+  analysisData.rightSize = []
+  analysisData.usagePattern = []
   analysisData.health = null
 
   // 如果没有有效的 taskId，不执行后续操作
@@ -727,11 +1226,12 @@ async function initTaskData(preserveTabState = false) {
   })
 
   // 根据后端的 analysisResults 初始化 hasAnalysisResults
+  // 后端返回 { idle, resource, health }，前端使用 { zombie, rightsize, tidal, health }
   if (task.value.analysisResults) {
     console.log('[TaskDetail] 初始化 hasAnalysisResults:', task.value.analysisResults)
-    hasAnalysisResults.zombie = task.value.analysisResults.zombie || false
-    hasAnalysisResults.rightsize = task.value.analysisResults.rightsize || false
-    hasAnalysisResults.tidal = task.value.analysisResults.tidal || false
+    // 直接使用后端字段名：idle, resource, health
+    hasAnalysisResults.idle = task.value.analysisResults.idle || false
+    hasAnalysisResults.resource = task.value.analysisResults.resource || false
     hasAnalysisResults.health = task.value.analysisResults.health || false
     console.log('[TaskDetail] hasAnalysisResults 已更新:', hasAnalysisResults)
   }
@@ -767,11 +1267,14 @@ async function initTaskData(preserveTabState = false) {
   }
 }
 
+// 在组件挂载之前就停止全局轮询，避免与 TaskDetail 的轮询冲突
+onBeforeMount(() => {
+  console.log('[TaskDetail] onBeforeMount: 停止全局轮询')
+  taskStore.stopPolling()
+})
+
 onMounted(async () => {
   window.addEventListener('resize', handleWindowResize)
-
-  // 停止 task store 的轮询，避免与 TaskDetail 的轮询重复
-  taskStore.stopPolling()
 
   await initTaskData()
 })
@@ -808,18 +1311,14 @@ watch(activeTab, async (newTab) => {
   if (task.value?.id) {
     try {
       const taskInfo = await TaskAPI.getTask(task.value.id)
-      const storeTask = taskStore.getTask(Number(taskId.value))
-      if (storeTask) {
-        // 保存当前 Tab 状态，避免因为任务状态更新而丢失
-        const currentTab = activeTab.value
-        storeTask.status = taskInfo.status as any
-        storeTask.progress = taskInfo.progress
-        storeTask.error = taskInfo.error
-        storeTask.startedAt = taskInfo.startedAt
-        storeTask.completedAt = taskInfo.completedAt
-        // 恢复 Tab 状态
-        activeTab.value = currentTab
-      }
+      // 使用 updateTask 方法确保响应式更新
+      taskStore.updateTask(task.value.id, {
+        status: taskInfo.status,
+        progress: taskInfo.progress,
+        error: taskInfo.error,
+        startedAt: taskInfo.startedAt,
+        completedAt: taskInfo.completedAt
+      })
     } catch (error) {
       console.error('[TaskDetail] 同步任务状态失败:', error)
     }
@@ -957,50 +1456,54 @@ function pollTaskStatus(id: number) {
   stopPolling()
 
   let logRefreshCounter = 0  // 日志刷新计数器：任务运行中每 5 次轮询（10秒）刷新一次日志
+  let pollCount = 0  // 轮询计数器，用于诊断
 
   pollTimer.value = window.setInterval(async () => {
+    const pollStart = Date.now()
+    pollCount++
+    console.log(`[TaskDetail] 轮询 #${pollCount} 开始`, { taskId: id, time: new Date().toLocaleTimeString() })
+
     try {
       const taskInfo = await TaskAPI.getTask(id)
-      console.log('[TaskDetail] pollTaskStatus 轮询结果, taskId:', id, 'status:', taskInfo.status, 'progress:', taskInfo.progress)
+      const pollElapsed = Date.now() - pollStart
+      console.log(`[TaskDetail] 轮询 #${pollCount} 完成`, {
+        taskId: id,
+        status: taskInfo.status,
+        progress: taskInfo.progress,
+        elapsed: `${pollElapsed}ms`
+      })
 
-      // 更新 store 中的任务对象，而不是直接修改 computed
-      const storeTask = taskStore.getTask(Number(taskId.value))
-      if (storeTask) {
-        storeTask.status = taskInfo.status as any
-        storeTask.progress = taskInfo.progress
-        storeTask.error = taskInfo.error
-        // 同步时间戳，用于计算耗时
-        if (taskInfo.startedAt) {
-          storeTask.startedAt = taskInfo.startedAt
-        }
-        if (taskInfo.completedAt) {
-          storeTask.completedAt = taskInfo.completedAt
-        }
+      // 使用 updateTask 方法确保响应式更新
+      taskStore.updateTask(id, {
+        status: taskInfo.status,
+        progress: taskInfo.progress,
+        error: taskInfo.error,
+        startedAt: taskInfo.startedAt,
+        completedAt: taskInfo.completedAt
+      })
 
-        // 任务运行中时，每 5 次轮询刷新一次日志（每 10 秒）
-        if (taskInfo.status === 'running') {
-          logRefreshCounter++
-          if (logRefreshCounter >= 5) {
-            console.log('[TaskDetail] pollTaskStatus 自动刷新日志, taskId:', id)
-            await loadTaskLogs()  // 静默刷新，不显示提示
-            logRefreshCounter = 0
-          }
-        } else if (taskInfo.status === 'completed') {
-          console.log('[TaskDetail] pollTaskStatus 任务完成, 停止轮询, taskId:', id)
-          stopPolling()
-          if (storeTask.connectionId) {
-            await loadVMList()
-          }
-          await loadTaskLogs()
-          await loadAnalysisResultFromBackend(id)
-        } else if (taskInfo.status === 'failed') {
-          console.log('[TaskDetail] pollTaskStatus 任务失败, 停止轮询, taskId:', id, 'error:', taskInfo.error)
-          stopPolling()
-          await loadTaskLogs()
-          ElMessage.error('任务执行失败: ' + (taskInfo.error || '未知错误'))
+      // 任务运行中时，每 5 次轮询刷新一次日志（每 10 秒）
+      if (taskInfo.status === 'running') {
+        logRefreshCounter++
+        if (logRefreshCounter >= 5) {
+          console.log('[TaskDetail] pollTaskStatus 自动刷新日志, taskId:', id)
+          await loadTaskLogs()  // 静默刷新，不显示提示
+          logRefreshCounter = 0
         }
-      } else {
-        console.warn('[TaskDetail] pollTaskStatus: store 中找不到任务, taskId:', id)
+      } else if (taskInfo.status === 'completed') {
+        console.log('[TaskDetail] pollTaskStatus 任务完成, 停止轮询, taskId:', id)
+        stopPolling()
+        const storeTask = taskStore.getTask(Number(taskId.value))
+        if (storeTask?.connectionId) {
+          await loadVMList()
+        }
+        await loadTaskLogs()
+        await loadAnalysisResultFromBackend(id)
+      } else if (taskInfo.status === 'failed') {
+        console.log('[TaskDetail] pollTaskStatus 任务失败, 停止轮询, taskId:', id, 'error:', taskInfo.error)
+        stopPolling()
+        await loadTaskLogs()
+        ElMessage.error('任务执行失败: ' + (taskInfo.error || '未知错误'))
       }
     } catch (error) {
       console.error('[TaskDetail] pollTaskStatus 轮询任务状态失败:', error)
@@ -1079,13 +1582,21 @@ async function manualRefreshLogs() {
   ElMessage.success(`刷新成功，共 ${logsTotal.value} 条记录`)
 }
 
-// 应用搜索过滤
+// 应用搜索过滤（支持级别筛选和关键字搜索）
 function applyLogFilter() {
   let filteredLogs = allLogs.value
 
+  // 级别筛选
+  if (selectedLogLevels.value.length > 0) {
+    filteredLogs = filteredLogs.filter((log: any) =>
+      selectedLogLevels.value.includes(log.level)
+    )
+  }
+
+  // 关键字搜索
   if (logsSearchText.value) {
     const searchLower = logsSearchText.value.toLowerCase()
-    filteredLogs = allLogs.value.filter((log: any) =>
+    filteredLogs = filteredLogs.filter((log: any) =>
       log.message?.toLowerCase().includes(searchLower) ||
       log.level?.toLowerCase().includes(searchLower)
     )
@@ -1099,6 +1610,12 @@ function applyLogFilter() {
   if (logsCurrentPage.value > maxPage) {
     logsCurrentPage.value = 1
   }
+}
+
+// 日志级别筛选变化时重新过滤
+function onLogsFilterChange() {
+  logsCurrentPage.value = 1
+  applyLogFilter()
 }
 
 // 分页后的日志数据
@@ -1115,11 +1632,11 @@ function getLogLevelType(level: string) {
     'warn': 'warning',
     'warning': 'warning',
     'info': 'info',
-    'debug': '',
+    'debug': 'info',
     'success': 'success',
     'system': 'info'
   }
-  return levelMap[level] || ''
+  return levelMap[level] || 'info'
 }
 
 // 防抖搜索
@@ -1136,85 +1653,39 @@ function onLogsSearchChange() {
 async function loadAnalysisResultFromBackend(id: number) {
   console.log('[loadAnalysisResultFromBackend] 开始加载分析结果, id:', id)
   try {
-    // 使用 AnalysisAPI 获取分析结果（健康评分现在也是基于任务的）
-    const result = await AnalysisAPI.getTaskAnalysisResult(id)
-    console.log('[loadAnalysisResultFromBackend] 获取到结果:', result)
-    if (!result) {
-      console.warn('[loadAnalysisResultFromBackend] 结果为空')
-      return
-    }
-    console.log('[loadAnalysisResultFromBackend] 结果键:', Object.keys(result))
+    // 并行获取所有分析结果
+    const [idleResult, resourceResult, healthResult] = await Promise.allSettled([
+      AnalysisAPI.getIdleResults(id).catch(() => []),
+      AnalysisAPI.getResourceResults(id).catch(() => ({ rightSize: [], usagePattern: [], mismatch: [], summary: { rightSizeCount: 0, usagePatternCount: 0, mismatchCount: 0, totalVmsAnalyzed: 0 } })),
+      AnalysisAPI.getHealthResults(id).catch(() => null)
+    ])
 
-    // 后端 Result 字段命名: zombieVM, rightSize, tidal, healthScore
-    // 后端数据格式: { count: number, results: [...] }
-    // 需要转换为前端期望的格式
-
-    if (result.zombieVM) {
-      console.log('[loadAnalysisResultFromBackend] 找到 zombieVM 数据:', result.zombieVM)
-      const zombieData = result.zombieVM as { count?: number; results?: any[] }
-      if (Array.isArray(zombieData.results)) {
-        analysisData.zombie = zombieData.results
-        hasAnalysisResults.zombie = true
-        console.log('[loadAnalysisResultFromBackend] zombie 结果加载完成, 数量:', zombieData.results.length)
-      } else if (Array.isArray(result.zombieVM)) {
-        // 兼容直接返回数组的情况
-        analysisData.zombie = result.zombieVM
-        hasAnalysisResults.zombie = true
-        console.log('[loadAnalysisResultFromBackend] zombie 结果加载完成(数组), 数量:', result.zombieVM.length)
-      } else {
-        console.warn('[loadAnalysisResultFromBackend] zombieVM 数据格式异常:', typeof result.zombieVM)
-      }
+    // 处理闲置检测结果
+    if (idleResult.status === 'fulfilled' && idleResult.value.length > 0) {
+      analysisData.idle = idleResult.value
+      hasAnalysisResults.idle = true
+      console.log('[loadAnalysisResultFromBackend] idle 结果加载完成, 数量:', idleResult.value.length)
     } else {
-      console.log('[loadAnalysisResultFromBackend] 未找到 zombieVM 数据')
+      console.log('[loadAnalysisResultFromBackend] 未找到 idle 数据')
     }
 
-    // right_size -> rightsize
-    if (result.rightSize) {
-      console.log('[loadAnalysisResultFromBackend] 找到 rightSize 数据:', result.rightSize)
-      const rightSizeData = result.rightSize as { count?: number; results?: any[] }
-      if (Array.isArray(rightSizeData.results)) {
-        analysisData.rightsize = rightSizeData.results
-        hasAnalysisResults.rightsize = true
-        console.log('[loadAnalysisResultFromBackend] rightsize 结果加载完成, 数量:', rightSizeData.results.length)
-      } else if (Array.isArray(result.rightSize)) {
-        analysisData.rightsize = result.rightSize
-        hasAnalysisResults.rightsize = true
-        console.log('[loadAnalysisResultFromBackend] rightsize 结果加载完成(数组), 数量:', result.rightSize.length)
-      } else {
-        console.warn('[loadAnalysisResultFromBackend] rightSize 数据格式异常:', typeof result.rightSize)
-      }
+    // 处理资源分析结果
+    if (resourceResult.status === 'fulfilled' && resourceResult.value) {
+      analysisData.rightSize = resourceResult.value.rightSize || []
+      analysisData.usagePattern = resourceResult.value.usagePattern || []
+      hasAnalysisResults.resource = true
+      console.log('[loadAnalysisResultFromBackend] resource 结果加载完成, rightSize:', analysisData.rightSize.length, 'usagePattern:', analysisData.usagePattern.length)
     } else {
-      console.log('[loadAnalysisResultFromBackend] 未找到 rightSize 数据')
+      console.log('[loadAnalysisResultFromBackend] 未找到 resource 数据')
     }
 
-    // tidal
-    if (result.tidal) {
-      console.log('[loadAnalysisResultFromBackend] 找到 tidal 数据:', result.tidal)
-      const tidalData = result.tidal as { count?: number; results?: any[] }
-      if (Array.isArray(tidalData.results)) {
-        analysisData.tidal = tidalData.results
-        hasAnalysisResults.tidal = true
-        console.log('[loadAnalysisResultFromBackend] tidal 结果加载完成, 数量:', tidalData.results.length)
-      } else if (Array.isArray(result.tidal)) {
-        analysisData.tidal = result.tidal
-        hasAnalysisResults.tidal = true
-        console.log('[loadAnalysisResultFromBackend] tidal 结果加载完成(数组), 数量:', result.tidal.length)
-      } else {
-        console.warn('[loadAnalysisResultFromBackend] tidal 数据格式异常:', typeof result.tidal)
-      }
-    } else {
-      console.log('[loadAnalysisResultFromBackend] 未找到 tidal 数据')
-    }
-
-    // health_score -> health
-    if (result.healthScore) {
-      console.log('[loadAnalysisResultFromBackend] 找到 healthScore 数据:', result.healthScore)
-      // 直接使用后端返回的数据，不做任何转换或映射
-      analysisData.health = result.healthScore
+    // 处理健康评分结果
+    if (healthResult.status === 'fulfilled' && healthResult.value) {
+      analysisData.health = healthResult.value
       hasAnalysisResults.health = true
       console.log('[loadAnalysisResultFromBackend] health 结果加载完成')
     } else {
-      console.log('[loadAnalysisResultFromBackend] 未找到 healthScore 数据')
+      console.log('[loadAnalysisResultFromBackend] 未找到 health 数据')
     }
 
   } catch (error) {
@@ -1223,7 +1694,7 @@ async function loadAnalysisResultFromBackend(id: number) {
 }
 
 function getDefaultAnalysisConfig(type: string) {
-  if (type === 'zombie') {
+  if (type === 'idle') {
     return {
       analysisDays: 30,
       cpuThreshold: 5,
@@ -1249,12 +1720,6 @@ function getDefaultAnalysisConfig(type: string) {
 async function runAnalysis(type: string) {
   console.log('[runAnalysis] 开始执行分析:', type)
 
-  // 健康评分需要特殊处理，因为它需要 connectionId 而不是 taskId
-  if (type === 'health') {
-    await runHealthAnalysis()
-    return
-  }
-
   // 检查是否有有效的评估任务ID
   const assessmentTaskId = task.value?.id
   if (!assessmentTaskId) {
@@ -1263,180 +1728,67 @@ async function runAnalysis(type: string) {
     return
   }
 
-  const analysisType = type as 'zombie' | 'rightsize' | 'tidal'
-  analysisLoading[analysisType] = true
+  // 映射前端 Tab 类型到后端 API 类型和 loading 状态类型
+  const loadingTypeMapping: Record<string, 'idle' | 'resource' | 'health'> = {
+    idle: 'idle',
+    rightsize: 'resource',
+    tidal: 'resource',
+    health: 'health'
+  }
+  const loadingType = loadingTypeMapping[type]
+  analysisLoading[loadingType] = true
 
   try {
-    const config = getDefaultAnalysisConfig(analysisType)
-
-    // 前端类型映射到后端 analysis_type
-    const typeMapping: Record<string, 'zombie' | 'rightsize' | 'tidal'> = {
-      zombie: 'zombie',
-      rightsize: 'rightsize',
-      tidal: 'tidal'
-    }
-    const backendAnalysisType = typeMapping[analysisType]
-
-    console.log('[runAnalysis] 执行分析:', { assessmentTaskId, analysisType: backendAnalysisType, config })
-
     ElMessage.info('正在执行分析...')
 
-    // 后端是同步分析，直接返回结果
-    const results = await AnalysisAPI.runAnalysisJob(
-      assessmentTaskId,
-      backendAnalysisType,
-      config
-    ) as unknown[]
+    // 不发送 config，让后端从任务配置中读取自定义配置
+    // 这样可以支持用户在 AnalysisModeTab 中修改的自定义配置
+    const config = undefined
 
-    console.log('[runAnalysis] 分析完成，结果数量:', results.length)
-
-    // 根据类型存储结果
-    if (type === 'zombie') {
-      analysisData.zombie = results
-      hasAnalysisResults.zombie = true
-      console.log('[runAnalysis] zombie 分析结果加载完成, 数量:', results.length)
-    } else if (type === 'rightsize') {
-      analysisData.rightsize = results
-      hasAnalysisResults.rightsize = true
-      console.log('[runAnalysis] rightsize 分析结果加载完成, 数量:', results.length)
-    } else if (type === 'tidal') {
-      analysisData.tidal = results
-      hasAnalysisResults.tidal = true
-      console.log('[runAnalysis] tidal 分析结果加载完成, 数量:', results.length)
+    // 根据类型调用不同的 API
+    if (type === 'idle') {
+      const results = await AnalysisAPI.runIdleAnalysis(assessmentTaskId, config)
+      analysisData.idle = results
+      hasAnalysisResults.idle = true
+      ElMessage.success(`闲置检测完成，发现 ${results.length} 条结果`)
+    } else if (type === 'rightsize' || type === 'tidal') {
+      const results = await AnalysisAPI.runResourceAnalysis(assessmentTaskId, config)
+      analysisData.rightSize = results.rightSize || []
+      analysisData.usagePattern = results.usagePattern || []
+      hasAnalysisResults.resource = true
+      const totalCount = (results.rightSize?.length || 0) + (results.usagePattern?.length || 0)
+      ElMessage.success(`资源分析完成，发现 ${totalCount} 条结果`)
+    } else if (type === 'health') {
+      const result = await AnalysisAPI.runHealthAnalysis(assessmentTaskId, config)
+      analysisData.health = result
+      hasAnalysisResults.health = true
+      ElMessage.success(`健康评分完成，评分: ${result.overallScore?.toFixed(0) || 0}`)
     }
-
-    ElMessage.success(`分析完成，发现 ${results.length} 条结果`)
 
   } catch (error: any) {
     console.error('[runAnalysis] 分析失败:', error)
     ElMessage.error(error.response?.data?.error?.message || error.message || '分析执行失败')
   } finally {
-    analysisLoading[analysisType] = false
+    analysisLoading[loadingType] = false
   }
 }
 
-/**
- * 运行健康评分分析（需要 connectionId 而不是 taskId）
- */
-async function runHealthAnalysis() {
-  console.log('[runHealthAnalysis] 开始执行健康评分分析')
-
-  const connectionId = task.value?.connectionId
-  if (!connectionId) {
-    console.warn('[runHealthAnalysis] 缺少 connectionId')
-    ElMessage.warning('缺少连接信息，无法执行健康评分分析')
-    return
-  }
-
-  analysisLoading.health = true
-
+async function handleModeChange(newMode: TaskMode) {
   try {
-    console.log('[runHealthAnalysis] 执行分析:', { connectionId })
-
-    ElMessage.info('正在执行健康评分分析...')
-
-    // 健康评分分析使用 connectionId，API 直接返回数据对象
-    const result = await AnalysisAPI.runHealthAnalysis(connectionId, {})
-    console.log('[runHealthAnalysis] 分析完成:', result)
-
-    // 检查 result 是否为有效对象
-    if (typeof result !== 'object' || result === null) {
-      throw new Error('Invalid response data')
+    const modeLabel = analysisModeOptions.find(m => m.value === newMode)?.label || newMode
+    await ElMessageBox.confirm(
+      `确定要将评估模式修改为"${modeLabel}"并重新评估吗？`,
+      '确认修改模式',
+      { type: 'warning' }
+    )
+    await TaskAPI.updateTaskMode(Number(taskId.value), newMode)
+    ElMessage.success('模式已修改，正在重新评估...')
+    await taskStore.syncTasksFromBackend()
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error(e.message || '修改模式失败')
     }
-
-    // 直接使用后端返回的数据，不做任何转换或映射（后端为标准）
-    analysisData.health = result
-    hasAnalysisResults.health = true
-
-    console.log('[runHealthAnalysis] 健康评分结果:', result)
-    ElMessage.success(`健康评分分析完成，评分: ${result.overallScore?.toFixed(0) || 0}`)
-
-  } catch (error: any) {
-    console.error('[runHealthAnalysis] 分析失败:', error)
-    ElMessage.error(error.response?.data?.error?.message || error.message || '健康评分分析失败')
-  } finally {
-    analysisLoading.health = false
   }
-}
-
-/**
- * 智能重试获取分析结果 (已废弃 - 后端改为同步分析)
- * 保留此函数用于加载任务结果
- */
-async function fetchAnalysisResultWithRetry(
-  taskId: number,
-  analysisType: string
-): Promise<any> {
-  const maxRetries = 5
-  const retryDelay = 300
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const result = await AnalysisAPI.getTaskAnalysisResult(taskId, '')
-    console.log(`[fetchAnalysisResultWithRetry] 第 ${attempt} 次尝试，检查 ${analysisType} 数据`)
-
-    // 检查是否已有数据
-    if (checkHasData(result, analysisType)) {
-      console.log(`[fetchAnalysisResultWithRetry] 第 ${attempt} 次获取到数据`)
-      return result
-    }
-
-    // 如果是最后一次尝试，直接返回当前结果
-    if (attempt === maxRetries) {
-      console.warn(`[fetchAnalysisResultWithRetry] 已重试 ${maxRetries} 次，仍未获取到 ${analysisType} 数据，返回当前结果`)
-      return result
-    }
-
-    // 等待后重试
-    console.log(`[fetchAnalysisResultWithRetry] 第 ${attempt} 次未获取到数据，${retryDelay}ms 后重试`)
-    await new Promise(resolve => setTimeout(resolve, retryDelay))
-  }
-
-  // 理论上不会到这里，但 TypeScript 需要返回值
-  return await AnalysisAPI.getTaskAnalysisResult(taskId, '')
-}
-
-/**
- * 检查分析结果是否包含指定类型的数据
- */
-function checkHasData(result: any, analysisType: string): boolean {
-  if (!result) return false
-
-  switch (analysisType) {
-    case 'zombie':
-      // zombie 数据检查：zombieVM 是数组且长度 > 0
-      return !!(result.zombieVM && Array.isArray(result.zombieVM) && result.zombieVM.length > 0)
-
-    case 'rightsize':
-      // rightsize 数据检查：rightSize 是数组且长度 > 0
-      return !!(result.rightSize && Array.isArray(result.rightSize) && result.rightSize.length > 0)
-
-    case 'tidal':
-      // tidal 数据检查：tidal 是数组且长度 > 0
-      return !!(result.tidal && Array.isArray(result.tidal) && result.tidal.length > 0)
-
-    case 'health':
-      // health 数据检查：healthScore 存在
-      return !!result.healthScore
-
-    default:
-      return false
-  }
-}
-
-function buildReportTypes() {
-  const result: string[] = []
-  const flags = task.value?.analysisResults || {}
-
-  if (flags.zombie) result.push('zombie')
-  if (flags.rightsize) result.push('rightsize')
-  if (flags.tidal) result.push('tidal')
-  if (flags.health) result.push('health')
-
-  if (result.length === 0) {
-    result.push('zombie', 'rightsize', 'tidal', 'health')
-  }
-
-  return result
 }
 
 async function handleCommand(cmd: string) {
@@ -1450,33 +1802,47 @@ async function handleCommand(cmd: string) {
     } catch {
       // 用户取消
     }
+  } else if (cmd === 'reEvaluate') {
+    try {
+      await ElMessageBox.confirm(
+        '重新评估将使用当前数据重新运行分析，是否继续？',
+        '确认重新评估',
+        { type: 'info' }
+      )
+      await TaskAPI.reEvaluateTask(Number(taskId.value))
+      ElMessage.success('重新评估已启动')
+      // 刷新任务状态
+      await taskStore.syncTasksFromBackend()
+    } catch (e: any) {
+      if (e !== 'cancel') {
+        ElMessage.error(e.message || '重新评估失败')
+      }
+    }
   }
 }
 
-async function exportReport(format: string = 'xlsx') {
-  if (!task.value?.connectionId) {
-    ElMessage.warning('缺少连接信息，无法导出报告')
+async function exportReport(format: 'xlsx' | 'pdf' = 'xlsx') {
+  if (!task.value?.id) {
+    ElMessage.warning('缺少任务信息，无法导出报告')
     return
   }
 
   try {
-    exporting[format as keyof typeof exporting] = true
-    ElMessage.info(`正在生成${format === 'xlsx' ? 'Excel' : 'PDF'}报告...`)
+    exporting[format] = true
+    const formatName = format === 'xlsx' ? 'Excel' : 'PDF'
+    ElMessage.info(`正在生成${formatName}报告...`)
 
-    await exportTaskReport({
-      taskId: Number(taskId.value),
-      connectionId: task.value.connectionId,
-      reportTypes: [format],
-      title: task.value.name
-    })
+    // 使用正确的 API：generateReport 需要的 format 是 'excel' 或 'pdf'
+    const apiFormat = format === 'xlsx' ? 'excel' : 'pdf'
+    await ReportAPI.generateReport(task.value.id, { format: apiFormat })
 
-    ElMessage.success('报告已生成')
+    ElMessage.success(`${formatName}报告已生成`)
     // 刷新报告列表
     await loadReportHistory()
   } catch (error: any) {
-    ElMessage.error('导出失败: ' + (error.message || '未知错误'))
+    ElMessage.error('导出失败: ' + (error.response?.data?.error?.message || error.message || '未知错误'))
   } finally {
-    exporting[format as keyof typeof exporting] = false
+    exporting[format] = false
   }
 }
 
@@ -1503,8 +1869,12 @@ async function loadReportHistory() {
 // 下载报告
 async function downloadReport(report: any) {
   try {
-    // 从文件路径或生成文件名
-    const filename = report.filePath?.split('/').pop() || `report_${report.id}.${report.format}`
+    // 生成友好的文件名：任务名_时间.扩展名
+    const taskName = task.value?.name || 'report'
+    const timeStr = report.createdAt ? new Date(report.createdAt).getTime() : Date.now()
+    const ext = report.format === 'excel' ? 'xlsx' : 'pdf'
+    const filename = `${taskName}_${timeStr}.${ext}`
+
     await ReportAPI.downloadReportFile(report.id, filename)
     ElMessage.success('报告已下载')
   } catch (error: any) {
@@ -1572,6 +1942,40 @@ function formatFileSize(bytes: number): string {
   return (bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0) + ' ' + sizes[i]
 }
 
+// 格式化报告创建时间
+function formatReportTime(isoTime: string): string {
+  if (!isoTime) return '-'
+  const date = new Date(isoTime)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return '刚刚'
+  if (diffMins < 60) return `${diffMins}分钟前`
+  if (diffHours < 24) return `${diffHours}小时前`
+  if (diffDays < 7) return `${diffDays}天前`
+
+  // 超过7天显示具体日期
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  const hours = date.getHours().toString().padStart(2, '0')
+  const mins = date.getMinutes().toString().padStart(2, '0')
+  return `${month}-${day} ${hours}:${mins}`
+}
+
+// 获取评估模式标签
+function getModeLabel(mode: TaskMode | undefined): string {
+  const modeLabels: Record<TaskMode, string> = {
+    safe: '安全',
+    saving: '节省',
+    aggressive: '激进',
+    custom: '自定义'
+  }
+  return mode ? modeLabels[mode] || mode : '节省'
+}
+
 function formatDuration(taskData: Task | undefined): string {
   if (!taskData?.startedAt) return '-'
   // 任务进行中时不显示耗时，避免实时计算导致持续增长
@@ -1597,6 +2001,297 @@ function formatDuration(taskData: Task | undefined): string {
   return seconds + '秒'
 }
 
+// ============ 分析结果辅助函数 ============
+
+// 闲置类型相关
+function getIdleTypeText(type: string): string {
+  const typeMap: Record<string, string> = {
+    'powered_off': '已关机',
+    'idle_powered_on': '开机闲置',
+    'low_activity': '低活跃'
+  }
+  return typeMap[type] || type
+}
+
+function getIdleTypeTagType(type: string): string {
+  const tagMap: Record<string, string> = {
+    'powered_off': 'info',
+    'idle_powered_on': 'warning',
+    'low_activity': 'success'
+  }
+  return tagMap[type] || 'info'
+}
+
+// 风险等级相关
+function getRiskLevelText(level: string): string {
+  const levelMap: Record<string, string> = {
+    'critical': '严重',
+    'high': '高',
+    'medium': '中',
+    'low': '低'
+  }
+  return levelMap[level] || level
+}
+
+function getRiskLevelTagType(level: string): string {
+  const tagMap: Record<string, string> = {
+    'critical': 'danger',
+    'high': 'warning',
+    'medium': 'info',
+    'low': 'info'
+  }
+  return tagMap[level] || 'info'
+}
+
+// 闲置检测 - 按风险等级统计数量
+function getIdleCountByRisk(riskLevel: string): number {
+  return analysisData.idle.filter(item => item.riskLevel === riskLevel).length
+}
+
+// 闲置检测 - 计算平均闲置天数
+function getAverageIdleDays(): number {
+  if (analysisData.idle.length === 0) return 0
+  const totalDays = analysisData.idle.reduce((sum, item) => sum + (item.daysInactive || 0), 0)
+  return Math.round(totalDays / analysisData.idle.length)
+}
+
+// 闲置检测 - 刷新数据
+async function refreshIdleData() {
+  if (!task.value?.id) return
+  analysisLoading.idle = true
+  try {
+    const results = await AnalysisAPI.getIdleResults(task.value.id)
+    analysisData.idle = results
+    ElMessage.success(`刷新成功，共 ${results.length} 条记录`)
+  } catch (error: any) {
+    ElMessage.error('刷新失败: ' + (error.message || '未知错误'))
+  } finally {
+    analysisLoading.idle = false
+  }
+}
+
+// 闲置检测 - 获取风险图标
+function getRiskIcon(riskLevel: string): string {
+  const iconMap: Record<string, string> = {
+    'critical': 'CircleClose',
+    'high': 'Warning',
+    'medium': 'Warning',
+    'low': 'CircleCheck'
+  }
+  return iconMap[riskLevel] || 'Warning'
+}
+
+// 闲置检测 - 获取风险图标样式类
+function getRiskIconClass(riskLevel: string): string {
+  const classMap: Record<string, string> = {
+    'critical': 'risk-icon-critical',
+    'high': 'risk-icon-high',
+    'medium': 'risk-icon-medium',
+    'low': 'risk-icon-low'
+  }
+  return classMap[riskLevel] || 'risk-icon-medium'
+}
+
+// 闲置检测 - 获取闲置天数样式类
+function getDaysInactiveClass(days: number): string {
+  if (days >= 90) return 'days-critical'
+  if (days >= 60) return 'days-high'
+  if (days >= 30) return 'days-medium'
+  return 'days-normal'
+}
+
+// 闲置检测 - 格式化最后活动时间
+function formatLastActivityTime(timestamp: string | null): string {
+  if (!timestamp) return '-'
+  try {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+    if (diffDays === 0) return '今天'
+    if (diffDays === 1) return '昨天'
+    if (diffDays < 7) return `${diffDays} 天前`
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} 周前`
+
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    })
+  } catch {
+    return '-'
+  }
+}
+
+// 闲置检测 - 获取置信度颜色
+function getConfidenceColor(confidence: number): string {
+  if (confidence >= 80) return '#67c23a'
+  if (confidence >= 60) return '#409eff'
+  if (confidence >= 40) return '#e6a23c'
+  return '#f56c6c'
+}
+
+// 调整类型相关 (shrink=缩减, expand=扩展, no_change=无需调整)
+function getAdjustmentTypeText(type: string): string {
+  const typeMap: Record<string, string> = {
+    'shrink': '缩减',
+    'expand': '扩展',
+    'no_change': '无需调整'
+  }
+  return typeMap[type] || type
+}
+
+function getAdjustmentTypeTagType(type: string): string {
+  const tagMap: Record<string, string> = {
+    'shrink': 'success',
+    'expand': 'warning',
+    'no_change': 'info'
+  }
+  return tagMap[type] || 'info'
+}
+
+// 使用模式相关
+function getUsagePatternText(pattern: string): string {
+  const patternMap: Record<string, string> = {
+    'stable': '稳定型',
+    'tidal_day_night': '日夜潮汐',
+    'tidal_work_week': '工作日潮汐',
+    'volatile': '不稳定'
+  }
+  return patternMap[pattern] || pattern
+}
+
+function getUsagePatternTagType(pattern: string): string {
+  const tagMap: Record<string, string> = {
+    'stable': 'success',
+    'tidal_day_night': 'primary',
+    'tidal_work_week': 'primary',
+    'volatile': 'warning'
+  }
+  return tagMap[pattern] || 'info'
+}
+
+// 波动性相关
+function getVolatilityLevelText(level: string): string {
+  const levelMap: Record<string, string> = {
+    'low': '低',
+    'moderate': '中',
+    'medium': '中',
+    'high': '高',
+    'unknown': '未知'
+  }
+  return levelMap[level] || level
+}
+
+function getVolatilityLevelTagType(level: string): string {
+  const tagMap: Record<string, string> = {
+    'low': 'success',
+    'moderate': 'warning',
+    'medium': 'warning',
+    'high': 'danger',
+    'unknown': 'info'
+  }
+  return tagMap[level] || 'info'
+}
+
+// 健康评分相关
+function getHealthGradeText(grade: string): string {
+  const gradeMap: Record<string, string> = {
+    'excellent': '优秀',
+    'good': '良好',
+    'fair': '一般',
+    'poor': '较差',
+    'critical': '危急',
+    'no_data': '无数据'
+  }
+  return gradeMap[grade] || grade
+}
+
+function getHealthGradeTagType(grade: string): string {
+  const tagMap: Record<string, string> = {
+    'excellent': 'success',
+    'good': 'primary',
+    'fair': 'warning',
+    'poor': 'danger',
+    'critical': 'danger',
+    'no_data': 'info'
+  }
+  return tagMap[grade] || 'info'
+}
+
+function getHealthScoreClass(score: number | undefined): string {
+  if (score === undefined) return ''
+  if (score >= 80) return 'score-excellent'
+  if (score >= 60) return 'score-good'
+  if (score >= 40) return 'score-fair'
+  return 'score-poor'
+}
+
+function getScoreColor(score: number | undefined): string {
+  if (score === undefined) return '#909399'
+  if (score >= 80) return '#67c23a'
+  if (score >= 60) return '#409eff'
+  if (score >= 40) return '#e6a23c'
+  return '#f56c6c'
+}
+
+function getOvercommitScoreColor(score: number | undefined): string {
+  // 超配分数越高风险越大，颜色相反
+  if (score === undefined) return '#909399'
+  if (score <= 30) return '#67c23a'
+  if (score <= 60) return '#e6a23c'
+  return '#f56c6c'
+}
+
+function getHotspotScoreColor(score: number | undefined): string {
+  // 热点分数越高风险越大，颜色相反
+  if (score === undefined) return '#909399'
+  if (score <= 30) return '#67c23a'
+  if (score <= 60) return '#e6a23c'
+  return '#f56c6c'
+}
+
+// 发现问题相关
+function getFindingCategoryText(category: string): string {
+  const categoryMap: Record<string, string> = {
+    'overcommit': '超配',
+    'balance': '负载',
+    'hotspot': '热点'
+  }
+  return categoryMap[category] || category
+}
+
+function getFindingCategoryTagType(category: string): string {
+  const tagMap: Record<string, string> = {
+    'overcommit': 'warning',
+    'balance': 'primary',
+    'hotspot': 'danger'
+  }
+  return tagMap[category] || 'info'
+}
+
+// 严重程度相关
+function getSeverityText(severity: string): string {
+  const severityMap: Record<string, string> = {
+    'critical': '严重',
+    'high': '高',
+    'medium': '中',
+    'low': '低'
+  }
+  return severityMap[severity] || severity
+}
+
+function getSeverityTagType(severity: string): string {
+  const tagMap: Record<string, string> = {
+    'critical': 'danger',
+    'high': 'warning',
+    'medium': 'info',
+    'low': 'info'
+  }
+  return tagMap[severity] || 'info'
+}
+
 // 从后端同步任务信息（使用详情接口获取完整数据）
 async function syncTaskFromBackend() {
   if (!taskId.value) {
@@ -1619,15 +2314,20 @@ async function syncTaskFromBackend() {
     // 更新 store 中的任务数据
     const storeTask = taskStore.getTask(Number(taskId.value))
     if (storeTask) {
-      Object.assign(storeTask, taskDetail)
+      // 使用 updateTask 确保响应式更新（对象替换）
+      taskStore.updateTask(Number(taskId.value), taskDetail)
       console.log('[TaskDetail] 已更新 store 中的任务数据')
+    } else {
+      // store 中没有该任务，添加新任务
+      taskStore.tasks.push(taskDetail)
+      console.log('[TaskDetail] 已添加新任务到 store')
     }
 
     // 同步更新 hasAnalysisResults
+    // 直接使用后端字段名：idle, resource, health
     if (taskDetail.analysisResults) {
-      hasAnalysisResults.zombie = taskDetail.analysisResults.zombie || false
-      hasAnalysisResults.rightsize = taskDetail.analysisResults.rightsize || false
-      hasAnalysisResults.tidal = taskDetail.analysisResults.tidal || false
+      hasAnalysisResults.idle = taskDetail.analysisResults.idle || false
+      hasAnalysisResults.resource = taskDetail.analysisResults.resource || false
       hasAnalysisResults.health = taskDetail.analysisResults.health || false
       console.log('[TaskDetail] 已更新 hasAnalysisResults:', hasAnalysisResults)
     }
@@ -1658,17 +2358,58 @@ function getPowerStateText(state: string) {
   return textMap[state] || state
 }
 
-function getHealthGradeText(grade: string | undefined) {
-  const gradeMap: Record<string, string> = {
-    excellent: '优秀',
-    good: '良好',
-    fair: '一般',
-    poor: '较差',
-    critical: '危急',
-    unknown: '未知',
-    no_data: '无数据'
+function getTaskTypeText(type: string | undefined) {
+  const typeMap: Record<string, string> = {
+    collection: '数据采集',
+    analysis: '数据分析'
   }
-  return gradeMap[grade || ''] || grade || '-'
+  return typeMap[type || ''] || type || '-'
+}
+
+function getPlatformText(platform: string | undefined) {
+  const platformMap: Record<string, string> = {
+    vcenter: 'VMware vCenter',
+    uis: 'H3C UIS'
+  }
+  return platformMap[platform || ''] || platform || '-'
+}
+
+// 格式化日志时间戳
+function formatLogTimestamp(timestamp: string): string {
+  if (!timestamp) return '-'
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+  } catch {
+    return timestamp
+  }
+}
+
+// 格式化配置时间
+function formatConfigTime(timestamp: string | undefined): string {
+  if (!timestamp) return '-'
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+  } catch {
+    return timestamp
+  }
 }
 </script>
 
@@ -1737,59 +2478,273 @@ function getHealthGradeText(grade: string | undefined) {
   }
 }
 
+// 运行中状态
 .running-state {
-  .progress-content {
+  padding: 20px;
+
+  .running-card {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .running-header {
+    text-align: center;
+    margin-bottom: 30px;
+  }
+
+  .running-icon {
+    color: var(--el-color-primary);
+    margin-bottom: 16px;
+  }
+
+  .running-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: var(--el-text-color-primary);
+  }
+
+  .running-step {
+    font-size: 14px;
+    color: var(--el-text-color-secondary);
+    margin: 0;
+  }
+
+  .running-progress {
+    margin: 30px 0;
+  }
+
+  .running-stats {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin: 24px 0;
+  }
+
+  .stat-item {
     display: flex;
     flex-direction: column;
-    gap: $spacing-xl;
     align-items: center;
+    gap: 4px;
+  }
 
-    .progress-info {
+  .stat-label {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  .running-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 24px;
+  }
+}
+
+// 暂停状态
+.paused-state {
+  padding: 20px;
+
+  .paused-card {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .paused-header {
+    text-align: center;
+    margin-bottom: 30px;
+  }
+
+  .paused-icon {
+    color: var(--el-color-warning);
+    margin-bottom: 16px;
+  }
+
+  .paused-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: var(--el-text-color-primary);
+  }
+
+  .paused-step {
+    font-size: 14px;
+    color: var(--el-text-color-secondary);
+    margin: 0;
+  }
+
+  .paused-progress {
+    margin: 30px 0;
+  }
+
+  .paused-stats {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin: 24px 0;
+  }
+
+  .paused-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 24px;
+  }
+}
+
+// 失败状态
+.failed-state {
+  padding: 20px;
+
+  .failed-card {
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 40px;
+    text-align: center;
+  }
+
+  .failed-icon {
+    color: var(--el-color-danger);
+    margin-bottom: 20px;
+  }
+
+  .failed-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    color: var(--el-text-color-primary);
+  }
+
+  .failed-message {
+    font-size: 14px;
+    color: var(--el-text-color-secondary);
+    margin: 0 0 24px 0;
+    line-height: 1.6;
+  }
+
+  .failed-details {
+    background: var(--el-fill-color-light);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+    text-align: left;
+  }
+
+  .detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--el-border-color-lighter);
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  .detail-label {
+    color: var(--el-text-color-secondary);
+    font-size: 13px;
+  }
+
+  .detail-value {
+    color: var(--el-text-color-primary);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .failed-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+  }
+}
+
+// 完成横幅
+.completion-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e8f5e9 100%);
+  border: 1px solid rgba(103, 194, 58, 0.2);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+
+  .cb-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .cb-icon {
+    color: var(--el-color-success);
+  }
+
+  .cb-text {
+    .cb-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+      margin-bottom: 4px;
+    }
+
+    .cb-sub {
+      font-size: 13px;
+      color: var(--el-text-color-secondary);
       display: flex;
       align-items: center;
-      gap: $spacing-xl;
-      text-align: left;
+      gap: 8px;
 
-      .progress-icon {
-        color: $primary-color;
-        animation: spin 1s linear infinite;
+      .cb-platform {
+        color: var(--el-color-primary);
+        font-weight: 500;
       }
 
-      @keyframes spin {
-        from {
-          transform: rotate(0deg);
-        }
-
-        to {
-          transform: rotate(360deg);
-        }
+      .cb-conn {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
-      .progress-text {
-        h3 {
-          margin: 0 0 $spacing-xs 0;
-          font-size: 18px;
-        }
-
-        p {
-          margin: 0;
-          color: $text-color-secondary;
-        }
+      .cb-divider-inline {
+        color: var(--el-border-color);
       }
     }
+  }
 
-    .progress-bar {
-      width: 100%;
-      max-width: 500px;
+  .cb-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
 
-      .progress-stats {
-        display: flex;
-        justify-content: space-between;
-        margin-top: $spacing-sm;
-        font-size: 14px;
-        color: $text-color-secondary;
-      }
-    }
+  .cb-stat {
+    text-align: center;
+  }
+
+  .cbs-value {
+    display: block;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--el-color-primary);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .cbs-label {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .cb-divider {
+    width: 1px;
+    height: 32px;
+    background: var(--el-border-color);
   }
 }
 
@@ -1821,8 +2776,11 @@ function getHealthGradeText(grade: string | undefined) {
     &::before {
       content: "";
       position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background-image: 
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-image:
         linear-gradient(rgba(64, 158, 255, 0.05) 1px, transparent 1px),
         linear-gradient(90deg, rgba(64, 158, 255, 0.05) 1px, transparent 1px);
       background-size: 20px 20px;
@@ -1833,14 +2791,19 @@ function getHealthGradeText(grade: string | undefined) {
     &::after {
       content: "";
       position: absolute;
-      top: 0; right: 20%;
-      width: 150px; height: 100px;
-      background: radial-gradient(circle, rgba(64,158,255,0.15) 0%, transparent 70%);
+      top: 0;
+      right: 20%;
+      width: 150px;
+      height: 100px;
+      background: radial-gradient(circle, rgba(64, 158, 255, 0.15) 0%, transparent 70%);
       pointer-events: none;
       z-index: 0;
     }
 
-    > * { position: relative; z-index: 1; }
+    >* {
+      position: relative;
+      z-index: 1;
+    }
 
     .r-left {
       display: flex;
@@ -1859,16 +2822,25 @@ function getHealthGradeText(grade: string | undefined) {
         justify-content: center;
         box-shadow: 0 0 10px rgba(64, 158, 255, 0.1) inset;
       }
-      .p-title { 
-        font-size: 15px; 
-        font-weight: bold; 
-        color: #303133; 
-        margin-bottom: 2px; 
+
+      .p-title {
+        font-size: 15px;
+        font-weight: bold;
+        color: #303133;
+        margin-bottom: 2px;
         letter-spacing: 0.5px;
       }
-      .p-sub { 
-        font-size: 12px; 
-        color: #909399; 
+
+      .p-sub {
+        font-size: 12px;
+        color: #909399;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        .p-sep {
+          color: var(--el-border-color);
+        }
       }
     }
 
@@ -1882,24 +2854,35 @@ function getHealthGradeText(grade: string | undefined) {
         align-items: baseline;
         gap: 6px;
 
-        .r-val { 
-          font-size: 20px; 
-          font-weight: bold; 
-          color: #409eff; 
-          line-height: 1; 
+        .r-val {
+          font-size: 20px;
+          font-weight: bold;
+          color: #409eff;
+          line-height: 1;
           text-shadow: 0 0 8px rgba(64, 158, 255, 0.3);
-          
-          small { 
-            font-size: 13px; 
-            color: #909399; 
-            font-weight: normal; 
+
+          small {
+            font-size: 13px;
+            color: #909399;
+            font-weight: normal;
           }
         }
-        .r-lbl { font-size: 12px; color: #606266; margin-top: 3px; }
+
+        .r-lbl {
+          font-size: 12px;
+          color: #606266;
+          margin-top: 3px;
+        }
       }
-      .r-div { width: 1px; height: 24px; background: rgba(64, 158, 255, 0.2); }
+
+      .r-div {
+        width: 1px;
+        height: 24px;
+        background: rgba(64, 158, 255, 0.2);
+      }
     }
   }
+
   .o-main {
     flex: 1;
     display: grid;
@@ -1915,7 +2898,7 @@ function getHealthGradeText(grade: string | undefined) {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    
+
     .panel-hd {
       display: flex;
       justify-content: space-between;
@@ -1923,21 +2906,22 @@ function getHealthGradeText(grade: string | undefined) {
       padding: 12px 16px;
       border-bottom: 1px solid var(--el-border-color-lighter);
       flex-shrink: 0;
-      
-      .ph-title { 
-        font-size: 14px; 
-        font-weight: bold; 
-        color: var(--el-text-color-primary); 
+
+      .ph-title {
+        font-size: 14px;
+        font-weight: bold;
+        color: var(--el-text-color-primary);
         display: flex;
         align-items: center;
         gap: 6px;
       }
-      
+
     }
   }
 
   .o-analysis {
-    .o-list { min-height: 0;
+    .o-list {
+      min-height: 0;
       flex: 1;
       overflow-y: auto;
       padding: 12px;
@@ -1945,7 +2929,7 @@ function getHealthGradeText(grade: string | undefined) {
       flex-direction: column;
       gap: 8px;
     }
-    
+
     .o-item {
       display: flex;
       align-items: center;
@@ -1955,15 +2939,28 @@ function getHealthGradeText(grade: string | undefined) {
       border: 1px solid var(--el-border-color-lighter);
       transition: all 0.2s;
       cursor: pointer;
-      
+
       &:hover {
         background: var(--el-color-primary-light-9);
         border-color: var(--el-color-primary-light-7);
       }
+
       &.is-done {
         background: var(--el-color-success-light-9);
         border-color: var(--el-color-success-light-7);
         cursor: default;
+      }
+
+      &.is-loading {
+        background: var(--el-color-info-light-9);
+        border-color: var(--el-color-info-light-7);
+        cursor: wait;
+      }
+
+      &.is-done:hover,
+      &.is-loading:hover {
+        background: var(--el-color-success-light-9);
+        border-color: var(--el-color-success-light-7);
       }
 
       .i-icon {
@@ -1971,53 +2968,85 @@ function getHealthGradeText(grade: string | undefined) {
         padding: 8px;
         border-radius: 6px;
         background: var(--el-bg-color);
-        &.i-blue { color: var(--el-color-primary); }
-        &.i-green { color: var(--el-color-success); }
-        &.i-orange { color: var(--el-color-warning); }
-        &.i-danger, &.i-purple { color: var(--el-color-danger); }
+
+        &.i-blue {
+          color: var(--el-color-primary);
+        }
+
+        &.i-green {
+          color: var(--el-color-success);
+        }
+
+        &.i-orange {
+          color: var(--el-color-warning);
+        }
+
+        &.i-danger,
+        &.i-purple {
+          color: var(--el-color-danger);
+        }
       }
 
       .i-core {
         flex: 1;
         min-width: 0;
-        .i-name { font-size: 13px; font-weight: bold; color: var(--el-text-color-primary); margin-bottom: 2px;}
-        .i-desc { 
-          font-size: 12px; 
+
+        .i-name {
+          font-size: 13px;
+          font-weight: bold;
+          color: var(--el-text-color-primary);
+          margin-bottom: 2px;
+        }
+
+        .i-desc {
+          font-size: 12px;
           color: var(--el-text-color-secondary);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
       }
-      .i-act { flex-shrink: 0; }
+
+      .i-act {
+        flex-shrink: 0;
+      }
     }
   }
 
   .o-report {
     padding: 0;
-    
+
     .o-actions {
       padding: 16px;
       display: flex;
       gap: 12px;
       border-bottom: 1px dashed var(--el-border-color-lighter);
-      
+
       .exp-btn {
         flex: 1;
         height: 36px;
         margin: 0;
-        
+
         &.ex-excel {
           color: var(--el-color-primary);
           background: var(--el-color-primary-light-9);
           border-color: var(--el-color-primary-light-7);
-          &:hover { background: var(--el-color-primary); color: white; }
+
+          &:hover {
+            background: var(--el-color-primary);
+            color: white;
+          }
         }
+
         &.ex-pdf {
           color: var(--el-color-success);
           background: var(--el-color-success-light-9);
           border-color: var(--el-color-success-light-7);
-          &:hover { background: var(--el-color-success); color: white; }
+
+          &:hover {
+            background: var(--el-color-success);
+            color: white;
+          }
         }
       }
     }
@@ -2028,16 +3057,22 @@ function getHealthGradeText(grade: string | undefined) {
       display: flex;
       flex-direction: column;
       min-height: 0;
-      
-      .hist-label { font-size: 12px; font-weight: bold; color: var(--el-text-color-secondary); margin-bottom: 10px; }
-      
-      .hist-list { min-height: 0;
+
+      .hist-label {
+        font-size: 12px;
+        font-weight: bold;
+        color: var(--el-text-color-secondary);
+        margin-bottom: 10px;
+      }
+
+      .hist-list {
+        min-height: 0;
         display: flex;
         flex-direction: column;
         gap: 8px;
         overflow-y: auto;
       }
-      
+
       .h-item {
         display: flex;
         align-items: center;
@@ -2046,24 +3081,59 @@ function getHealthGradeText(grade: string | undefined) {
         background: var(--el-fill-color-light);
         border: 1px solid var(--el-border-color-lighter);
         border-radius: 6px;
-        
+
         .h-fmt {
-          font-size: 10px; font-weight: bold; padding: 2px 6px; border-radius: 4px;
-          &.fmt-ex { background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
-          &.fmt-pd { background: var(--el-color-success-light-9); color: var(--el-color-success); }
+          font-size: 10px;
+          font-weight: bold;
+          padding: 2px 6px;
+          border-radius: 4px;
+
+          &.fmt-ex {
+            background: var(--el-color-primary-light-9);
+            color: var(--el-color-primary);
+          }
+
+          &.fmt-pd {
+            background: var(--el-color-success-light-9);
+            color: var(--el-color-success);
+          }
         }
+
         .h-info {
-          flex: 1; min-width: 0;
-          .h-name { font-size: 12px; color: var(--el-text-color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;}
-          .h-time { font-size: 11px; color: var(--el-text-color-secondary); }
+          flex: 1;
+          min-width: 0;
+
+          .h-name {
+            font-size: 12px;
+            color: var(--el-text-color-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 2px;
+          }
+
+          .h-time {
+            font-size: 11px;
+            color: var(--el-text-color-secondary);
+          }
         }
-        .h-actions { 
-          display: flex; gap: 6px; opacity: 0; transition: opacity 0.2s; 
-          .h-btn { margin: 0; }
+
+        .h-actions {
+          display: flex;
+          gap: 6px;
+          opacity: 0;
+          transition: opacity 0.2s;
+
+          .h-btn {
+            margin: 0;
+          }
         }
-        &:hover .h-actions { opacity: 1; }
+
+        &:hover .h-actions {
+          opacity: 1;
+        }
       }
-      
+
       .hist-empty {
         flex: 1;
         display: flex;
@@ -2071,7 +3141,11 @@ function getHealthGradeText(grade: string | undefined) {
         justify-content: center;
         border: 1px dashed var(--el-border-color-lighter);
         border-radius: 6px;
-        .he-text { font-size: 12px; color: var(--el-text-color-placeholder); }
+
+        .he-text {
+          font-size: 12px;
+          color: var(--el-text-color-placeholder);
+        }
       }
     }
   }
@@ -2112,6 +3186,15 @@ function getHealthGradeText(grade: string | undefined) {
     border: 1px solid $border-color-light;
     border-radius: 8px;
     overflow: hidden;
+    overflow-x: auto;
+  }
+
+  .table-wrapper :deep(.el-table) {
+    width: 100%;
+  }
+
+  .table-wrapper :deep(.el-table__body-wrapper) {
+    overflow-x: auto;
   }
 
   .table-pagination {
@@ -2145,6 +3228,15 @@ function getHealthGradeText(grade: string | undefined) {
     border: 1px solid $border-color-light;
     border-radius: 8px;
     overflow: hidden;
+    overflow-x: auto;
+  }
+
+  .table-wrapper :deep(.el-table) {
+    width: 100%;
+  }
+
+  .table-wrapper :deep(.el-table__body-wrapper) {
+    overflow-x: auto;
   }
 
   :deep(.el-table) {
@@ -2239,6 +3331,191 @@ function getHealthGradeText(grade: string | undefined) {
   padding: $spacing-xl 0;
 }
 
+// 健康评分样式
+.health-score-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  .health-score-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  .health-score-value {
+    font-size: 32px;
+    font-weight: bold;
+    padding: 8px 24px;
+    border-radius: 8px;
+
+    &.score-excellent {
+      color: #67c23a;
+      background: #f0f9ff;
+    }
+
+    &.score-good {
+      color: #409eff;
+      background: #ecf5ff;
+    }
+
+    &.score-fair {
+      color: #e6a23c;
+      background: #fdf6ec;
+    }
+
+    &.score-poor {
+      color: #f56c6c;
+      background: #fef0f0;
+    }
+  }
+}
+
+.health-descriptions {
+  margin-bottom: 20px;
+}
+
+.health-findings {
+  margin-top: 24px;
+
+  h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    margin-bottom: 12px;
+  }
+}
+
+.health-recommendations {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--el-color-warning-light-9);
+  border-radius: 8px;
+  border-left: 4px solid var(--el-color-warning);
+
+  h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    margin-bottom: 12px;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 20px;
+
+    li {
+      margin-bottom: 8px;
+      color: var(--el-text-color-regular);
+      line-height: 1.6;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+}
+
+// 文字颜色辅助类
+.text-success {
+  color: var(--el-color-success);
+}
+
+.text-warning {
+  color: var(--el-color-warning);
+}
+
+// 资源配置优化表格单元格样式
+.config-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+
+  div {
+    line-height: 1.4;
+  }
+}
+
+.p95-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+
+  div {
+    line-height: 1.4;
+  }
+}
+
+.confidence-text {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+}
+
+.text-danger {
+  color: var(--el-color-danger);
+}
+
+// 配置页面样式
+.config-content {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  .config-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+
+  .selected-vms-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--el-border-color-lighter);
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+      margin-bottom: 12px;
+    }
+
+    .selected-vms-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+
+      .vm-tag {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+  }
+}
+
+// 日志工具栏增强样式
+.logs-toolbar {
+  .logs-filters {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+
+    .log-level-select {
+      width: 180px;
+    }
+  }
+}
+
 :deep(.report-history-dialog) {
   .el-dialog__header {
     margin-right: 0;
@@ -2250,13 +3527,8 @@ function getHealthGradeText(grade: string | undefined) {
   }
 }
 
-.failed-state {
-  display: flex;
-  justify-content: center;
-  padding: $spacing-xl 0;
-}
-
-@media (max-width: 1024px), (max-height: 640px) {
+@media (max-width: 1024px),
+(max-height: 640px) {
   .task-detail-page {
     padding: 10px;
     gap: 8px;
@@ -2299,7 +3571,290 @@ function getHealthGradeText(grade: string | undefined) {
     }
   }
 
+}
+
+// ============ 闲置检测 Tab 样式 ============
+
+.zombie-analysis-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+}
+
+// 统计卡片行
+.zombie-stats-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.zombie-stat-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   }
+
+  .stat-icon-bg {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: #fff;
+    flex-shrink: 0;
+
+    &.bg-orange {
+      background: linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%);
+    }
+
+    &.bg-red {
+      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+    }
+
+    &.bg-blue {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    &.bg-green {
+      background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+    }
+  }
+
+  .stat-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .stat-value {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--el-text-color-primary);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--el-text-color-secondary);
+    margin-top: 2px;
+    white-space: nowrap;
+  }
+}
+
+// 表格区域
+.zombie-table-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zombie-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  .toolbar-left {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+
+  .search-input {
+    width: 280px;
+  }
+
+  .filter-select {
+    width: 140px;
+  }
+}
+
+// 闲置检测表格样式
+.zombie-table {
+  .vm-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .vm-icon {
+      color: var(--el-color-primary);
+      font-size: 18px;
+    }
+
+    .vm-name {
+      font-weight: 500;
+    }
+  }
+
+  .risk-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 500;
+
+    .el-icon {
+      font-size: 16px;
+    }
+  }
+
+  .risk-icon-critical {
+    color: #f56c6c;
+  }
+
+  .risk-icon-high {
+    color: #e6a23c;
+  }
+
+  .risk-icon-medium {
+    color: #409eff;
+  }
+
+  .risk-icon-low {
+    color: #67c23a;
+  }
+
+  .days-critical {
+    color: #f56c6c;
+    font-weight: 600;
+  }
+
+  .days-high {
+    color: #e6a23c;
+    font-weight: 500;
+  }
+
+  .days-medium {
+    color: #409eff;
+  }
+
+  .days-normal {
+    color: var(--el-text-color-regular);
+  }
+
+  .activity-time {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .confidence-text {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+// 空状态样式
+.zombie-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  min-height: 500px;
+
+  .empty-illustration {
+    margin-bottom: 24px;
+  }
+
+  .empty-icon-circle {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255, 154, 86, 0.1) 0%, rgba(255, 107, 107, 0.1) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+
+    .empty-main-icon {
+      font-size: 56px;
+      color: #ff9a56;
+    }
+  }
+
+  .empty-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    margin: 0 0 12px 0;
+  }
+
+  .empty-desc {
+    font-size: 14px;
+    color: var(--el-text-color-secondary);
+    margin: 0 0 32px 0;
+    max-width: 400px;
+    text-align: center;
+  }
+
+  .empty-features {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 32px 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 32px;
+
+    li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--el-text-color-regular);
+
+      .el-icon {
+        color: var(--el-color-success);
+        font-size: 18px;
+      }
+    }
+  }
+
+  .run-analysis-btn {
+    min-width: 140px;
+    height: 44px;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .zombie-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .zombie-empty-state .empty-features {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .zombie-toolbar .search-input {
+    width: 100%;
+  }
+
+  .zombie-toolbar .filter-select {
+    width: calc(50% - 6px);
+  }
+}
 
 @media (max-width: 800px) {
   .overview-grid .o-main {

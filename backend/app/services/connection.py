@@ -13,6 +13,7 @@ from app.security.credentials import CredentialManager
 from app.connectors.base import Connector
 from app.connectors.vcenter import VCenterConnector
 from app.connectors.uis import UISConnector
+from app.config import settings
 
 
 logger = structlog.get_logger()
@@ -272,6 +273,7 @@ class ConnectionService:
                 username=connection.username,
                 password=password,
                 insecure=connection.insecure,
+                timeout=settings.VCENTER_TIMEOUT,
             )
         elif connection.platform == "h3c-uis":
             return UISConnector(

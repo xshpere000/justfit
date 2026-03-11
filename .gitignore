@@ -45,9 +45,9 @@ ENV/
 
 # Dependencies
 node_modules/
-frontend/package-lock.json
 .pnp.*
 .yarn/*
+package-lock.json
 
 # Build outputs
 /frontend/dist
@@ -55,6 +55,7 @@ frontend/package-lock.json
 /electron/dist
 dist/
 out/
+build/
 
 # Logs
 *.log
@@ -80,6 +81,7 @@ logs/
 *.electron/
 # Note: electron-builder.json is NOT ignored - it's a project file
 # electron-builder.yml - alternative config, can be ignored
+.npmrc
 
 # =============================================================================
 # Build Artifacts
@@ -160,6 +162,8 @@ temp/
 *.bak
 problems.md
 *.orig
+*.pdf
+*.xlsx
 
 # =============================================================================
 # Claude Code (optional - can keep for context)

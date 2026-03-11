@@ -91,11 +91,14 @@ export interface VMListItem {
     id: number;
     name: string;
     datacenter: string;
+    uuid: string;
+    vmKey: string;
     hostIp: string;
     cpuCount: number;
     memoryGb: number;
     ipAddress: string;
     powerState: string;
+    connectionState: string;
 }
 
 // Version types (compatibility)
@@ -166,16 +169,45 @@ export async function testConnection(id: number): Promise<ConnectionTestResult> 
 }
 
 /**
- * Test connection and fetch VM list (without full collection)
- * Used in Wizard to quickly get VM list
+ * VM data from test-and-fetch-vms API
+ * 根据 API 文档，直接使用后端返回的字段名
  */
-export async function testConnectionAndFetchVMs(id: number): Promise<{
+export interface TestFetchVM {
+    id: number;
+    name: string;
+    datacenter: string;
+    uuid: string;
+    vmKey: string;        // 唯一标识，重要！
+    cpuCount: number;
+    memoryGb: number;     // 单位：GB
+    powerState: string;
+    guestOs?: string;
+    ipAddress?: string;
+    hostIp: string;
+    connectionState: string;
+}
+
+/**
+ * Test connection and fetch VM list response
+ * 根据 API 文档定义
+ */
+export interface TestConnectionAndFetchVMsResult {
     status: string;
     message: string;
-    vms: any[];
+    vms: TestFetchVM[];
     total: number;
-}> {
+}
+
+/**
+ * Test connection and fetch VM list (without full collection)
+ * Used in Wizard to quickly get VM list
+ * 根据 API 文档：POST /api/connections/{id}/test-and-fetch-vms
+ */
+export async function testConnectionAndFetchVMs(id: number): Promise<TestConnectionAndFetchVMsResult> {
     const response = await apiClient.post(`/api/connections/${id}/test-and-fetch-vms`);
+    if (!response.data.success) {
+        throw new Error((response.data.error as { message: string })?.message || '连接测试失败');
+    }
     return response.data.data;
 }
 
@@ -244,19 +276,15 @@ export async function getHostListRaw(connectionId: number): Promise<HostListItem
     }));
 }
 
+/**
+ * Get VM list for a connection
+ * 直接使用后端返回的字段，不做映射
+ * 根据 API 文档：GET /api/resources/connections/{connection_id}/vms
+ */
 export async function getVMList(connectionId: number): Promise<VMListItem[]> {
     const response = await apiClient.get(`/api/resources/connections/${connectionId}/vms`);
-    const vms = response.data.data.items || [];
-    return vms.map((v: any) => ({
-        id: v.id,
-        name: v.name,
-        datacenter: v.datacenter || '',
-        hostIp: v.hostIp || '',
-        cpuCount: v.cpuCount,
-        memoryGb: v.memoryGb,
-        ipAddress: v.ipAddress || '',
-        powerState: v.powerState,
-    }));
+    // 后端返回: { success: true, data: { items: [...], total: ... } }
+    return response.data.data.items || [];
 }
 
 // Version API (compatibility)

@@ -17,6 +17,56 @@ router = APIRouter()
 logger = structlog.get_logger(__name__)
 
 
+def camel_to_snake(name: str) -> str:
+    """Convert camelCase to snake_case.
+
+    Examples:
+        cpuBufferPercent -> cpu_buffer_percent
+        usagePattern -> usage_pattern
+        minConfidence -> min_confidence
+    """
+    import re
+    # 处理连续大写字母的情况（如 CPU -> cpu）
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+
+def convert_config_keys_to_snake(config: dict) -> dict:
+    """递归转换配置字典中的所有键从 camelCase 到 snake_case.
+
+    Args:
+        config: 配置字典（可能包含嵌套字典）
+
+    Returns:
+        转换后的配置字典
+    """
+    if not isinstance(config, dict):
+        return config
+
+    result = {}
+    for key, value in config.items():
+        # 转换键名
+        snake_key = camel_to_snake(key)
+
+        # 特殊处理：usagePattern -> usage_pattern
+        if snake_key == "usagepattern":
+            snake_key = "usage_pattern"
+
+        # 递归处理嵌套字典
+        if isinstance(value, dict):
+            result[snake_key] = convert_config_keys_to_snake(value)
+        elif isinstance(value, list):
+            # 处理列表中的字典
+            result[snake_key] = [
+                convert_config_keys_to_snake(item) if isinstance(item, dict) else item
+                for item in value
+            ]
+        else:
+            result[snake_key] = value
+
+    return result
+
+
 def _task_to_dict(task, lite: bool = False) -> dict:
     """Convert task model to dict.
 
@@ -46,9 +96,8 @@ def _task_to_dict(task, lite: bool = False) -> dict:
     if not analysis_results and isinstance(result, dict):
         # 如果没有 analysisResults，检查各个分析类型是否存在
         analysis_results = {
-            "zombie": bool(result.get("zombieResult")),
-            "rightsize": bool(result.get("rightsizeResult")),
-            "tidal": bool(result.get("tidalResult")),
+            "idle": bool(result.get("idleResult")),
+            "resource": bool(result.get("resourceResult")),
             "health": bool(result.get("healthResult")),
         }
 
@@ -67,6 +116,7 @@ def _task_to_dict(task, lite: bool = False) -> dict:
         "startedAt": task.started_at.isoformat() if task.started_at else None,
         "completedAt": task.completed_at.isoformat() if task.completed_at else None,
         # 卡片显示所需字段
+        "mode": config.get("mode", "saving"),
         "platform": config.get("platform", "vcenter"),
         "connectionName": config.get("connectionName", ""),
         "connectionHost": config.get("connectionHost", ""),
@@ -103,22 +153,53 @@ async def create_task(
     task_name = data.get("name", "New Task")
     task_type = data.get("type", "collection")
     connection_id = data.get("connectionId")
+    mode = data.get("mode", "saving")
+    metric_days = data.get("metricDays")
 
     logger.info(
         "create_task_requested",
         name=task_name,
         type=task_type,
         connection_id=connection_id,
+        mode=mode,
+        metric_days=metric_days,
     )
 
     service = TaskService(db)
+
+    # 将 mode、metricDays、baseMode 和 selectedVMs 合并到 config 中
+    config = data.get("config") or {}
+    if mode:
+        config["mode"] = mode
+    if metric_days:
+        config["metricDays"] = metric_days
+    # 保存 baseMode 用于 custom 模式
+    base_mode = data.get("baseMode")
+    if base_mode:
+        config["baseMode"] = base_mode
+    # 保存 selectedVMs 列表
+    selected_vms = data.get("selectedVMs")
+    logger.info(
+        "create_task_checking_selected_vms",
+        selected_vms=selected_vms,
+        selected_vms_type=type(selected_vms).__name__ if selected_vms is not None else None,
+        data_keys=list(data.keys()),
+    )
+    if selected_vms is not None:
+        config["selectedVMs"] = selected_vms
+        config["selectedVMCount"] = len(selected_vms)
+        logger.info(
+            "create_task_selected_vms_added",
+            count=len(selected_vms),
+            config_keys=list(config.keys()),
+        )
 
     try:
         task = await service.create_task(
             name=task_name,
             task_type=task_type,
             connection_id=connection_id,
-            config=data.get("config"),
+            config=config,
         )
         logger.info(
             "create_task_success",
@@ -140,7 +221,7 @@ async def create_task(
             execute_collection_task(
                 task.id,
                 connection_id,
-                data.get("config", {})
+                config  # 使用处理后的 config（包含 mode 和 metricDays）
             )
         )
 
@@ -207,7 +288,7 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
                 # 获取配置
                 selected_vms = config.get("selectedVMs", [])
 
-                # 步骤1: 检查是否需要采集基础资源
+                # 步骤1: 检查现有 VM 数据
                 result = await session.execute(
                     select(func.count()).select_from(VMModel).where(
                         VMModel.connection_id == connection_id
@@ -215,6 +296,40 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
                 )
                 existing_vm_count = result.scalar() or 0
 
+                # 如果用户选择了部分 VM 且已有数据，需要删除未选中的 VM
+                if selected_vms and existing_vm_count > 0:
+                    from sqlalchemy import delete
+                    # 构建选中的 VM key 集合（带前缀）
+                    prefixed_keys = set()
+                    for key in selected_vms:
+                        if key.startswith(f"conn{connection_id}:"):
+                            prefixed_keys.add(key)
+                        else:
+                            prefixed_keys.add(f"conn{connection_id}:{key}")
+
+                    # 删除未选中的 VM
+                    await session.execute(
+                        delete(VMModel).where(
+                            VMModel.connection_id == connection_id,
+                            ~VMModel.vm_key.in_(prefixed_keys)
+                        )
+                    )
+                    await session.flush()
+
+                    await task_service.add_log(
+                        task_id, "info",
+                        f"根据选择筛选虚拟机：保留 {len(prefixed_keys)} 台，删除未选中的 {existing_vm_count - len(prefixed_keys)} 台"
+                    )
+
+                    logger.info(
+                        "filtered_vms_by_selection",
+                        task_id=task_id,
+                        connection_id=connection_id,
+                        selected_count=len(prefixed_keys),
+                        removed_count=existing_vm_count - len(prefixed_keys)
+                    )
+
+                # 步骤2: 检查是否需要采集基础资源
                 if existing_vm_count == 0:
                     # 没有基础数据，需要先进行完整采集
                     await task_service.add_log(
@@ -228,8 +343,11 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
                         "正在采集基础资源..."
                     )
 
-                    # 执行基础资源采集
-                    collection_result = await collection_service.collect_resources(connection_id)
+                    # 执行基础资源采集（传递选中的 VM 列表用于筛选）
+                    collection_result = await collection_service.collect_resources(
+                        connection_id,
+                        selected_vm_keys=selected_vms,
+                    )
 
                     await task_service.add_log(
                         task_id, "info",
@@ -277,10 +395,14 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
                         "正在采集虚拟机性能指标..."
                     )
 
+                    # 获取采集天数配置
+                    metric_days = config.get("metricDays", 30)
+
                     metrics_result = await task_service.collect_vm_metrics(
                         task_id=task_id,
                         connection_id=connection_id,
                         selected_vm_keys=selected_vms,
+                        metric_days=metric_days,
                     )
 
                     collected = metrics_result.get("collected", 0)
@@ -310,9 +432,8 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
 
                 # 分析结果记录
                 analysis_results = {
-                    "zombie": False,  # False 表示未运行或失败
-                    "rightsize": False,
-                    "tidal": False,
+                    "idle": False,  # False 表示未运行或失败
+                    "resource": False,
                     "health": False
                 }
                 analysis_errors = []
@@ -321,88 +442,101 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
                 from app.services.analysis import AnalysisService
                 analysis_service = AnalysisService(session)
 
-                # 3.1 僵尸VM分析
+                # 获取分析模式配置（支持自定义配置合并）
+                analysis_mode = config.get("mode", "saving")
+                if analysis_mode == "custom":
+                    # custom 模式：合并基础预设配置 + 用户自定义配置
+                    base_mode = config.get("baseMode", "saving")
+                    custom_config = config.get("customConfig", {})
+                    mode_config = analysis_service.merge_mode_config(base_mode, custom_config)
+                    logger.info(
+                        "using_custom_mode",
+                        task_id=task_id,
+                        base_mode=base_mode,
+                        custom_keys=list(custom_config.keys())
+                    )
+                else:
+                    # 预设模式：直接使用
+                    mode_config = await analysis_service.get_mode(analysis_mode)
+
+                # 用采集天数覆盖分析器的 days 配置（确保分析器使用与采集一致的天数）
+                metric_days = config.get("metricDays", 30)
+                # 闲置检测：使用 min(mode配置的days, 实际采集天数)
+                idle_days = min(mode_config.get("idle", {}).get("days", 30), metric_days)
+                mode_config.setdefault("idle", {})["days"] = idle_days
+                # 资源分析：使用 min(mode配置的days, 实际采集天数)
+                rightsize_days = min(mode_config.get("resource", {}).get("rightsize", {}).get("days", 30), metric_days)
+                mode_config.setdefault("resource", {}).setdefault("rightsize", {})["days"] = rightsize_days
+
+                logger.info(
+                    "analysis_mode_config",
+                    task_id=task_id,
+                    mode=analysis_mode,
+                    metric_days=metric_days,
+                    idle_days=idle_days,
+                    rightsize_days=rightsize_days,
+                )
+
+                # 3.1 闲置检测分析
                 try:
-                    await task_service.add_log(task_id, "info", "开始僵尸VM检测...")
+                    await task_service.add_log(task_id, "info", "开始闲置检测分析...")
                     await _update_task_status(
                         session, task_id, "running", 55,
-                        "正在进行僵尸VM检测..."
+                        "正在进行闲置检测分析..."
                     )
 
-                    zombie_config = await analysis_service.get_mode("safe")
-                    zombie_result = await analysis_service.run_zombie_analysis(task_id, zombie_config.get("zombie", {}))
+                    idle_config = mode_config.get("idle", {})
+                    idle_result = await analysis_service.run_idle_analysis(task_id, idle_config)
 
-                    if zombie_result.get("success"):
-                        analysis_results["zombie"] = True
-                        findings_count = len(zombie_result.get("data", []))
-                        await task_service.add_log(task_id, "info", f"僵尸VM检测完成，发现 {findings_count} 台僵尸VM")
-                        logger.info("zombie_analysis_success", task_id=task_id, findings_count=findings_count)
+                    if idle_result.get("success"):
+                        analysis_results["idle"] = True
+                        findings_count = len(idle_result.get("data", []))
+                        await task_service.add_log(task_id, "info", f"闲置检测完成，发现 {findings_count} 台闲置VM")
+                        logger.info("idle_analysis_success", task_id=task_id, findings_count=findings_count)
                     else:
-                        error_info = zombie_result.get("error", {})
-                        analysis_errors.append(f"僵尸VM检测失败: {error_info.get('message', 'Unknown error')}")
-                        await task_service.add_log(task_id, "warn", f"僵尸VM检测失败: {error_info.get('message', 'Unknown error')}")
+                        error_info = idle_result.get("error", {})
+                        analysis_errors.append(f"闲置检测失败: {error_info.get('message', 'Unknown error')}")
+                        await task_service.add_log(task_id, "warn", f"闲置检测失败: {error_info.get('message', 'Unknown error')}")
 
                 except Exception as e:
-                    error_msg = f"僵尸VM检测异常: {str(e)}"
+                    error_msg = f"闲置检测异常: {str(e)}"
                     analysis_errors.append(error_msg)
                     await task_service.add_log(task_id, "error", error_msg)
-                    logger.error("zombie_analysis_exception", task_id=task_id, error=str(e), exc_info=True)
+                    logger.error("idle_analysis_exception", task_id=task_id, error=str(e), exc_info=True)
 
-                # 3.2 Right Sizing分析
+                # 3.2 资源分析 (Right Size + 使用模式 + 配置错配)
                 try:
-                    await task_service.add_log(task_id, "info", "开始资源配置优化分析...")
+                    await task_service.add_log(task_id, "info", "开始资源分析...")
                     await _update_task_status(
                         session, task_id, "running", 70,
-                        "正在进行资源配置优化分析..."
+                        "正在进行资源配置和使用模式分析..."
                     )
 
-                    rightsize_config = await analysis_service.get_mode("safe")
-                    rightsize_result = await analysis_service.run_rightsize_analysis(task_id, rightsize_config.get("rightsize", {}))
+                    resource_config = mode_config.get("resource", {})
+                    resource_result = await analysis_service.run_resource_analysis(task_id, resource_config)
 
-                    if rightsize_result.get("success"):
-                        analysis_results["rightsize"] = True
-                        findings_count = len(rightsize_result.get("data", []))
-                        await task_service.add_log(task_id, "info", f"资源配置优化分析完成，涉及 {findings_count} 台虚拟机")
-                        logger.info("rightsize_analysis_success", task_id=task_id, findings_count=findings_count)
+                    if resource_result.get("success"):
+                        analysis_results["resource"] = True
+                        resource_data = resource_result.get("data", {})
+                        summary = resource_data.get("summary", {})
+                        await task_service.add_log(task_id, "info",
+                            f"资源分析完成 - Right Size: {summary.get('rightSizeCount', 0)} 台, "
+                            f"使用模式: {summary.get('usagePatternCount', 0)} 台, "
+                            f"配置错配: {summary.get('mismatchCount', 0)} 台"
+                        )
+                        logger.info("resource_analysis_success", task_id=task_id, summary=summary)
                     else:
-                        error_info = rightsize_result.get("error", {})
-                        analysis_errors.append(f"资源配置优化分析失败: {error_info.get('message', 'Unknown error')}")
-                        await task_service.add_log(task_id, "warn", f"资源配置优化分析失败: {error_info.get('message', 'Unknown error')}")
+                        error_info = resource_result.get("error", {})
+                        analysis_errors.append(f"资源分析失败: {error_info.get('message', 'Unknown error')}")
+                        await task_service.add_log(task_id, "warn", f"资源分析失败: {error_info.get('message', 'Unknown error')}")
 
                 except Exception as e:
-                    error_msg = f"资源配置优化分析异常: {str(e)}"
+                    error_msg = f"资源分析异常: {str(e)}"
                     analysis_errors.append(error_msg)
                     await task_service.add_log(task_id, "error", error_msg)
-                    logger.error("rightsize_analysis_exception", task_id=task_id, error=str(e), exc_info=True)
+                    logger.error("resource_analysis_exception", task_id=task_id, error=str(e), exc_info=True)
 
-                # 3.3 潮汐模式分析
-                try:
-                    await task_service.add_log(task_id, "info", "开始潮汐模式分析...")
-                    await _update_task_status(
-                        session, task_id, "running", 85,
-                        "正在进行潮汐模式分析..."
-                    )
-
-                    tidal_config = await analysis_service.get_mode("safe")
-                    tidal_result = await analysis_service.run_tidal_analysis(task_id, tidal_config.get("tidal", {}))
-
-                    if tidal_result.get("success"):
-                        analysis_results["tidal"] = True
-                        findings_count = len(tidal_result.get("data", []))
-                        await task_service.add_log(task_id, "info", f"潮汐模式分析完成，发现 {findings_count} 个潮汐模式")
-                        logger.info("tidal_analysis_success", task_id=task_id, findings_count=findings_count)
-                    else:
-                        error_info = tidal_result.get("error", {})
-                        analysis_errors.append(f"潮汐模式分析失败: {error_info.get('message', 'Unknown error')}")
-                        await task_service.add_log(task_id, "warn", f"潮汐模式分析失败: {error_info.get('message', 'Unknown error')}")
-
-                except Exception as e:
-                    error_msg = f"潮汐模式分析异常: {str(e)}"
-                    analysis_errors.append(error_msg)
-                    await task_service.add_log(task_id, "error", error_msg)
-                    logger.error("tidal_analysis_exception", task_id=task_id, error=str(e), exc_info=True)
-
-                # 3.4 健康评分分析
+                # 3.3 健康评分分析
                 try:
                     await task_service.add_log(task_id, "info", "开始平台健康评分...")
                     await _update_task_status(
@@ -410,10 +544,10 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
                         "正在进行平台健康评分..."
                     )
 
-                    health_config = await analysis_service.get_mode("safe")
+                    health_config = mode_config.get("health", {})
                     health_result = await analysis_service.run_health_analysis(
-                        task_id,  # task_id (primary parameter, like other analyses)
-                        health_config.get("health", {})  # config
+                        task_id,
+                        health_config
                     )
 
                     if health_result.get("success"):
@@ -931,3 +1065,200 @@ async def get_task_vms(
             "total": total,
         },
     }
+
+
+@router.put("/{task_id}/mode", response_model=dict)
+async def update_task_mode(
+    task_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """更新任务的分析模式"""
+    mode = data.get("mode", "saving")
+    # 验证 mode 值
+    if mode not in ["safe", "saving", "aggressive", "custom"]:
+        return error_response(ValidationError(f"Invalid mode: {mode}"))
+
+    # 更新任务 config
+    service = TaskService(db)
+    task = await service.get_task(task_id)
+    config = json.loads(task.config) if task.config else {}
+    config["mode"] = mode
+    task.config = json.dumps(config)
+    await db.commit()
+
+    return {"success": True, "data": _task_to_dict(task)}
+
+
+@router.put("/{task_id}/custom-config", response_model=dict)
+async def update_task_custom_config(
+    task_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """更新任务的自定义评估配置
+
+    此接口用于保存用户在 AnalysisModeTab 中修改的自定义配置。
+    配置保存在任务的 config.customConfig 字段中，重新评估时会使用此配置。
+
+    注意：前端发送的是 camelCase 字段名，需要转换为 snake_case 以匹配后端分析器的期望。
+    """
+    analysis_type = data.get("analysisType")  # idle, resource, health
+    config = data.get("config", {})  # 自定义配置内容
+
+    if not analysis_type:
+        return error_response(ValidationError("analysisType is required"))
+
+    service = TaskService(db)
+    task = await service.get_task(task_id)
+
+    # 解析现有 config
+    task_config = json.loads(task.config) if task.config else {}
+
+    # 确保 customConfig 存在
+    if "customConfig" not in task_config:
+        task_config["customConfig"] = {}
+
+    # 转换前端发送的 camelCase 配置为 snake_case
+    # 这样可以与后端分析器（modes.py）中的字段名匹配
+    snake_config = convert_config_keys_to_snake(config)
+
+    logger.info(
+        "converting_config_keys",
+        task_id=task_id,
+        analysis_type=analysis_type,
+        original_keys=list(config.keys()) if isinstance(config, dict) else [],
+        converted_keys=list(snake_config.keys()) if isinstance(snake_config, dict) else [],
+    )
+
+    # 更新指定分析类型的配置
+    task_config["customConfig"][analysis_type] = snake_config
+
+    # 如果模式不是 custom，自动切换为 custom
+    if task_config.get("mode") != "custom":
+        task_config["mode"] = "custom"
+        # 如果没有 baseMode，设置为 saving
+        if "baseMode" not in task_config:
+            task_config["baseMode"] = "saving"
+
+    task.config = json.dumps(task_config)
+    await db.commit()
+
+    logger.info(
+        "task_custom_config_updated",
+        task_id=task_id,
+        analysis_type=analysis_type,
+        mode=task_config.get("mode"),
+    )
+
+    return {"success": True, "data": _task_to_dict(task)}
+
+
+@router.post("/{task_id}/re-evaluate", response_model=dict)
+async def re_evaluate_task(
+    task_id: int,
+    data: dict = None,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """使用指定模式重新评估任务"""
+    mode = data.get("mode") if data else None
+
+    # 获取任务
+    service = TaskService(db)
+    task = await service.get_task(task_id)
+
+    # 如果没有指定 mode，从任务 config 读取
+    if not mode:
+        config = json.loads(task.config) if task.config else {}
+        mode = config.get("mode", "saving")
+
+    # 在后台执行分析
+    asyncio.create_task(execute_analysis_task(task_id, task.connection_id, mode, db))
+
+    return {"success": True, "message": "重新评估已启动"}
+
+
+async def execute_analysis_task(task_id: int, connection_id: int, mode: str, db):
+    """后台执行分析任务"""
+    from app.services.analysis import AnalysisService
+    from app.core.database import async_session
+
+    async with async_session() as session:
+        analysis_service = AnalysisService(session)
+        task_service = TaskService(session)
+
+        # 获取任务配置，支持 custom 模式
+        task = await task_service.get_task(task_id)
+        task_config = json.loads(task.config) if task.config else {}
+        task_mode = task_config.get("mode", mode)
+
+        if task_mode == "custom":
+            # custom 模式：合并基础预设配置 + 用户自定义配置
+            base_mode = task_config.get("baseMode", "saving")
+            custom_config = task_config.get("customConfig", {})
+            mode_config = analysis_service.merge_mode_config(base_mode, custom_config)
+            logger.info(
+                "re_evaluate_using_custom_mode",
+                task_id=task_id,
+                base_mode=base_mode,
+                custom_keys=list(custom_config.keys())
+            )
+        else:
+            # 预设模式：直接使用
+            mode_config = await analysis_service.get_mode(task_mode)
+
+        # 用采集天数覆盖分析器的 days 配置（确保分析器使用与采集一致的天数）
+        metric_days = task_config.get("metricDays", 30)
+        # 闲置检测：使用 min(mode配置的days, 实际采集天数)
+        idle_days = min(mode_config.get("idle", {}).get("days", 30), metric_days)
+        mode_config.setdefault("idle", {})["days"] = idle_days
+        # 资源分析：使用 min(mode配置的days, 实际采集天数)
+        rightsize_days = min(mode_config.get("resource", {}).get("rightsize", {}).get("days", 30), metric_days)
+        mode_config.setdefault("resource", {}).setdefault("rightsize", {})["days"] = rightsize_days
+
+        logger.info(
+            "re_evaluate_mode_config",
+            task_id=task_id,
+            mode=task_mode,
+            metric_days=metric_days,
+            idle_days=idle_days,
+            rightsize_days=rightsize_days,
+        )
+
+        # 更新任务状态
+        await _update_task_status(session, task_id, "running", 50, "正在重新评估...")
+
+        # 记录分析结果
+        analysis_results = {
+            "idle": False,
+            "resource": False,
+            "health": False
+        }
+
+        # 闲置检测
+        try:
+            idle_result = await analysis_service.run_idle_analysis(task_id, mode_config.get("idle", {}))
+            analysis_results["idle"] = idle_result.get("success", False)
+        except Exception as e:
+            logger.error("re_evaluate_idle_failed", task_id=task_id, error=str(e))
+
+        # 资源分析
+        try:
+            resource_result = await analysis_service.run_resource_analysis(task_id, mode_config.get("resource", {}))
+            analysis_results["resource"] = resource_result.get("success", False)
+        except Exception as e:
+            logger.error("re_evaluate_resource_failed", task_id=task_id, error=str(e))
+
+        # 健康评分
+        try:
+            health_result = await analysis_service.run_health_analysis(task_id, mode_config.get("health", {}))
+            analysis_results["health"] = health_result.get("success", False)
+        except Exception as e:
+            logger.error("re_evaluate_health_failed", task_id=task_id, error=str(e))
+
+        # 更新任务完成状态
+        await _update_task_status(
+            session, task_id, "completed", 100,
+            "重新评估完成",
+            {"analysisResults": analysis_results}
+        )

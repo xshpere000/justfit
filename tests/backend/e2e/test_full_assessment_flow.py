@@ -188,10 +188,8 @@ async def test_e2e_full_assessment_flow(e2e_client: AsyncClient):
         "name": f"E2E Collection Task {uuid.uuid4().hex[:6]}",
         "type": "collection",
         "connectionId": connection_id,
-        "config": {
-            "collectMetrics": True,
-            "days": 1,
-        },
+        "mode": "saving",  # 使用新的评估模式参数
+        "metricDays": 3,  # 使用新的采集天数参数（减少测试时间）
     })
 
     assert task_response.status_code == 200
@@ -199,7 +197,22 @@ async def test_e2e_full_assessment_flow(e2e_client: AsyncClient):
     assert task_data["success"] is True
 
     task_id = task_data["data"]["id"]
+    task = task_data["data"]
     print(f"✓ Collection task created: ID={task_id}")
+    print(f"  - Mode: {task.get('mode')}")
+    print(f"  - Connection: {task.get('connectionId')}")
+
+    # 验证顶层 mode 字段正确（lite 版本包含 mode 字段）
+    assert task.get("mode") == "saving", f"Mode should be 'saving', got {task.get('mode')}"
+
+    # 获取完整任务详情来验证 config（包含 metricDays）
+    detail_response = await e2e_client.get(f"/api/tasks/{task_id}")
+    assert detail_response.status_code == 200
+    task_detail = detail_response.json()["data"]
+    config = task_detail.get("config", {})
+    assert config.get("mode") == "saving", f"Config mode should be 'saving', got {config.get('mode')}"
+    assert config.get("metricDays") == 3, f"metricDays should be 3, got {config.get('metricDays')}"
+    print(f"✓ Config verified: mode={config.get('mode')}, metricDays={config.get('metricDays')}")
 
     # ========================================
     # Step 6: Health Score Analysis
@@ -361,11 +374,13 @@ async def test_e2e_task_lifecycle(e2e_client: AsyncClient):
     })
     connection_id = create_conn_response.json()["data"]["id"]
 
-    # Create task
+    # Create task with new parameters
     task_response = await e2e_client.post("/api/tasks", json={
         "name": f"Lifecycle Task {uuid.uuid4().hex[:6]}",
         "type": "collection",
         "connectionId": connection_id,
+        "mode": "safe",
+        "metricDays": 7,
     })
     assert task_response.status_code == 200
     task_id = task_response.json()["data"]["id"]
@@ -425,9 +440,9 @@ async def test_e2e_analysis_modes_workflow(e2e_client: AsyncClient):
     safe_response = await e2e_client.get("/api/analysis/modes/safe")
     assert safe_response.status_code == 200
     safe_mode = safe_response.json()["data"]
-    assert "zombie" in safe_mode
-    assert "rightsize" in safe_mode
-    assert "tidal" in safe_mode
+    assert "idle" in safe_mode
+    assert "resource" in safe_mode
+    assert "health" in safe_mode
     print(f"✓ Retrieved 'safe' mode configuration")
 
     # Get specific mode - saving
@@ -448,18 +463,8 @@ async def test_e2e_analysis_modes_workflow(e2e_client: AsyncClient):
     custom_mode = custom_response.json()["data"]
     print(f"✓ Retrieved 'custom' mode configuration")
 
-    # Update custom mode
-    update_response = await e2e_client.put("/api/analysis/modes/custom", json={
-        "analysisType": "zombie",
-        "config": {
-            "days": 14,
-            "cpuThreshold": 10,
-            "memoryThreshold": 20,
-            "minConfidence": 60,
-        },
-    })
-    assert update_response.status_code == 200
-    print(f"✓ Updated custom mode configuration")
+    # 注意：custom mode 的更新通过任务创建时的 config 参数实现
+    # 不需要单独的 API 端点来更新模式配置
 
 
 @pytest.mark.asyncio

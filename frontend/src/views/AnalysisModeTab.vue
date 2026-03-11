@@ -11,17 +11,18 @@
 
         <div class="config-scroll-area">
           <el-collapse v-model="collapseActiveNames" class="config-collapse">
-            <el-collapse-item name="zombie">
+            <!-- 闲置检测 -->
+            <el-collapse-item name="idle">
               <template #title>
                 <div class="config-group-header">
                   <el-icon><Monitor /></el-icon>
-                  <span>僵尸 VM 检测</span>
+                  <span>闲置检测</span>
                 </div>
               </template>
               <div class="param-list">
                 <ParamSlider
                   label="分析天数"
-                  v-model="modeConfig.zombieVM.analysisDays"
+                  v-model="modeConfig.idle.days"
                   :min="1"
                   :max="90"
                   :unit="'天'"
@@ -30,7 +31,7 @@
                 />
                 <ParamSlider
                   label="CPU 阈值"
-                  v-model="modeConfig.zombieVM.cpuThreshold"
+                  v-model="modeConfig.idle.cpuThreshold"
                   :min="0"
                   :max="100"
                   :unit="'%'"
@@ -40,7 +41,7 @@
                 />
                 <ParamSlider
                   label="内存阈值"
-                  v-model="modeConfig.zombieVM.memoryThreshold"
+                  v-model="modeConfig.idle.memoryThreshold"
                   :min="0"
                   :max="100"
                   :unit="'%'"
@@ -49,47 +50,30 @@
                   :description="'内存使用率低于此值视为低使用'"
                 />
                 <ParamSlider
-                  label="I/O 阈值"
-                  v-model="modeConfig.zombieVM.ioThreshold"
-                  :min="0"
-                  :max="1000"
-                  :step="10"
-                  :disabled="selectedMode !== 'custom'"
-                  :description="'I/O使用率低于此值视为低使用'"
-                />
-                <ParamSlider
-                  label="网络阈值"
-                  v-model="modeConfig.zombieVM.networkThreshold"
-                  :min="0"
-                  :max="1000"
-                  :step="10"
-                  :disabled="selectedMode !== 'custom'"
-                  :description="'网络使用率低于此值视为低使用'"
-                />
-                <ParamSlider
                   label="最小置信度"
-                  v-model="modeConfig.zombieVM.minConfidence"
+                  v-model="modeConfig.idle.minConfidence"
                   :min="0"
                   :max="100"
                   :unit="'%'"
                   :step="5"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'判断为僵尸VM的最低置信度要求'"
+                  :description="'判断为闲置VM的最低置信度要求'"
                 />
               </div>
             </el-collapse-item>
 
-            <el-collapse-item name="rightSize">
+            <!-- 资源配置优化 -->
+            <el-collapse-item name="rightsize">
               <template #title>
                 <div class="config-group-header">
                   <el-icon><TrendCharts /></el-icon>
-                  <span>Right Size 分析</span>
+                  <span>资源配置优化</span>
                 </div>
               </template>
               <div class="param-list">
                 <ParamSlider
                   label="分析天数"
-                  v-model="modeConfig.rightSize.analysisDays"
+                  v-model="modeConfig.resource.rightsize.days"
                   :min="1"
                   :max="30"
                   :unit="'天'"
@@ -97,84 +81,141 @@
                   :description="'分析过去N天的使用数据'"
                 />
                 <ParamSlider
-                  label="缓冲比例"
-                  v-model="modeConfig.rightSize.bufferRatio"
-                  :min="1.0"
-                  :max="2.0"
-                  :step="0.05"
-                  :disabled="selectedMode !== 'custom'"
-                  :description="'资源配置时的缓冲倍数'"
-                />
-                <ParamSlider
-                  label="P95 阈值"
-                  v-model="modeConfig.rightSize.p95Threshold"
-                  :min="50"
-                  :max="99"
+                  label="CPU 缓冲比例"
+                  v-model="modeConfig.resource.rightsize.cpuBufferPercent"
+                  :min="0"
+                  :max="100"
                   :unit="'%'"
+                  :step="5"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'使用P95百分位数作为资源使用参考'"
+                  :description="'资源配置时CPU的额外缓冲百分比'"
                 />
                 <ParamSlider
-                  label="小幅调整阈值"
-                  v-model="modeConfig.rightSize.smallMargin"
+                  label="内存缓冲比例"
+                  v-model="modeConfig.resource.rightsize.memoryBufferPercent"
                   :min="0"
-                  :max="1"
-                  :step="0.05"
+                  :max="100"
+                  :unit="'%'"
+                  :step="5"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'资源配置调整幅度小于此值视为小幅调整'"
+                  :description="'资源配置时内存的额外缓冲百分比'"
                 />
                 <ParamSlider
-                  label="大幅调整阈值"
-                  v-model="modeConfig.rightSize.largeMargin"
-                  :min="0"
-                  :max="1"
-                  :step="0.05"
+                  label="高使用率阈值"
+                  v-model="modeConfig.resource.rightsize.highUsageThreshold"
+                  :min="50"
+                  :max="100"
+                  :unit="'%'"
+                  :step="5"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'资源配置调整幅度大于此值视为大幅调整'"
+                  :description="'使用率高于此值视为高负载，不建议缩减配置'"
+                />
+                <ParamSlider
+                  label="低使用率阈值"
+                  v-model="modeConfig.resource.rightsize.lowUsageThreshold"
+                  :min="0"
+                  :max="50"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'使用率低于此值视为低负载，可缩减配置'"
+                />
+                <ParamSlider
+                  label="最小置信度"
+                  v-model="modeConfig.resource.rightsize.minConfidence"
+                  :min="0"
+                  :max="100"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'给出优化建议的最低置信度要求'"
                 />
               </div>
             </el-collapse-item>
 
-            <el-collapse-item name="tidal">
+            <!-- 使用模式分析 -->
+            <el-collapse-item name="usagePattern">
               <template #title>
                 <div class="config-group-header">
                   <el-icon><Clock /></el-icon>
-                  <span>潮汐模式检测</span>
+                  <span>使用模式分析</span>
                 </div>
               </template>
               <div class="param-list">
                 <ParamSlider
-                  label="分析天数"
-                  v-model="modeConfig.tidal.analysisDays"
-                  :min="1"
-                  :max="90"
-                  :unit="'天'"
+                  label="变异系数阈值"
+                  v-model="modeConfig.resource.usagePattern.cvThreshold"
+                  :min="0.1"
+                  :max="1.0"
+                  :step="0.05"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'分析过去N天的使用数据'"
+                  :description="'CV低于此值认为使用稳定，高于此值认为波动较大'"
                 />
                 <ParamSlider
-                  label="最小稳定性"
-                  v-model="modeConfig.tidal.minStability"
-                  :min="0"
-                  :max="100"
-                  :unit="'分'"
-                  :step="5"
+                  label="峰谷比例"
+                  v-model="modeConfig.resource.usagePattern.peakValleyRatio"
+                  :min="1.5"
+                  :max="5.0"
+                  :step="0.1"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'模式稳定性的最低评分要求'"
-                />
-                <ParamSlider
-                  label="最小变化幅度"
-                  v-model="modeConfig.tidal.minVariation"
-                  :min="0"
-                  :max="100"
-                  :unit="'%'"
-                  :step="5"
-                  :disabled="selectedMode !== 'custom'"
-                  :description="'峰值与谷值的最小差异百分比'"
+                  :description="'峰值与谷值的最小差异倍数，用于识别潮汐模式'"
                 />
               </div>
             </el-collapse-item>
 
+            <!-- 配置错配分析 -->
+            <el-collapse-item name="mismatch">
+              <template #title>
+                <div class="config-group-header">
+                  <el-icon><Warning /></el-icon>
+                  <span>配置错配分析</span>
+                </div>
+              </template>
+              <div class="param-list">
+                <ParamSlider
+                  label="CPU 低阈值"
+                  v-model="modeConfig.resource.mismatch.cpuLowThreshold"
+                  :min="0"
+                  :max="50"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'CPU使用率低于此值但内存使用率高，视为CPU配置偏低'"
+                />
+                <ParamSlider
+                  label="CPU 高阈值"
+                  v-model="modeConfig.resource.mismatch.cpuHighThreshold"
+                  :min="50"
+                  :max="100"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'CPU使用率高于此值但内存使用率低，视为CPU配置偏高'"
+                />
+                <ParamSlider
+                  label="内存低阈值"
+                  v-model="modeConfig.resource.mismatch.memoryLowThreshold"
+                  :min="0"
+                  :max="50"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'内存使用率低于此值但CPU使用率高，视为内存配置偏低'"
+                />
+                <ParamSlider
+                  label="内存高阈值"
+                  v-model="modeConfig.resource.mismatch.memoryHighThreshold"
+                  :min="50"
+                  :max="100"
+                  :unit="'%'"
+                  :step="5"
+                  :disabled="selectedMode !== 'custom'"
+                  :description="'内存使用率高于此值但CPU使用率低，视为内存配置偏高'"
+                />
+              </div>
+            </el-collapse-item>
+
+            <!-- 健康评分 -->
             <el-collapse-item name="health">
               <template #title>
                 <div class="config-group-header">
@@ -184,31 +225,31 @@
               </template>
               <div class="param-list">
                 <ParamSlider
-                  label="资源均衡度权重"
-                  v-model="modeConfig.health.resourceBalanceWeight"
-                  :min="0"
-                  :max="1"
-                  :step="0.05"
+                  label="超配阈值"
+                  v-model="modeConfig.health.overcommitThreshold"
+                  :min="1.0"
+                  :max="3.0"
+                  :step="0.1"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'资源分配均衡性的权重占比'"
+                  :description="'资源超分配比例阈值，如1.5表示允许150%超配'"
                 />
                 <ParamSlider
-                  label="超配风险权重"
-                  v-model="modeConfig.health.overcommitRiskWeight"
-                  :min="0"
-                  :max="1"
-                  :step="0.05"
+                  label="热点阈值"
+                  v-model="modeConfig.health.hotspotThreshold"
+                  :min="1.0"
+                  :max="15.0"
+                  :step="0.5"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'资源超分配风险的权重占比'"
+                  :description="'每个CPU核心承载的VM数量阈值，超过视为热点'"
                 />
                 <ParamSlider
-                  label="热点集中度权重"
-                  v-model="modeConfig.health.hotspotWeight"
-                  :min="0"
-                  :max="1"
+                  label="均衡阈值"
+                  v-model="modeConfig.health.balanceThreshold"
+                  :min="0.1"
+                  :max="1.0"
                   :step="0.05"
                   :disabled="selectedMode !== 'custom'"
-                  :description="'热点负载集中度的权重占比'"
+                  :description="'负载分布均衡度阈值，值越高要求越均衡'"
                 />
               </div>
             </el-collapse-item>
@@ -292,18 +333,13 @@ import {
   Clock,
   DataAnalysis,
   Check,
-  RefreshLeft
+  RefreshLeft,
+  Warning
 } from '@element-plus/icons-vue'
-import { getAnalysisMode, updateCustomMode } from '@/api/analysis'
-import type { AnalysisModeResponse, AnalysisModeType, AnalysisConfig } from '@/types/v2'
+import { getAnalysisMode, updateTaskCustomConfig } from '@/api/analysis'
+import { getTaskDetail } from '@/api/task'
+import type { AnalysisModeResponse, AnalysisModeType, AnalysisModeConfig } from '@/api/analysis'
 import ParamSlider from './components/ParamSlider.vue'
-
-type FullAnalysisConfig = {
-  zombieVM: NonNullable<AnalysisConfig['zombieVM']>
-  rightSize: NonNullable<AnalysisConfig['rightSize']>
-  tidal: NonNullable<AnalysisConfig['tidal']>
-  health: NonNullable<AnalysisConfig['health']>
-}
 
 const props = defineProps<{
   taskId: number
@@ -314,49 +350,87 @@ const currentMode = reactive<AnalysisModeResponse>({
   mode: 'safe',
   modeName: '安全模式',
   description: '',
-  config: {},
+  config: {
+    idle: {
+      days: 30,
+      cpuThreshold: 5.0,
+      memoryThreshold: 10.0,
+      minConfidence: 80.0
+    },
+    resource: {
+      rightsize: {
+        days: 14,
+        cpuBufferPercent: 30.0,
+        memoryBufferPercent: 30.0,
+        highUsageThreshold: 85.0,
+        lowUsageThreshold: 15.0,
+        minConfidence: 70.0
+      },
+      usagePattern: {
+        cvThreshold: 0.3,
+        peakValleyRatio: 2.0
+      },
+      mismatch: {
+        cpuLowThreshold: 25.0,
+        cpuHighThreshold: 75.0,
+        memoryLowThreshold: 25.0,
+        memoryHighThreshold: 75.0
+      }
+    },
+    health: {
+      overcommitThreshold: 1.2,
+      hotspotThreshold: 5.0,
+      balanceThreshold: 0.5
+    }
+  },
   availableModes: []
 })
 
 const selectedMode = ref<AnalysisModeType>('safe')
 const originalMode = ref<AnalysisModeType>('safe')
 const originalConfigText = ref('')
-const collapseActiveNames = ref<string[]>([])
+const collapseActiveNames = ref<string[]>(['idle', 'rightsize', 'usagePattern', 'mismatch', 'health'])
 
-const modeConfig = ref<FullAnalysisConfig>({
-  zombieVM: {
-    analysisDays: 30,
+const modeConfig = ref<AnalysisModeConfig>({
+  idle: {
+    days: 30,
     cpuThreshold: 5.0,
     memoryThreshold: 10.0,
-    ioThreshold: 10.0,
-    networkThreshold: 10.0,
     minConfidence: 80.0
   },
-  rightSize: {
-    analysisDays: 7,
-    bufferRatio: 1.3,
-    p95Threshold: 95.0,
-    smallMargin: 0.4,
-    largeMargin: 0.6
-  },
-  tidal: {
-    analysisDays: 30,
-    minStability: 70.0,
-    minVariation: 40.0
+  resource: {
+    rightsize: {
+      days: 14,
+      cpuBufferPercent: 30.0,
+      memoryBufferPercent: 30.0,
+      highUsageThreshold: 85.0,
+      lowUsageThreshold: 15.0,
+      minConfidence: 70.0
+    },
+    usagePattern: {
+      cvThreshold: 0.3,
+      peakValleyRatio: 2.0
+    },
+    mismatch: {
+      cpuLowThreshold: 25.0,
+      cpuHighThreshold: 75.0,
+      memoryLowThreshold: 25.0,
+      memoryHighThreshold: 75.0
+    }
   },
   health: {
-    resourceBalanceWeight: 0.4,
-    overcommitRiskWeight: 0.3,
-    hotspotWeight: 0.3
+    overcommitThreshold: 1.2,
+    hotspotThreshold: 5.0,
+    balanceThreshold: 0.5
   }
 })
 
 const availableModes = computed(() => currentMode.availableModes.length > 0
   ? currentMode.availableModes
   : [
-      { mode: 'safe', name: '安全模式', description: '保守的分析策略，误报率低' },
-      { mode: 'saving', name: '节能模式', description: '平衡性能与节能' },
-      { mode: 'aggressive', name: '激进模式', description: '最大化资源回收' },
+      { mode: 'safe', name: '安全模式', description: '保守阈值，适合生产环境' },
+      { mode: 'saving', name: '节省模式', description: '平衡阈值，推荐默认' },
+      { mode: 'aggressive', name: '激进模式', description: '最大化发现问题' },
       { mode: 'custom', name: '自定义模式', description: '用户自定义配置' }
     ]
 )
@@ -393,122 +467,146 @@ function getModeTagType(mode: AnalysisModeType) {
   return typeMap[mode] || 'info'
 }
 
-function cloneConfig(config: AnalysisConfig | FullAnalysisConfig): FullAnalysisConfig {
-  return JSON.parse(JSON.stringify(config)) as FullAnalysisConfig
+function cloneConfig(config: AnalysisModeConfig): AnalysisModeConfig {
+  return JSON.parse(JSON.stringify(config)) as AnalysisModeConfig
 }
 
-function serializeConfig(config: FullAnalysisConfig): string {
+function serializeConfig(config: AnalysisModeConfig): string {
   return JSON.stringify(config)
 }
 
-function getModePresets(): Record<AnalysisModeType, FullAnalysisConfig> {
+function getModePresets(): Record<AnalysisModeType, AnalysisModeConfig> {
   return {
     safe: {
-      zombieVM: {
-        analysisDays: 30,
+      idle: {
+        days: 30,
         cpuThreshold: 5.0,
         memoryThreshold: 10.0,
-        ioThreshold: 10.0,
-        networkThreshold: 10.0,
         minConfidence: 80.0
       },
-      rightSize: {
-        analysisDays: 7,
-        bufferRatio: 1.3,
-        p95Threshold: 95.0,
-        smallMargin: 0.4,
-        largeMargin: 0.6
-      },
-      tidal: {
-        analysisDays: 30,
-        minStability: 70.0,
-        minVariation: 40.0
+      resource: {
+        rightsize: {
+          days: 14,
+          cpuBufferPercent: 30.0,
+          memoryBufferPercent: 30.0,
+          highUsageThreshold: 85.0,
+          lowUsageThreshold: 15.0,
+          minConfidence: 70.0
+        },
+        usagePattern: {
+          cvThreshold: 0.3,
+          peakValleyRatio: 2.0
+        },
+        mismatch: {
+          cpuLowThreshold: 25.0,
+          cpuHighThreshold: 75.0,
+          memoryLowThreshold: 25.0,
+          memoryHighThreshold: 75.0
+        }
       },
       health: {
-        resourceBalanceWeight: 0.4,
-        overcommitRiskWeight: 0.3,
-        hotspotWeight: 0.3
+        overcommitThreshold: 1.2,
+        hotspotThreshold: 5.0,
+        balanceThreshold: 0.5
       }
     },
     saving: {
-      zombieVM: {
-        analysisDays: 14,
+      idle: {
+        days: 14,
         cpuThreshold: 10.0,
         memoryThreshold: 20.0,
-        ioThreshold: 20.0,
-        networkThreshold: 20.0,
         minConfidence: 60.0
       },
-      rightSize: {
-        analysisDays: 7,
-        bufferRatio: 1.2,
-        p95Threshold: 90.0,
-        smallMargin: 0.3,
-        largeMargin: 0.5
-      },
-      tidal: {
-        analysisDays: 21,
-        minStability: 60.0,
-        minVariation: 30.0
+      resource: {
+        rightsize: {
+          days: 7,
+          cpuBufferPercent: 20.0,
+          memoryBufferPercent: 20.0,
+          highUsageThreshold: 90.0,
+          lowUsageThreshold: 30.0,
+          minConfidence: 60.0
+        },
+        usagePattern: {
+          cvThreshold: 0.4,
+          peakValleyRatio: 2.5
+        },
+        mismatch: {
+          cpuLowThreshold: 30.0,
+          cpuHighThreshold: 70.0,
+          memoryLowThreshold: 30.0,
+          memoryHighThreshold: 70.0
+        }
       },
       health: {
-        resourceBalanceWeight: 0.4,
-        overcommitRiskWeight: 0.3,
-        hotspotWeight: 0.3
+        overcommitThreshold: 1.5,
+        hotspotThreshold: 7.0,
+        balanceThreshold: 0.6
       }
     },
     aggressive: {
-      zombieVM: {
-        analysisDays: 7,
+      idle: {
+        days: 7,
         cpuThreshold: 15.0,
-        memoryThreshold: 30.0,
-        ioThreshold: 30.0,
-        networkThreshold: 30.0,
+        memoryThreshold: 25.0,
         minConfidence: 50.0
       },
-      rightSize: {
-        analysisDays: 5,
-        bufferRatio: 1.1,
-        p95Threshold: 85.0,
-        smallMargin: 0.2,
-        largeMargin: 0.4
-      },
-      tidal: {
-        analysisDays: 14,
-        minStability: 50.0,
-        minVariation: 20.0
+      resource: {
+        rightsize: {
+          days: 7,
+          cpuBufferPercent: 10.0,
+          memoryBufferPercent: 10.0,
+          highUsageThreshold: 95.0,
+          lowUsageThreshold: 40.0,
+          minConfidence: 50.0
+        },
+        usagePattern: {
+          cvThreshold: 0.5,
+          peakValleyRatio: 3.0
+        },
+        mismatch: {
+          cpuLowThreshold: 40.0,
+          cpuHighThreshold: 60.0,
+          memoryLowThreshold: 40.0,
+          memoryHighThreshold: 60.0
+        }
       },
       health: {
-        resourceBalanceWeight: 0.3,
-        overcommitRiskWeight: 0.3,
-        hotspotWeight: 0.4
+        overcommitThreshold: 2.0,
+        hotspotThreshold: 10.0,
+        balanceThreshold: 0.7
       }
     },
     custom: {
-      zombieVM: {
-        analysisDays: 14,
+      idle: {
+        days: 14,
         cpuThreshold: 10.0,
         memoryThreshold: 20.0,
-        ioThreshold: 20.0,
-        networkThreshold: 20.0,
         minConfidence: 60.0
       },
-      rightSize: {
-        analysisDays: 7,
-        bufferRatio: 1.2,
-        p95Threshold: 90.0,
-        smallMargin: 0.3,
-        largeMargin: 0.5
-      },
-      tidal: {
-        analysisDays: 21,
-        minStability: 60.0,
-        minVariation: 30.0
+      resource: {
+        rightsize: {
+          days: 7,
+          cpuBufferPercent: 20.0,
+          memoryBufferPercent: 20.0,
+          highUsageThreshold: 90.0,
+          lowUsageThreshold: 30.0,
+          minConfidence: 60.0
+        },
+        usagePattern: {
+          cvThreshold: 0.4,
+          peakValleyRatio: 2.5
+        },
+        mismatch: {
+          cpuLowThreshold: 30.0,
+          cpuHighThreshold: 70.0,
+          memoryLowThreshold: 30.0,
+          memoryHighThreshold: 70.0
+        }
       },
       health: {
-        resourceBalanceWeight: 0.4,
-        overcommitRiskWeight: 0.3,
-        hotspotWeight: 0.3
+        overcommitThreshold: 1.5,
+        hotspotThreshold: 7.0,
+        balanceThreshold: 0.6
       }
     }
   }
@@ -520,24 +618,48 @@ async function loadAnalysisMode() {
   }
 
   try {
-    // 默认加载安全模式
-    const mode = 'safe' as AnalysisModeType
-    selectedMode.value = mode
-    originalMode.value = mode
+    // 获取任务详情以读取保存的配置
+    const task = await getTaskDetail(props.taskId)
+    const taskMode = task.config?.mode as AnalysisModeType || 'saving'
+    const customConfig = task.config?.customConfig as Record<string, unknown> || {}
+
+    selectedMode.value = taskMode
+    originalMode.value = taskMode
 
     const presets = getModePresets()
-    modeConfig.value = cloneConfig(presets[mode] as AnalysisConfig)
+
+    // 如果是 custom 模式且有自定义配置，合并基础配置和自定义配置
+    if (taskMode === 'custom' && Object.keys(customConfig).length > 0) {
+      const baseMode = (task.config?.baseMode as AnalysisModeType) || 'saving'
+      const baseConfig = presets[baseMode]
+
+      // 深度合并自定义配置到基础配置
+      modeConfig.value = {
+        idle: { ...baseConfig.idle, ...(customConfig.idle as object || {}) },
+        resource: {
+          rightsize: { ...baseConfig.resource.rightsize, ...(customConfig.resource?.rightsize as object || {}) },
+          usagePattern: { ...baseConfig.resource.usagePattern, ...(customConfig.resource?.usagePattern as object || {}) },
+          mismatch: { ...baseConfig.resource.mismatch, ...(customConfig.resource?.mismatch as object || {}) }
+        },
+        health: { ...baseConfig.health, ...(customConfig.health as object || {}) }
+      }
+    } else {
+      // 使用预设配置
+      modeConfig.value = cloneConfig(presets[taskMode])
+    }
+
     originalConfigText.value = serializeConfig(modeConfig.value)
 
-    currentMode.mode = mode
-    currentMode.modeName = mode === 'safe' ? '安全模式' : mode === 'saving' ? '节能模式' : mode === 'aggressive' ? '激进模式' : '自定义模式'
-    currentMode.description = mode === 'safe' ? '保守的分析策略，误报率低' : mode === 'saving' ? '平衡性能与节能' : mode === 'aggressive' ? '最大化资源回收' : '用户自定义配置'
+    currentMode.mode = taskMode
+    currentMode.modeName = taskMode === 'safe' ? '安全模式' : taskMode === 'saving' ? '节省模式' : taskMode === 'aggressive' ? '激进模式' : '自定义模式'
+    currentMode.description = taskMode === 'safe' ? '保守阈值，适合生产环境' : taskMode === 'saving' ? '平衡阈值，推荐默认' : taskMode === 'aggressive' ? '最大化发现问题' : '用户自定义配置'
+    currentMode.config = modeConfig.value
 
     // 设置可用的模式列表
     currentMode.availableModes = [
-      { mode: 'safe', name: '安全模式', description: '保守的分析策略，误报率低' },
-      { mode: 'saving', name: '节能模式', description: '平衡性能与节能' },
-      { mode: 'aggressive', name: '激进模式', description: '最大化资源回收' },
+      { mode: 'safe', name: '安全模式', description: '保守阈值，适合生产环境' },
+      { mode: 'saving', name: '节省模式', description: '平衡阈值，推荐默认' },
+      { mode: 'aggressive', name: '激进模式', description: '最大化发现问题' },
       { mode: 'custom', name: '自定义模式', description: '用户自定义配置' }
     ]
   } catch (error: any) {
@@ -560,11 +682,10 @@ async function handleSave() {
 
   saving.value = true
   try {
-    const configJSON = selectedMode.value === 'custom'
-      ? JSON.stringify(modeConfig.value)
-      : ''
-
-    await updateCustomMode(modeConfig.value)
+    // 保存自定义配置到任务
+    await updateTaskCustomConfig(props.taskId, 'idle', modeConfig.value.idle)
+    await updateTaskCustomConfig(props.taskId, 'resource', modeConfig.value.resource)
+    await updateTaskCustomConfig(props.taskId, 'health', modeConfig.value.health)
 
     currentMode.mode = selectedMode.value
     const modeInfo = availableModes.value.find(m => m.mode === selectedMode.value)
@@ -574,7 +695,8 @@ async function handleSave() {
     }
 
     ElMessage.success('评估模式已更新')
-    await loadAnalysisMode()
+    originalMode.value = selectedMode.value
+    originalConfigText.value = serializeConfig(modeConfig.value)
   } catch (error: any) {
     console.error('保存评估模式失败:', error)
     ElMessage.error('保存失败: ' + (error.message || '未知错误'))

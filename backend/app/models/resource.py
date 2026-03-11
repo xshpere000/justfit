@@ -1,7 +1,7 @@
 """Resource Models - Cluster, Host, VM."""
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Integer, BigInteger, ForeignKey
+from sqlalchemy import String, Integer, BigInteger, ForeignKey, DateTime
 from typing import TYPE_CHECKING, Optional, List
 from datetime import datetime
 
@@ -79,6 +79,16 @@ class VM(Base, TimestampMixin):
     host_ip: Mapped[str] = mapped_column(String(50), default="")
     connection_state: Mapped[str] = mapped_column(String(20), default="")
     overall_status: Mapped[str] = mapped_column(String(20), default="")
+    vm_create_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, comment="VM创建时间"
+    )
+    uptime_duration: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="开机时长（秒），仅开机VM有值"
+    )
+    downtime_duration: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="关机时长（秒），仅关机VM有值"
+    )
+
     collected_at: Mapped[datetime] = mapped_column(default=datetime.now)
 
     connection: Mapped["Connection"] = relationship(back_populates="vms")

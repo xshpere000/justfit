@@ -1,8 +1,24 @@
-"""vCenter Connector - VMware vSphere/vCenter platform adapter."""
+"""vCenter Connector - VMware vSphere/vCenter platform adapter.
+
+数据单位转换说明（所有指标统一转换为 VMMetrics 定义的存储单位）:
+    vCenter API 原始单位    →  存储单位              转换公式
+    ──────────────────────────────────────────────────────────────
+    CPU (usagemhz)    MHz  →  MHz                   无需转换
+    Memory (consumed) KB   →  bytes                 * 1024
+    Disk (read/write) KB/s →  bytes/s              * 1024
+    Network (bytesRx/Tx) KB/s →  bytes/s          * 1024
+
+重要说明:
+    1. 磁盘和网络 I/O 只在使用 20 秒间隔时可用（vCenter 限制）
+    2. virtualDisk 组是 VM 级别计数器，disk 组是主机级别
+    3. memory_bytes 存储的是 bytes（不是 MB），需注意单位
+"""
 
 import asyncio
-from datetime import datetime, timedelta
-from typing import List, Optional
+import socket
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, Dict
+from collections import defaultdict
 
 import structlog
 from pyVim.connect import SmartConnect, Disconnect
@@ -24,6 +40,7 @@ class VCenterConnector(Connector):
         username: str,
         password: str,
         insecure: bool = False,
+        timeout: int = 10,
     ) -> None:
         """Initialize vCenter connector.
 
@@ -33,12 +50,14 @@ class VCenterConnector(Connector):
             username: Username
             password: Password
             insecure: Skip SSL verification
+            timeout: Connection timeout in seconds
         """
         self.host = host
         self.port = port
         self.username = username
         self.password = password
         self.insecure = insecure
+        self.timeout = timeout
         self._service_instance: Optional[vim.ServiceInstance] = None
         self._content: Optional[vim.ServiceInstanceContent] = None
 
@@ -54,6 +73,8 @@ class VCenterConnector(Connector):
         loop = asyncio.get_event_loop()
 
         def _do_connect() -> vim.ServiceInstance:
+            # 设置 socket 超时（SmartConnect 内部使用 SSL socket）
+            socket.setdefaulttimeout(self.timeout)
             return SmartConnect(
                 host=self.host,
                 port=self.port,
@@ -63,10 +84,17 @@ class VCenterConnector(Connector):
             )
 
         try:
-            self._service_instance = await loop.run_in_executor(None, _do_connect)
+            # 使用 asyncio.wait_for 添加超时控制
+            self._service_instance = await asyncio.wait_for(
+                loop.run_in_executor(None, _do_connect),
+                timeout=self.timeout
+            )
             self._content = self._service_instance.RetrieveContent()
             logger.info("vcenter_connected", host=self.host)
             return self._content
+        except asyncio.TimeoutError:
+            logger.error("vcenter_connection_timeout", host=self.host, timeout=self.timeout)
+            raise ConnectionError(f"连接 {self.host}:{self.port} 超时（{self.timeout}秒）")
         except Exception as e:
             logger.error("vcenter_connection_failed", host=self.host, error=str(e))
             raise
@@ -181,28 +209,139 @@ class VCenterConnector(Connector):
             content.rootFolder, [vim.VirtualMachine], True
         )
 
-        vms = []
-        for vm in vm_view.view:
-            # Generate vm_key
-            vm_key = self._generate_vm_key(vm)
-
-            vms.append(VMInfo(
-                name=vm.name,
-                datacenter=self._get_datacenter_name(vm),
-                uuid=vm.config.uuid,
-                cpu_count=vm.config.hardware.numCPU,
-                memory_bytes=vm.config.hardware.memoryMB * 1024 * 1024,
-                power_state=vm.runtime.powerState,
-                guest_os=vm.summary.guest.guestFullName,
-                ip_address=vm.summary.guest.ipAddress or "",
-                host_name=vm.runtime.host.name if vm.runtime.host else "",
-                host_ip="",  # Will be filled by caller
-                connection_state=vm.runtime.connectionState,
-                overall_status=vm.summary.overallStatus,
-            ))
-
+        # 将 VM 列表转为 list（避免迭代器问题）
+        vm_list = list(vm_view.view)
         vm_view.Destroy()
+
+        # 并发处理所有 VM 信息提取
+        vms = await self._fetch_vms_concurrent(vm_list)
+
         logger.info("vcenter_get_vms_success", count=len(vms))
+        return vms
+
+    async def _fetch_vms_concurrent(self, vm_list: List) -> List[VMInfo]:
+        """并发提取 VM 信息，使用 host IP 缓存。
+
+        Args:
+            vm_list: VM 对象列表
+
+        Returns:
+            VM 信息列表
+        """
+        # Host IP 缓存：多个 VM 可能共享同一个 host
+        host_ip_cache: Dict[str, str] = {}
+
+        # 先收集所有唯一的 host（用于缓存预热）
+        unique_hosts = {}
+        for vm in vm_list:
+            if vm.runtime and vm.runtime.host and hasattr(vm.runtime.host, 'name'):
+                host_name = vm.runtime.host.name
+                if host_name and host_name not in unique_hosts:
+                    unique_hosts[host_name] = vm.runtime.host
+
+        # 并发预加载所有 host IP（最多 10 个并发）
+        if unique_hosts:
+            semaphore = asyncio.Semaphore(10)
+
+            async def load_host_ip(host_name: str, host_obj) -> None:
+                async with semaphore:
+                    try:
+                        ip = await asyncio.get_event_loop().run_in_executor(
+                            None, lambda: self._get_host_ip(host_obj)
+                        )
+                        host_ip_cache[host_name] = ip
+                    except Exception:
+                        host_ip_cache[host_name] = ""
+
+            await asyncio.gather(*[
+                load_host_ip(name, obj) for name, obj in unique_hosts.items()
+            ])
+            logger.debug("vcenter_host_ip_cache_loaded", count=len(host_ip_cache))
+
+        # 并发提取 VM 信息（最多 20 个并发）
+        semaphore = asyncio.Semaphore(20)
+
+        async def extract_vm_info(vm: vim.VirtualMachine) -> Optional[VMInfo]:
+            """提取单个 VM 的信息（在线程池中执行同步操作）"""
+            # 快速检查：过滤异常状态
+            if not vm.runtime:
+                return None
+
+            connection_state_str = vm.runtime.connectionState
+            if connection_state_str and connection_state_str.lower() in ["orphaned", "disconnected", "inaccessible", "invalid"]:
+                return None
+
+            # 使用 run_in_executor 在线程池中执行属性访问
+            loop = asyncio.get_event_loop()
+
+            def _extract() -> Optional[VMInfo]:
+                try:
+                    power_state_str = vm.runtime.powerState if vm.runtime else ""
+                    connection_state_str = vm.runtime.connectionState if vm.runtime else ""
+
+                    # 检查连接状态，忽略孤立、未连接等异常状态
+                    if connection_state_str and connection_state_str.lower() in ["orphaned", "disconnected", "inaccessible", "invalid"]:
+                        return None
+
+                    # 获取时间信息
+                    create_time = vm.config.createDate if vm.config else None
+
+                    # 计算开机时长
+                    uptime_duration = None
+                    downtime_duration = None
+
+                    if vm.summary and vm.summary.quickStats:
+                        uptime_seconds = vm.summary.quickStats.uptimeSeconds
+                        if uptime_seconds is not None and uptime_seconds > 0:
+                            uptime_duration = uptime_seconds
+
+                    # 计算关机时长
+                    if power_state_str and power_state_str.lower() in ["poweredoff", "powered off"]:
+                        boot_time = vm.runtime.bootTime if vm.runtime else None
+                        if boot_time is None:
+                            downtime_duration = 2592000  # 30天
+                        else:
+                            now = datetime.now(timezone.utc)
+                            if boot_time.tzinfo is None:
+                                boot_time = boot_time.replace(tzinfo=timezone.utc)
+                            duration = now - boot_time
+                            downtime_duration = int(duration.total_seconds())
+
+                    # 从缓存获取 host IP
+                    host_ip = ""
+                    if vm.runtime and vm.runtime.host and hasattr(vm.runtime.host, 'name'):
+                        host_name = vm.runtime.host.name
+                        host_ip = host_ip_cache.get(host_name, "")
+
+                    return VMInfo(
+                        name=vm.name,
+                        datacenter=self._get_datacenter_name(vm),
+                        uuid=vm.config.uuid,
+                        cpu_count=vm.config.hardware.numCPU,
+                        memory_bytes=vm.config.hardware.memoryMB * 1024 * 1024,
+                        power_state=vm.runtime.powerState,
+                        guest_os=vm.summary.guest.guestFullName if vm.summary.guest else None,
+                        ip_address=vm.summary.guest.ipAddress if vm.summary.guest else None,
+                        host_name=vm.runtime.host.name if vm.runtime and vm.runtime.host else None,
+                        host_ip=host_ip,
+                        connection_state=vm.runtime.connectionState if vm.runtime else "",
+                        overall_status=vm.summary.overallStatus,
+                        vm_create_time=create_time,
+                        uptime_duration=uptime_duration,
+                        downtime_duration=downtime_duration,
+                    )
+                except Exception as e:
+                    logger.warning("vcenter_vm_extract_failed", vm_name=getattr(vm, 'name', 'unknown'), error=str(e))
+                    return None
+
+            async with semaphore:
+                return await loop.run_in_executor(None, _extract)
+
+        # 并发提取所有 VM 信息
+        results = await asyncio.gather(*[extract_vm_info(vm) for vm in vm_list])
+
+        # 过滤掉 None 值（被过滤的 VM）
+        vms = [vm for vm in results if vm is not None]
         return vms
 
     async def get_vm_metrics(
@@ -213,8 +352,14 @@ class VCenterConnector(Connector):
         start_time: datetime,
         end_time: datetime,
         cpu_count: int,
+        total_memory_bytes: int = 0,  # 参数用于接口一致性，暂不使用
     ) -> VMMetrics:
-        """Get VM performance metrics.
+        """Get VM performance metrics using hybrid strategy.
+
+        Hybrid approach:
+        1. Try PerfManager for full metrics (CPU, memory, disk, network)
+        2. Fall back to quickStats for basic metrics (CPU, memory only)
+        3. Combine data from both sources for maximum coverage
 
         Args:
             datacenter: Datacenter name
@@ -244,96 +389,473 @@ class VCenterConnector(Connector):
             logger.error("vcenter_vm_not_found", vm_uuid=vm_uuid, vm_name=vm_name)
             raise ValueError(f"VM not found: {vm_uuid}")
 
-        # First try to use quickStats (simpler, always available)
-        if vm.summary and vm.summary.quickStats:
-            qs = vm.summary.quickStats
-            # Get host CPU for MHz calculation
-            host_cpu_mhz = 0
-            if vm.runtime and vm.runtime.host:
-                host_cpu_mhz = vm.runtime.host.summary.hardware.cpuMhz
+        # Get VM power state
+        vm_power_state = vm.runtime.powerState if vm.runtime else None
+        logger.info("vcenter_vm_power_state", vm_name=vm_name, power_state=str(vm_power_state))
 
-            # Get VM memory for percentage calculation
-            vm_memory_bytes = vm.summary.config.memorySizeMB * 1024 * 1024 if vm.summary.config.memorySizeMB else 0
+        # Step 1: Try to get full metrics from PerfManager
+        # This works for running VMs and provides disk/network I/O
+        perf_metrics = await self._get_perf_manager_metrics(
+            vm=vm,
+            vm_name=vm_name,
+            cpu_count=cpu_count,
+            content=content,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
-            # Calculate values from quickStats
-            cpu_usage_mhz = qs.overallCpuUsage * 1000000 if qs.overallCpuUsage else 0  # MHz to Hz
-            cpu_usage_percent = qs.overallCpuUsage / (cpu_count * host_cpu_mhz) * 100 if host_cpu_mhz > 0 and qs.overallCpuUsage else 0
-            memory_usage_bytes = (qs.guestMemoryUsage or 0) * 1024 * 1024  # MB to bytes
-            memory_usage_percent = (qs.guestMemoryUsage / vm.summary.config.memorySizeMB * 100) if vm.summary.config.memorySizeMB else 0
-
-            logger.info(
-                "vcenter_quick_stats",
-                vm_name=vm_name,
-                cpu_usage=qs.overallCpuUsage,
-                guest_memory=qs.guestMemoryUsage,
-                host_cpu_mhz=host_cpu_mhz,
+        # Step 2: If PerfManager succeeded, check if we have usable data
+        if perf_metrics:
+            # Check if we have any meaningful data
+            has_data = (
+                perf_metrics.cpu_samples > 0 or
+                perf_metrics.memory_samples > 0 or
+                perf_metrics.disk_samples > 0 or
+                perf_metrics.network_samples > 0 or
+                perf_metrics.hourly_series is not None  # 有 hourly_series 数据也应该返回
             )
 
-            return VMMetrics(
-                cpu_mhz=qs.overallCpuUsage if qs.overallCpuUsage else 0,
-                memory_bytes=memory_usage_bytes,
-                disk_read_bytes_per_sec=0,  # Not available in quickStats
-                disk_write_bytes_per_sec=0,  # Not available in quickStats
-                net_rx_bytes_per_sec=0,  # Not available in quickStats
-                net_tx_bytes_per_sec=0,  # Not available in quickStats
-                cpu_samples=1,
-                memory_samples=1,
-                disk_samples=0,
-                network_samples=0,
-            )
+            if has_data:
+                logger.info(
+                    "vcenter_metrics_from_perf_manager",
+                    vm_name=vm_name,
+                    cpu_mhz=perf_metrics.cpu_mhz,
+                    cpu_samples=perf_metrics.cpu_samples,
+                    memory_samples=perf_metrics.memory_samples,
+                    disk_samples=perf_metrics.disk_samples,
+                    network_samples=perf_metrics.network_samples,
+                    hourly_series_hours=len(perf_metrics.hourly_series) if perf_metrics.hourly_series else 0,
+                )
+                return perf_metrics
 
-        # Fall back to PerfManager if quickStats not available
-        logger.warning("vcenter_no_quick_stats", vm_name=vm_name)
+        # Step 3: Fall back to quickStats for basic metrics
+        logger.info("vcenter_fallback_to_quick_stats", vm_name=vm_name)
+        quick_metrics = await self._get_quick_stats_metrics(
+            vm=vm,
+            vm_name=vm_name,
+            cpu_count=cpu_count,
+        )
 
-        # Use realtime interval (20 seconds) for full metrics
-        # Historical interval only provides CPU and memory
+        # Step 4: Combine data - use quickStats for CPU/memory, zeros for I/O
+        return quick_metrics
+
+    async def _get_perf_manager_metrics(
+        self,
+        vm: vim.VirtualMachine,
+        vm_name: str,
+        cpu_count: int,
+        content: vim.ServiceInstanceContent,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> Optional[VMMetrics]:
+        """Get full metrics from PerfManager including disk and network I/O.
+
+        Uses hybrid query strategy:
+        - CPU/Memory: Use historical intervals (300s, 1800s, etc.) for better coverage
+        - Disk/Network: Use 20s interval (vCenter only provides I/O data at this interval)
+
+        Args:
+            vm: Virtual machine object
+            vm_name: VM name
+            cpu_count: Number of CPUs
+            content: vCenter service content
+            start_time: Start of time range for historical data
+            end_time: End of time range for historical data
+
+        Returns:
+            VMMetrics or None if PerfManager fails
+        """
         loop = asyncio.get_event_loop()
-
-        # Get metrics using PerfManager
         perf_manager = content.perfManager
 
-        # Define metric counters
-        counter_info = perf_manager.perfCounter
-        logger.info("vcenter_perf_counters", count=len(counter_info) if counter_info else 0)
-
-        counter_keys = {
-            'cpu': 'cpu.usage.average',
-            'memory': 'mem.usage.average',
-            'disk_read': 'disk.read.average',
-            'disk_write': 'disk.write.average',
-            'net_rx': 'net.received.average',
-            'net_tx': 'net.transmitted.average',
-        }
+        if not perf_manager:
+            logger.warning("vcenter_no_perf_manager", vm_name=vm_name)
+            return None
 
         # Build counter ID map
-        counter_ids = {}
-        counter_sample = []
-        for counter in counter_info:
-            group_key = counter.groupInfo.key if counter.groupInfo else ""
-            name_key = counter.nameInfo.key if counter.nameInfo else ""
-            # Collect sample of first counters
-            if len(counter_sample) < 5:
-                counter_sample.append({"group": group_key, "name": name_key, "key": counter.key})
-            if group_key == 'cpu' and name_key == 'usage':
-                counter_ids['cpu'] = counter.key
-            elif group_key == 'mem' and name_key == 'usage':
-                counter_ids['memory'] = counter.key
-            elif group_key == 'disk' and name_key == 'read':
-                counter_ids['disk_read'] = counter.key
-            elif group_key == 'disk' and name_key == 'write':
-                counter_ids['disk_write'] = counter.key
-            elif group_key == 'net' and name_key == 'received':
-                counter_ids['net_rx'] = counter.key
-            elif group_key == 'net' and name_key == 'transmitted':
-                counter_ids['net_tx'] = counter.key
+        counter_ids = await self._build_counter_map(perf_manager, vm_name)
 
-        logger.info("vcenter_counter_sample", sample=counter_sample[:3])
-        logger.info("vcenter_counter_ids", found=list(counter_ids.keys()))
+        # Check if we found essential counters
+        required_counters = ['cpu', 'memory']
+        missing_counters = [c for c in required_counters if c not in counter_ids]
+        if missing_counters:
+            logger.warning(
+                "vcenter_missing_required_counters",
+                vm_name=vm_name,
+                missing=missing_counters,
+            )
+            return None
 
-        # Check if we found CPU counter
-        if 'cpu' not in counter_ids:
-            logger.warning("cpu_counter_not_found", counter_keys=list(counter_ids.keys()))
-            # Return zero metrics if counter not found
+        # Optional counters for I/O
+        has_disk = 'disk_read' in counter_ids and 'disk_write' in counter_ids
+        has_network = 'net_rx' in counter_ids and 'net_tx' in counter_ids
+
+        logger.info(
+            "vcenter_counter_availability",
+            vm_name=vm_name,
+            has_cpu='cpu' in counter_ids,
+            has_memory='memory' in counter_ids,
+            has_disk=has_disk,
+            has_network=has_network,
+        )
+
+        # Determine historical interval based on time range
+        time_diff_seconds = (end_time - start_time).total_seconds()
+        time_diff_days = time_diff_seconds / 86400
+
+        if time_diff_days <= 1:
+            historical_interval = 300
+        elif time_diff_days <= 7:
+            historical_interval = 1800
+        elif time_diff_days <= 90:
+            historical_interval = 7200
+        else:
+            historical_interval = 86400
+
+        logger.info(
+            "vcenter_hybrid_query_strategy",
+            vm_name=vm_name,
+            days_requested=f"{time_diff_days:.1f}",
+            historical_interval=historical_interval,
+            io_interval=20,
+        )
+
+        # Query 1: CPU and Memory with historical interval
+        cpu_memory_metric_ids = [
+            vim.PerformanceManager.MetricId(counterId=counter_ids['cpu'], instance=""),
+            vim.PerformanceManager.MetricId(counterId=counter_ids['memory'], instance=""),
+        ]
+
+        cpu_memory_stats = await self._query_perf_stats(
+            perf_manager, vm, cpu_memory_metric_ids,
+            interval_id=historical_interval,
+            max_sample=min(10000, int(time_diff_seconds / historical_interval) + 100),
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        # Query 2: Disk and Network with 20s interval
+        # vCenter only provides I/O data at 20s interval
+        io_metric_ids = []
+        if has_disk:
+            io_metric_ids.extend([
+                vim.PerformanceManager.MetricId(counterId=counter_ids['disk_read'], instance=""),
+                vim.PerformanceManager.MetricId(counterId=counter_ids['disk_write'], instance=""),
+            ])
+        if has_network:
+            io_metric_ids.extend([
+                vim.PerformanceManager.MetricId(counterId=counter_ids['net_rx'], instance=""),
+                vim.PerformanceManager.MetricId(counterId=counter_ids['net_tx'], instance=""),
+            ])
+
+        io_stats = None
+        if io_metric_ids:
+            io_stats = await self._query_perf_stats(
+                perf_manager, vm, io_metric_ids,
+                interval_id=20,
+                max_sample=300,  # 300 samples * 20s = ~1.6 hours
+                start_time=start_time,
+                end_time=end_time,
+            )
+
+        # Check if we have at least some data
+        if not cpu_memory_stats:
+            logger.warning("vcenter_no_cpu_memory_data", vm_name=vm_name)
+            return None
+
+        # Extract metric values
+        cpu_values, memory_values = self._extract_metric_values(
+            cpu_memory_stats, counter_ids.get('cpu'), counter_ids.get('memory')
+        )
+
+        disk_read_values, disk_write_values, net_rx_values, net_tx_values = [], [], [], []
+        if io_stats:
+            disk_read_values, disk_write_values = self._extract_metric_values(
+                io_stats, counter_ids.get('disk_read'), counter_ids.get('disk_write')
+            )
+            net_rx_values, net_tx_values = self._extract_metric_values(
+                io_stats, counter_ids.get('net_rx'), counter_ids.get('net_tx')
+            )
+
+        # Get host CPU and VM memory for unit conversion
+        host_cpu_mhz = 0
+        if vm.runtime and vm.runtime.host:
+            host_cpu_mhz = vm.runtime.host.summary.hardware.cpuMhz
+
+        vm_memory_mb = vm.summary.config.memorySizeMB if vm.summary and vm.summary.config else 0
+
+        # Calculate averages
+        cpu_avg = sum(cpu_values) / len(cpu_values) if cpu_values else 0
+        memory_avg = sum(memory_values) / len(memory_values) if memory_values else 0
+        disk_read_avg = sum(disk_read_values) / len(disk_read_values) if disk_read_values else 0
+        disk_write_avg = sum(disk_write_values) / len(disk_write_values) if disk_write_values else 0
+        net_rx_avg = sum(net_rx_values) / len(net_rx_values) if net_rx_values else 0
+        net_tx_avg = sum(net_tx_values) / len(net_tx_values) if net_tx_values else 0
+
+        # Build hourly series (using CPU/Memory historical data)
+        hourly_series = self._build_hourly_series(
+            cpu_memory_stats, counter_ids, cpu_values, memory_values,
+            disk_read_values, disk_write_values, net_rx_values, net_tx_values,
+        )
+
+        # ============================================================
+        # 单位转换 - 统一转换为 VMMetrics 定义的存储单位
+        # ============================================================
+        # CPU: cpu.usagemhz 返回值已经是 MHz，无需转换
+        cpu_mhz = cpu_avg if cpu_avg > 0 else 0
+
+        # Memory: mem.consumed 返回 KB，转换为 bytes
+        # 注意：VMMetrics.memory_bytes 的单位是 bytes，不是 MB
+        memory_bytes_value = memory_avg * 1024 if memory_avg > 0 else 0
+
+        # Disk: virtualDisk.read/write 返回 KB/s，转换为 bytes/s
+        disk_read_bytes_per_sec = int(disk_read_avg * 1024)
+        disk_write_bytes_per_sec = int(disk_write_avg * 1024)
+
+        # Network: net.bytesRx/bytesTx 返回 KB/s，转换为 bytes/s
+        net_rx_bytes_per_sec = int(net_rx_avg * 1024)
+        net_tx_bytes_per_sec = int(net_tx_avg * 1024)
+
+        metrics = VMMetrics(
+            cpu_mhz=cpu_mhz,
+            memory_bytes=memory_bytes_value,         # bytes (不是 MB)
+            disk_read_bytes_per_sec=disk_read_bytes_per_sec,
+            disk_write_bytes_per_sec=disk_write_bytes_per_sec,
+            net_rx_bytes_per_sec=net_rx_bytes_per_sec,
+            net_tx_bytes_per_sec=net_tx_bytes_per_sec,
+            cpu_samples=len(cpu_values),
+            memory_samples=len(memory_values),
+            disk_samples=len(disk_read_values),
+            network_samples=len(net_rx_values),
+            hourly_series=hourly_series if hourly_series else None,
+        )
+
+        logger.info(
+            "vcenter_perf_manager_success",
+            vm_name=vm_name,
+            cpu_mhz=metrics.cpu_mhz,
+            memory_mb=metrics.memory_bytes // (1024 * 1024),  # 转换为 MB 用于日志
+            disk_read_kb=metrics.disk_read_bytes_per_sec // 1024,    # 转换为 KB 用于日志
+            disk_write_kb=metrics.disk_write_bytes_per_sec // 1024,
+            net_rx_kb=metrics.net_rx_bytes_per_sec // 1024,
+            net_tx_kb=metrics.net_tx_bytes_per_sec // 1024,
+            cpu_samples=metrics.cpu_samples,
+            disk_samples=metrics.disk_samples,
+            network_samples=metrics.network_samples,
+            hourly_series_hours=len(hourly_series) if hourly_series else 0,
+        )
+
+        return metrics
+
+    async def _query_perf_stats(
+        self,
+        perf_manager: vim.PerformanceManager,
+        vm: vim.VirtualMachine,
+        metric_ids: List,
+        interval_id: int,
+        max_sample: int,
+        start_time: datetime = None,
+        end_time: datetime = None,
+    ) -> Optional[vim.PerformanceManager.EntityMetric]:
+        """Query performance stats from vCenter.
+
+        Args:
+            perf_manager: Performance manager
+            vm: Virtual machine
+            metric_ids: List of MetricId to query
+            interval_id: Sampling interval in seconds
+            max_sample: Maximum number of samples
+            start_time: Start time for historical data (optional)
+            end_time: End time for historical data (optional)
+
+        Returns:
+            EntityMetric or None
+        """
+        loop = asyncio.get_event_loop()
+
+        query_spec_params = {
+            "entity": vm,
+            "metricId": metric_ids,
+            "intervalId": interval_id,
+            "maxSample": max_sample,
+        }
+
+        if start_time and end_time:
+            query_spec_params["startTime"] = start_time
+            query_spec_params["endTime"] = end_time
+
+        query_spec = vim.PerformanceManager.QuerySpec(**query_spec_params)
+
+        try:
+            perf_stats = await loop.run_in_executor(
+                None,
+                lambda: perf_manager.QueryStats(querySpec=[query_spec])
+            )
+            if perf_stats and perf_stats[0]:
+                return perf_stats[0]
+            return None
+        except Exception as e:
+            logger.warning(
+                "vcenter_query_stats_failed",
+                vm_name=vm.name,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            return None
+
+    def _extract_metric_values(
+        self,
+        stats: vim.PerformanceManager.EntityMetric,
+        counter_id1: int,
+        counter_id2: int = None,
+    ) -> tuple:
+        """Extract metric values from stats.
+
+        Args:
+            stats: Performance stats
+            counter_id1: First counter ID to extract
+            counter_id2: Second counter ID to extract (optional)
+
+        Returns:
+            Tuple of (values1, values2) or (values1,) if counter_id2 is None
+        """
+        values1, values2 = [], []
+
+        if not stats or not stats.value:
+            return (values1, values2) if counter_id2 else (values1,)
+
+        for stat in stats.value:
+            if stat.id.counterId == counter_id1:
+                values1 = [v for v in (stat.value or []) if v is not None]
+            elif counter_id2 and stat.id.counterId == counter_id2:
+                values2 = [v for v in (stat.value or []) if v is not None]
+
+        return (values1, values2) if counter_id2 else (values1,)
+
+    def _build_hourly_series(
+        self,
+        stats: vim.PerformanceManager.EntityMetric,
+        counter_ids: dict,
+        cpu_values: List[float],
+        memory_values: List[float],
+        disk_read_values: List[float],
+        disk_write_values: List[float],
+        net_rx_values: List[float],
+        net_tx_values: List[float],
+    ) -> Optional[List[tuple]]:
+        """Build hourly time series from sample data.
+
+        Args:
+            stats: Performance stats with sample info
+            counter_ids: Counter ID mapping
+            cpu_values: CPU values list
+            memory_values: Memory values list
+            disk_read_values: Disk read values list
+            disk_write_values: Disk write values list
+            net_rx_values: Network RX values list
+            net_tx_values: Network TX values list
+
+        Returns:
+            List of hourly tuples or None
+        """
+        from collections import defaultdict
+
+        sample_infos = stats.sampleInfo if stats.sampleInfo else []
+        if not sample_infos:
+            return None
+
+        # Map counter IDs to their value lists
+        value_map = {
+            counter_ids.get('cpu'): cpu_values,
+            counter_ids.get('memory'): memory_values,
+            counter_ids.get('disk_read'): disk_read_values,
+            counter_ids.get('disk_write'): disk_write_values,
+            counter_ids.get('net_rx'): net_rx_values,
+            counter_ids.get('net_tx'): net_tx_values,
+        }
+
+        # Build a mapping from sample index to all metric values
+        counter_to_values = {}
+        for stat in stats.value:
+            counter_to_values[stat.id.counterId] = stat.value or []
+
+        # Aggregate by hour
+        hour_buckets = defaultdict(lambda: {
+            "cpu": [], "memory": [], "disk_read": [],
+            "disk_write": [], "net_rx": [], "net_tx": []
+        })
+
+        for idx, sample_info in enumerate(sample_infos):
+            if sample_info.timestamp:
+                timestamp_dt = sample_info.timestamp.replace(minute=0, second=0, microsecond=0)
+
+                # Extract values at this index for each counter
+                cpu_val = counter_to_values.get(counter_ids.get('cpu'), [])[idx] if counter_ids.get('cpu') in counter_to_values else (cpu_values[idx] if idx < len(cpu_values) else 0)
+                mem_val = counter_to_values.get(counter_ids.get('memory'), [])[idx] if counter_ids.get('memory') in counter_to_values else (memory_values[idx] if idx < len(memory_values) else 0)
+                disk_read_val = counter_to_values.get(counter_ids.get('disk_read'), [])[idx] if counter_ids.get('disk_read') in counter_to_values else (disk_read_values[idx] if idx < len(disk_read_values) else 0)
+                disk_write_val = counter_to_values.get(counter_ids.get('disk_write'), [])[idx] if counter_ids.get('disk_write') in counter_to_values else (disk_write_values[idx] if idx < len(disk_write_values) else 0)
+                net_rx_val = counter_to_values.get(counter_ids.get('net_rx'), [])[idx] if counter_ids.get('net_rx') in counter_to_values else (net_rx_values[idx] if idx < len(net_rx_values) else 0)
+                net_tx_val = counter_to_values.get(counter_ids.get('net_tx'), [])[idx] if counter_ids.get('net_tx') in counter_to_values else (net_tx_values[idx] if idx < len(net_tx_values) else 0)
+
+                bucket = hour_buckets[timestamp_dt]
+                # CPU: usagemhz 返回 MHz，无需转换
+                bucket["cpu"].append(cpu_val if cpu_val and cpu_val > 0 else 0)
+                # Memory: mem.consumed 返回 KB，转换为 bytes (与 VMMetrics.memory_bytes 单位一致)
+                bucket["memory"].append(mem_val * 1024 if mem_val and mem_val > 0 else 0)  # KB to bytes
+                # Disk: KB/s to bytes/s
+                bucket["disk_read"].append(disk_read_val * 1024 if disk_read_val and disk_read_val > 0 else 0)
+                bucket["disk_write"].append(disk_write_val * 1024 if disk_write_val and disk_write_val > 0 else 0)
+                # Network: KB/s to bytes/s
+                bucket["net_rx"].append(net_rx_val * 1024 if net_rx_val and net_rx_val > 0 else 0)
+                bucket["net_tx"].append(net_tx_val * 1024 if net_tx_val and net_tx_val > 0 else 0)
+
+        # Calculate stats for each hour
+        hourly_series = []
+        for hour_dt in sorted(hour_buckets.keys()):
+            bucket = hour_buckets[hour_dt]
+            timestamp_ms = int(hour_dt.timestamp() * 1000)
+
+            cpu_vals = bucket["cpu"]
+            mem_vals = bucket["memory"]
+            disk_read_vals = bucket["disk_read"]
+            disk_write_vals = bucket["disk_write"]
+            net_rx_vals = bucket["net_rx"]
+            net_tx_vals = bucket["net_tx"]
+
+            hourly_series.append((
+                timestamp_ms,
+                sum(cpu_vals) / len(cpu_vals) if cpu_vals else 0,
+                min(cpu_vals) if cpu_vals else 0,
+                max(cpu_vals) if cpu_vals else 0,
+                sum(mem_vals) / len(mem_vals) if mem_vals else 0,
+                min(mem_vals) if mem_vals else 0,
+                max(mem_vals) if mem_vals else 0,
+                sum(disk_read_vals) / len(disk_read_vals) if disk_read_vals else 0,
+                sum(disk_write_vals) / len(disk_write_vals) if disk_write_vals else 0,
+                sum(net_rx_vals) / len(net_rx_vals) if net_rx_vals else 0,
+                sum(net_tx_vals) / len(net_tx_vals) if net_tx_vals else 0,
+            ))
+
+        return hourly_series if hourly_series else None
+
+    async def _get_quick_stats_metrics(
+        self,
+        vm: vim.VirtualMachine,
+        vm_name: str,
+        cpu_count: int,
+    ) -> VMMetrics:
+        """Get basic metrics from quickStats (CPU and memory only).
+
+        Args:
+            vm: Virtual machine object
+            vm_name: VM name
+            cpu_count: Number of CPUs
+
+        Returns:
+            VMMetrics with CPU and memory data, zeros for I/O
+        """
+        if not (vm.summary and vm.summary.quickStats):
+            logger.warning("vcenter_no_quick_stats", vm_name=vm_name)
             return VMMetrics(
                 cpu_mhz=0,
                 memory_bytes=0,
@@ -347,99 +869,116 @@ class VCenterConnector(Connector):
                 network_samples=0,
             )
 
-        # Create query spec for all realtime metrics
-        # Note: Don't set startTime/endTime for realtime metrics, vCenter will return latest data
-        metric_ids = [
-            vim.PerformanceManager.MetricId(counterId=counter_ids['cpu'], instance="*"),
-            vim.PerformanceManager.MetricId(counterId=counter_ids['memory'], instance="*"),
-            vim.PerformanceManager.MetricId(counterId=counter_ids['disk_read'], instance="*"),
-            vim.PerformanceManager.MetricId(counterId=counter_ids['disk_write'], instance="*"),
-            vim.PerformanceManager.MetricId(counterId=counter_ids['net_rx'], instance="*"),
-            vim.PerformanceManager.MetricId(counterId=counter_ids['net_tx'], instance="*"),
-        ]
-        spec = vim.PerformanceManager.QuerySpec(
-            entity=vm,
-            metricId=metric_ids,
-            intervalId=20,  # Realtime interval (20 seconds)
-            #startTime=start_time,
-            #endTime=end_time,
-        )
-
-        try:
-            perf_stats = await loop.run_in_executor(None, perf_manager.QueryStats, [spec])
-            logger.info("vcenter_query_stats_result", vm_name=vm_name, has_stats=len(perf_stats) if perf_stats else 0)
-        except Exception as e:
-            logger.warning("vcenter_query_stats_failed", vm_name=vm_name, error=str(e))
-            perf_stats = []
-
-        # Initialize metrics
-        cpu_values = []
-        memory_values = []
-        disk_read_values = []
-        disk_write_values = []
-        net_rx_values = []
-        net_tx_values = []
-
-        if perf_stats and perf_stats[0]:
-            for stat in perf_stats[0].value:
-                counter_id = stat.id.counterId
-                values = stat.value if stat.value else []
-
-                if counter_id == counter_ids['cpu']:
-                    cpu_values = values
-                elif counter_id == counter_ids['memory']:
-                    memory_values = values
-                elif counter_id == counter_ids['disk_read']:
-                    disk_read_values = values
-                elif counter_id == counter_ids['disk_write']:
-                    disk_write_values = values
-                elif counter_id == counter_ids['net_rx']:
-                    net_rx_values = values
-                elif counter_id == counter_ids['net_tx']:
-                    net_tx_values = values
-
-        # Calculate averages
-        cpu_avg = sum(cpu_values) / len(cpu_values) if cpu_values else 0
-        memory_avg = sum(memory_values) / len(memory_values) if memory_values else 0
-        disk_read_avg = sum(disk_read_values) / len(disk_read_values) if disk_read_values else 0
-        disk_write_avg = sum(disk_write_values) / len(disk_write_values) if disk_write_values else 0
-        net_rx_avg = sum(net_rx_values) / len(net_rx_values) if net_rx_values else 0
-        net_tx_avg = sum(net_tx_values) / len(net_tx_values) if net_tx_values else 0
+        qs = vm.summary.quickStats
 
         # Get host CPU for MHz calculation
         host_cpu_mhz = 0
-        if vm.runtime.host:
+        if vm.runtime and vm.runtime.host and vm.runtime.host.summary:
             host_cpu_mhz = vm.runtime.host.summary.hardware.cpuMhz
 
         # Get VM memory for percentage calculation
-        vm_memory_bytes = vm.summary.config.memorySizeMB * 1024 * 1024 if vm.summary.config.memorySizeMB else 0
+        vm_memory_mb = vm.summary.config.memorySizeMB if vm.summary and vm.summary.config else 0
 
-        # Convert to appropriate units
-        cpu_mhz = cpu_avg * host_cpu_mhz / 100 if host_cpu_mhz > 0 else 0
-        memory_bytes = memory_avg * vm_memory_bytes / 100 if vm_memory_bytes > 0 else 0
-
-        metrics = VMMetrics(
-            cpu_mhz=cpu_mhz,
-            memory_bytes=memory_bytes,
-            disk_read_bytes_per_sec=disk_read_avg * 1024,  # KB to bytes
-            disk_write_bytes_per_sec=disk_write_avg * 1024,
-            net_rx_bytes_per_sec=net_rx_avg * 1024,
-            net_tx_bytes_per_sec=net_tx_avg * 1024,
-            cpu_samples=len(cpu_values),
-            memory_samples=len(memory_values),
-            disk_samples=len(disk_read_values),
-            network_samples=len(net_rx_values),
-        )
+        # Calculate values from quickStats
+        cpu_usage_mhz = qs.overallCpuUsage if qs.overallCpuUsage else 0
+        memory_usage_bytes = (qs.guestMemoryUsage or 0) * 1024 * 1024  # MB to bytes
 
         logger.info(
-            "vcenter_get_vm_metrics_success",
+            "vcenter_quick_stats_success",
             vm_name=vm_name,
-            cpu_samples=len(cpu_values),
-            cpu_avg=cpu_avg,
-            memory_avg=memory_avg,
+            cpu_mhz=cpu_usage_mhz,
+            memory_mb=memory_usage_bytes // (1024 * 1024),
+            host_cpu_mhz=host_cpu_mhz,
         )
 
-        return metrics
+        return VMMetrics(
+            cpu_mhz=cpu_usage_mhz,
+            memory_bytes=memory_usage_bytes,
+            disk_read_bytes_per_sec=0,
+            disk_write_bytes_per_sec=0,
+            net_rx_bytes_per_sec=0,
+            net_tx_bytes_per_sec=0,
+            cpu_samples=1,
+            memory_samples=1,
+            disk_samples=0,
+            network_samples=0,
+        )
+
+    async def _build_counter_map(
+        self,
+        perf_manager: vim.PerformanceManager,
+        vm_name: str,
+    ) -> dict[str, int]:
+        """Build counter ID map from PerfManager.
+
+        Args:
+            perf_manager: Performance manager
+            vm_name: VM name for logging
+
+        Returns:
+            Dictionary mapping counter names to IDs
+        """
+        counter_info = perf_manager.perfCounter
+        if not counter_info:
+            logger.warning("vcenter_no_counter_info", vm_name=vm_name)
+            return {}
+
+        counter_ids = {}
+        counter_sample = []
+
+        for counter in counter_info:
+            group_key = counter.groupInfo.key if counter.groupInfo else ""
+            name_key = counter.nameInfo.key if counter.nameInfo else ""
+            rollup_type = counter.rollupType if hasattr(counter, 'rollupType') else None
+
+            # Collect sample for debugging
+            if len(counter_sample) < 10:
+                unit_info = counter.unitInfo if hasattr(counter, 'unitInfo') else {}
+                counter_sample.append({
+                    "group": group_key,
+                    "name": name_key,
+                    "rollup": str(rollup_type),
+                    "unit": str(unit_info) if unit_info else "",
+                    "key": counter.key
+                })
+
+            # Match counters (use average rollup type)
+            if rollup_type != vim.PerformanceManager.CounterInfo.RollupType.average:
+                continue
+
+            # 使用 cpu.usagemhz 而不是 cpu.usage，因为后者在某些嵌套 VM 上返回 MHz 而不是 percent
+            if group_key == 'cpu' and name_key == 'usagemhz':
+                counter_ids['cpu'] = counter.key
+            # 使用 mem.consumed 而不是 mem.usage
+            # mem.usage 在某些嵌套 VM 上返回的值不可靠
+            # mem.consumed 返回 KB，更可靠
+            elif group_key == 'mem' and name_key == 'consumed':
+                counter_ids['memory'] = counter.key
+            # 磁盘 I/O 必须使用 virtualDisk 组（VM 级别），不是 disk 组（主机级别）
+            # virtualDisk.read/write 只在 20秒间隔时可用
+            elif group_key == 'virtualDisk' and name_key == 'read':
+                counter_ids['disk_read'] = counter.key
+            elif group_key == 'virtualDisk' and name_key == 'write':
+                counter_ids['disk_write'] = counter.key
+            # 网络 I/O 使用 bytesRx/bytesTx（更直观的名称）
+            # net.bytesRx/bytesTx 只在 20秒间隔时可用
+            elif group_key == 'net' and name_key == 'bytesRx':
+                counter_ids['net_rx'] = counter.key
+            elif group_key == 'net' and name_key == 'bytesTx':
+                counter_ids['net_tx'] = counter.key
+
+        logger.info(
+            "vcenter_counter_sample",
+            vm_name=vm_name,
+            sample=counter_sample[:5],
+        )
+        logger.info(
+            "vcenter_counter_ids_found",
+            vm_name=vm_name,
+            counters=list(counter_ids.keys()),
+        )
+
+        return counter_ids
 
     def _get_datacenter_name(self, entity) -> str:
         """Get datacenter name for an entity.

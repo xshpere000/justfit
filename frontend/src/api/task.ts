@@ -8,6 +8,7 @@ import { apiClient } from "./client";
 // Types
 export type TaskType = "collection" | "analysis";
 export type TaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export type TaskMode = "safe" | "saving" | "aggressive" | "custom";
 
 export interface Task {
     id: number;
@@ -19,11 +20,11 @@ export interface Task {
     connectionId: number | null;
     currentStep: string;
     analysisResults: {
-        zombie: boolean;
-        rightsize: boolean;
-        tidal: boolean;
+        idle: boolean;
+        resource: boolean;
         health: boolean;
     };
+    mode?: TaskMode;  // 分析模式
     createdAt: string;
     startedAt: string | null;
     completedAt: string | null;
@@ -41,6 +42,8 @@ export interface TaskCreate {
     type: TaskType;
     name: string;
     connectionId?: number;
+    mode?: TaskMode;          // 分析模式：安全/节省/激进/自定义
+    metricDays?: number;      // 采集天数：1-90
     config?: Record<string, unknown>;
 }
 
@@ -59,12 +62,11 @@ export interface TaskDetail extends Task {
 
 export interface TaskVMSnapshot {
     id: number;
-    taskId: number;
-    vmName: string;
+    name: string;
     vmKey: string;
     datacenter: string;
     cpuCount: number;
-    memoryBytes: number;
+    memoryGb: number;
     powerState: string;
     hostIp: string;
 }
@@ -111,7 +113,7 @@ export interface TaskLog {
     taskId: number;
     level: "debug" | "info" | "warn" | "error";
     message: string;
-    createdAt: string;
+    timestamp: string;
 }
 
 export interface TaskListResponse {
@@ -121,6 +123,7 @@ export interface TaskListResponse {
 
 /**
  * List tasks
+ * 使用 300 秒超时（后端 API 响应慢）
  */
 export async function listTasks(params?: {
     type?: TaskType;
@@ -128,7 +131,10 @@ export async function listTasks(params?: {
     page?: number;
     size?: number;
 }): Promise<TaskListResponse> {
-    const response = await apiClient.get("/api/tasks", { params });
+    const response = await apiClient.get("/api/tasks", {
+        params,
+        timeout: 300000, // 300 秒超时，只针对这个接口
+    });
     return response.data.data;
 }
 
@@ -207,4 +213,22 @@ export async function listTaskVMs(
 export async function retryTask(taskId: number): Promise<number> {
     const response = await apiClient.post(`/api/tasks/${taskId}/retry`);
     return response.data.data.taskId;
+}
+
+/**
+ * Update task mode
+ * API: PUT /api/tasks/{task_id}/mode
+ */
+export async function updateTaskMode(taskId: number, mode: TaskMode): Promise<Task> {
+    const response = await apiClient.put(`/api/tasks/${taskId}/mode`, { mode });
+    return response.data.data;
+}
+
+/**
+ * Re-evaluate task
+ * API: POST /api/tasks/{task_id}/re-evaluate
+ */
+export async function reEvaluateTask(taskId: number, mode?: TaskMode): Promise<{ message: string }> {
+    const response = await apiClient.post(`/api/tasks/${taskId}/re-evaluate`, mode ? { mode } : {});
+    return response.data.data;
 }

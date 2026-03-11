@@ -6,7 +6,51 @@
   "scripts": {
     "dev": "tsc",
     "build": "tsc",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "dist": "electron-builder --win --x64",
+    "dist:portable": "electron-builder --win --x64 --config.portable=true"
+  },
+  "build": {
+    "appId": "com.justfit.app",
+    "productName": "JustFit",
+    "directories": {
+      "output": "../../dist/electron",
+      "buildResources": "../../resources"
+    },
+    "files": [
+      "dist/**/*",
+      "../frontend/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/justfit_backend.exe",
+        "to": "justfit_backend.exe",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": "x64"
+        },
+        {
+          "target": "nsis",
+          "arch": "x64"
+        }
+      ],
+      "icon": "../resources/icons/icon.ico"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.0",

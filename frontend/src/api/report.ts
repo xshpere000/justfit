@@ -39,14 +39,14 @@ export async function generateReport(taskId: number, request: ReportRequest): Pr
  * Get report download URL
  */
 export function getReportDownloadUrl(reportId: number): string {
-    return `/api/reports/reports/${reportId}/download`;
+    return `/api/reports/${reportId}/download`;
 }
 
 /**
  * Download report
  */
 export async function downloadReport(reportId: number): Promise<Blob> {
-    const response = await apiClient.get(`/api/reports/reports/${reportId}/download`, {
+    const response = await apiClient.get(`/api/reports/${reportId}/download`, {
         responseType: "blob",
     });
     return response.data;
@@ -64,7 +64,7 @@ export async function getTaskReports(taskId: number): Promise<Report[]> {
  * Delete report
  */
 export async function deleteReport(reportId: number): Promise<void> {
-    await apiClient.delete(`/api/reports/reports/${reportId}`);
+    await apiClient.delete(`/api/reports/${reportId}`);
 }
 
 /**

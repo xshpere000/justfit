@@ -99,7 +99,7 @@ async def list_reports(
     }
 
 
-@router.get("/reports/{report_id}")
+@router.get("/{report_id}")
 async def get_report(
     report_id: int,
     db: AsyncSession = Depends(get_db),
@@ -128,7 +128,7 @@ async def get_report(
     }
 
 
-@router.get("/reports/{report_id}/download")
+@router.get("/{report_id}/download")
 async def download_report(
     report_id: int,
     db: AsyncSession = Depends(get_db),
@@ -176,7 +176,7 @@ async def download_report(
     )
 
 
-@router.delete("/reports/{report_id}")
+@router.delete("/{report_id}")
 async def delete_report(
     report_id: int,
     db: AsyncSession = Depends(get_db),

@@ -83,6 +83,53 @@ class RightSizeAnalyzer:
 
         return findings
 
+    def _convert_cpu_to_percentage(
+        self,
+        cpu_metrics: List[VMMetric],
+        cpu_count: int,
+        host_cpu_mhz: int,
+    ) -> List[float]:
+        """将 CPU 指标从存储值转换为百分比。
+
+        存储：percentage / 100 * cpu_count * host_cpu_mhz
+        还原：stored_value / cpu_count / host_cpu_mhz * 100
+        """
+        if not cpu_metrics:
+            return []
+
+        effective_host_mhz = host_cpu_mhz if host_cpu_mhz > 0 else 2600
+        effective_cpu_count = cpu_count if cpu_count > 0 else 1
+
+        if effective_host_mhz == 0:
+            return [m.value for m in cpu_metrics]
+
+        result = []
+        for metric in cpu_metrics:
+            percentage = (metric.value / effective_cpu_count / effective_host_mhz) * 100
+            result.append(round(percentage, 2))
+
+        return result
+
+    def _convert_memory_to_percentage(
+        self,
+        memory_metrics: List[VMMetric],
+        memory_bytes: int,
+    ) -> List[float]:
+        """将内存指标从存储值（bytes）转换为百分比。
+
+        数据库存储：实际使用的内存字节数 (bytes)
+        转换公式：(metric.value / memory_bytes) * 100
+        """
+        if not memory_metrics or memory_bytes == 0:
+            return [m.value for m in memory_metrics] if memory_metrics else []
+
+        result = []
+        for metric in memory_metrics:
+            percentage = (metric.value / memory_bytes) * 100
+            result.append(round(percentage, 2))
+
+        return result
+
     async def _analyze_vm(
         self,
         vm_id: int,
@@ -105,19 +152,27 @@ class RightSizeAnalyzer:
 
         # Get current configuration
         current_cpu = vm_info.get("cpu_count", 0)
-        current_memory_gb = vm_info.get("memory_gb", 0)
+        current_memory_bytes = vm_info.get("memory_bytes", 0)
+        current_memory_gb = current_memory_bytes / (1024**3) if current_memory_bytes > 0 else 0
 
-        # Calculate statistics
-        cpu_values = [m.value for m in metrics if m.metric_type == "cpu"]
-        memory_values = [m.value for m in metrics if m.metric_type == "memory"]
+        # 获取转换所需的参数
+        host_cpu_mhz = vm_info.get("host_cpu_mhz", 0)
 
-        cpu_p95 = self._percentile(cpu_values, 95) if cpu_values else 0
-        cpu_max = max(cpu_values) if cpu_values else 0
-        cpu_avg = sum(cpu_values) / len(cpu_values) if cpu_values else 0
+        # 提取 CPU 和内存指标并转换为百分比
+        cpu_metrics = [m for m in metrics if m.metric_type == "cpu"]
+        memory_metrics = [m for m in metrics if m.metric_type == "memory"]
 
-        memory_p95 = self._percentile(memory_values, 95) if memory_values else 0
-        memory_max = max(memory_values) if memory_values else 0
-        memory_avg = sum(memory_values) / len(memory_values) if memory_values else 0
+        cpu_values_pct = self._convert_cpu_to_percentage(cpu_metrics, current_cpu, host_cpu_mhz)
+        memory_values_pct = self._convert_memory_to_percentage(memory_metrics, current_memory_bytes)
+
+        # Calculate statistics（使用百分比）
+        cpu_p95 = self._percentile(cpu_values_pct, 95) if cpu_values_pct else 0
+        cpu_max = max(cpu_values_pct) if cpu_values_pct else 0
+        cpu_avg = sum(cpu_values_pct) / len(cpu_values_pct) if cpu_values_pct else 0
+
+        memory_p95 = self._percentile(memory_values_pct, 95) if memory_values_pct else 0
+        memory_max = max(memory_values_pct) if memory_values_pct else 0
+        memory_avg = sum(memory_values_pct) / len(memory_values_pct) if memory_values_pct else 0
 
         # Calculate recommended configuration
         # CPU: convert percentage to actual cores
@@ -147,23 +202,27 @@ class RightSizeAnalyzer:
         else:
             adjustment_type = "none"
 
-        # Calculate risk level
-        cpu_stddev = self._stddev(cpu_values) if cpu_values else 0
-        risk = self._calculate_risk(cpu_stddev, current_cpu)
+        # Calculate risk level (使用 CPU 使用率的变异系数)
+        cpu_stddev = self._stddev(cpu_values_pct) if cpu_values_pct else 0
+        risk = self._calculate_risk(cpu_stddev, cpu_avg)
 
         # Calculate confidence
-        total_samples = len(cpu_values) + len(memory_values)
-        expected_samples = self.days_threshold * 288  # 5-min intervals
-        confidence = min(100, (total_samples / expected_samples) * 100)
+        # 数据存储是按小时聚合的，每小时1个数据点
+        total_samples = len(cpu_values_pct) + len(memory_values_pct)
+        expected_samples = self.days_threshold * 24  # 每小时1个数据点
+        confidence = min(100, (total_samples / expected_samples) * 100) if expected_samples > 0 else 0
 
         # Generate recommendation
         recommendation = self._generate_recommendation(
             adjustment_type, risk, suggested_cpu, suggested_memory_gb
         )
 
-        # 计算预计节省百分比
+        # 计算预计节省百分比（综合考虑 CPU 和内存）
         if adjustment_type in ("down", "down_significant"):
-            saving_percent = round((1 - (suggested_cpu / current_cpu if current_cpu > 0 else 1)) * 100, 1)
+            cpu_saving = (1 - (suggested_cpu / current_cpu if current_cpu > 0 else 1)) * 100
+            memory_saving = (1 - (suggested_memory_gb / current_memory_gb if current_memory_gb > 0 else 1)) * 100
+            # 取平均值作为总体节省
+            saving_percent = round((cpu_saving + memory_saving) / 2, 1)
             estimated_saving = f"{saving_percent}%"
         else:
             estimated_saving = "0%"
@@ -194,8 +253,8 @@ class RightSizeAnalyzer:
             "recommendation": recommendation,
             "details": {
                 "daysAnalyzed": self.days_threshold,
-                "cpuSamples": len(cpu_values),
-                "memorySamples": len(memory_values),
+                "cpuSamples": len(cpu_values_pct),
+                "memorySamples": len(memory_values_pct),
             },
         }
 
@@ -230,12 +289,15 @@ class RightSizeAnalyzer:
                 return standard
         return MEMORY_STANDARDS[-1]
 
-    def _calculate_risk(self, stddev: float, current: int) -> str:
-        """Calculate risk level based on variability."""
-        if current == 0:
+    def _calculate_risk(self, stddev: float, mean: float) -> str:
+        """Calculate risk level based on variability using coefficient of variation.
+
+        CV = stddev / mean，表示数据的相对波动性
+        """
+        if mean == 0:
             return "low"
 
-        cv = stddev / current if current > 0 else 0
+        cv = stddev / mean if mean > 0 else 0
         if cv > 0.4:
             return "high"
         elif cv > 0.2:

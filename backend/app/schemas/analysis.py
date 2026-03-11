@@ -108,21 +108,86 @@ class HealthScoreResult(BaseSchema):
     findings: List[HealthFinding] = Field(default_factory=list)
 
 
+# ============ Usage Pattern Analysis Schemas ============
+
+class TidalDetails(BaseSchema):
+    """Tidal pattern details."""
+
+    pattern_type: str = Field(..., alias="patternType")
+    day_avg: float = Field(..., alias="dayAvg")
+    night_avg: float = Field(..., alias="nightAvg")
+    hourly_avg: Dict[str, float] = Field(default_factory=dict, alias="hourlyAvg")
+
+
+class UsagePatternResult(BaseSchema):
+    """Usage pattern analysis result."""
+
+    vm_name: str = Field(..., alias="vmName")
+    datacenter: str
+    cluster: str
+    host_ip: str = Field(..., alias="hostIp")
+    optimization_type: str = Field(default="usage_pattern", alias="optimizationType")
+    usage_pattern: str = Field(..., alias="usagePattern")
+    volatility_level: str = Field(..., alias="volatilityLevel")
+    coefficient_of_variation: float = Field(..., alias="coefficientOfVariation")
+    peak_valley_ratio: float = Field(..., alias="peakValleyRatio")
+    tidal_details: Optional[TidalDetails] = Field(default=None, alias="tidalDetails")
+    recommendation: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ============ Resource Mismatch Analysis Schemas ============
+
+class MismatchResult(BaseSchema):
+    """Resource mismatch analysis result."""
+
+    vm_name: str = Field(..., alias="vmName")
+    datacenter: str
+    cluster: str
+    host_ip: str = Field(..., alias="hostIp")
+    has_mismatch: bool = Field(..., alias="hasMismatch")
+    mismatch_type: Optional[str] = Field(default=None, alias="mismatchType")
+    cpu_utilization: float = Field(..., alias="cpuUtilization")
+    memory_utilization: float = Field(..., alias="memoryUtilization")
+    current_cpu: int = Field(..., alias="currentCpu")
+    current_memory: float = Field(..., alias="currentMemory")
+    recommendation: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ============ Resource Analysis Combined Schemas ============
+
+class ResourceAnalysisSummary(BaseSchema):
+    """Resource analysis summary."""
+
+    right_size_count: int = Field(..., alias="rightSizeCount")
+    usage_pattern_count: int = Field(..., alias="usagePatternCount")
+    mismatch_count: int = Field(..., alias="mismatchCount")
+    total_vms_analyzed: int = Field(..., alias="totalVmsAnalyzed")
+
+
+class ResourceAnalysisResult(BaseSchema):
+    """Combined resource analysis result."""
+
+    right_size: List[RightSizeResult] = Field(default_factory=list, alias="rightSize")
+    usage_pattern: List[UsagePatternResult] = Field(default_factory=list, alias="usagePattern")
+    mismatch: List[MismatchResult] = Field(default_factory=list)
+    summary: ResourceAnalysisSummary
+
+
 # ============ Analysis Mode Schemas ============
 
-class ZombieConfig(BaseSchema):
-    """Zombie analysis configuration."""
+class IdleConfig(BaseSchema):
+    """Idle detection analysis configuration."""
 
     days: int = Field(default=14)
     cpu_threshold: float = Field(default=10.0, alias="cpuThreshold")
     memory_threshold: float = Field(default=20.0, alias="memoryThreshold")
-    disk_io_threshold: float = Field(default=5.0, alias="diskIoThreshold")
-    network_threshold: float = Field(default=5.0, alias="networkThreshold")
     min_confidence: float = Field(default=60.0, alias="minConfidence")
 
 
-class RightSizeConfig(BaseSchema):
-    """Right size analysis configuration."""
+class RightSizeModeConfig(BaseSchema):
+    """Right size analysis configuration (within resource)."""
 
     days: int = Field(default=7)
     cpu_buffer_percent: float = Field(default=20.0, alias="cpuBufferPercent")
@@ -132,30 +197,50 @@ class RightSizeConfig(BaseSchema):
     min_confidence: float = Field(default=60.0, alias="minConfidence")
 
 
-class TidalConfig(BaseSchema):
-    """Tidal analysis configuration."""
+class UsagePatternConfig(BaseSchema):
+    """Usage pattern analysis configuration (within resource)."""
 
-    days: int = Field(default=14)
-    peak_threshold: float = Field(default=75.0, alias="peakThreshold")
-    valley_threshold: float = Field(default=35.0, alias="valleyThreshold")
-    min_stability: float = Field(default=50.0, alias="minStability")
+    cv_threshold: float = Field(default=0.4, alias="cvThreshold")
+    peak_valley_ratio: float = Field(default=2.5, alias="peakValleyRatio")
+
+
+class MismatchConfig(BaseSchema):
+    """Resource mismatch analysis configuration (within resource)."""
+
+    cpu_low_threshold: float = Field(default=30.0, alias="cpuLowThreshold")
+    cpu_high_threshold: float = Field(default=70.0, alias="cpuHighThreshold")
+    memory_low_threshold: float = Field(default=30.0, alias="memoryLowThreshold")
+    memory_high_threshold: float = Field(default=70.0, alias="memoryHighThreshold")
+
+
+class ResourceConfig(BaseSchema):
+    """Resource analysis configuration (contains rightsize, usage_pattern, mismatch)."""
+
+    rightsize: RightSizeModeConfig = Field(default_factory=RightSizeModeConfig)
+    usage_pattern: UsagePatternConfig = Field(default_factory=UsagePatternConfig, alias="usagePattern")
+    mismatch: MismatchConfig = Field(default_factory=MismatchConfig)
 
 
 class HealthConfig(BaseSchema):
     """Health analysis configuration."""
 
-    overcommit_threshold: float = Field(default=150.0, alias="overcommitThreshold")
-    hotspot_threshold: float = Field(default=90.0, alias="hotspotThreshold")
+    overcommit_threshold: float = Field(default=1.5, alias="overcommitThreshold")
+    hotspot_threshold: float = Field(default=7.0, alias="hotspotThreshold")
     balance_threshold: float = Field(default=0.6, alias="balanceThreshold")
 
 
 class AnalysisModeConfig(BaseSchema):
-    """Analysis mode configuration."""
+    """Analysis mode configuration.
+
+    Matches the structure defined in app/analyzers/modes.py:
+    - idle: Idle detection config
+    - resource: Resource analysis config (contains rightsize, usage_pattern, mismatch)
+    - health: Health score config
+    """
 
     description: str
-    zombie: ZombieConfig = Field(default_factory=ZombieConfig)
-    rightsize: RightSizeConfig = Field(default_factory=RightSizeConfig)
-    tidal: TidalConfig = Field(default_factory=TidalConfig)
+    idle: IdleConfig = Field(default_factory=IdleConfig)
+    resource: ResourceConfig = Field(default_factory=ResourceConfig)
     health: HealthConfig = Field(default_factory=HealthConfig)
 
 
@@ -214,6 +299,33 @@ class HealthAnalysisResponse(BaseSchema):
     error: Optional[Dict[str, Any]] = None
 
 
+class UsagePatternAnalysisResponse(BaseSchema):
+    """Usage pattern analysis results response."""
+
+    success: bool
+    data: List[UsagePatternResult] = Field(default_factory=list)
+    message: Optional[str] = None
+    error: Optional[Dict[str, Any]] = None
+
+
+class MismatchAnalysisResponse(BaseSchema):
+    """Resource mismatch analysis results response."""
+
+    success: bool
+    data: List[MismatchResult] = Field(default_factory=list)
+    message: Optional[str] = None
+    error: Optional[Dict[str, Any]] = None
+
+
+class ResourceAnalysisResponse(BaseSchema):
+    """Combined resource analysis results response."""
+
+    success: bool
+    data: Optional[ResourceAnalysisResult] = None
+    message: Optional[str] = None
+    error: Optional[Dict[str, Any]] = None
+
+
 # ============ Mode Management Schemas ============
 
 class ModesResponse(BaseSchema):
@@ -235,6 +347,6 @@ class ModeResponse(BaseSchema):
 class CustomModeUpdateRequest(BaseSchema):
     """Custom mode update request."""
 
-    analysis_type: str = Field(..., pattern="^(zombie|rightsize|tidal|health)$")
-    config: Optional[Dict[str, Any]] = Field(default_factory=dict)  # 使 config 可选，默认为空字典
-    task_id: Optional[int] = Field(default=None, alias="taskId")  # 用于记录日志
+    analysis_type: str = Field(..., pattern="^(idle|resource|health)$")
+    config: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    task_id: Optional[int] = Field(default=None, alias="taskId")

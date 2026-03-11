@@ -8,10 +8,11 @@
                     创建评估任务
                 </h1>
                 <el-steps :active="currentStep" simple
-                    style="flex: 1; max-width: 1000px; margin-left: 40px; background: transparent">
+                    style="flex: 1; max-width: 1200px; margin-left: 40px; background: transparent">
                     <el-step title="选择平台" icon="Monitor" />
                     <el-step title="配置连接" icon="Connection" />
                     <el-step title="选择虚拟机" icon="Search" />
+                    <el-step title="任务配置" icon="Setting" />
                     <el-step title="开始确认" icon="Flag" />
                 </el-steps>
             </div>
@@ -109,13 +110,6 @@
                                     <el-input v-model="connectionForm.password" type="password" show-password
                                         placeholder="管理员密码" />
                                 </el-form-item>
-                                <el-form-item label="采集天数" class="field-metrics">
-                                    <el-input-number v-model="connectionForm.metricsDays" :min="1" :max="90"
-                                        placeholder="30" controls-position="right" style="width: 100%" />
-                                    <div style="font-size: 12px; color: #909399; margin-top: 4px;">
-                                        性能指标采集天数（1-90天），默认30天
-                                    </div>
-                                </el-form-item>
                             </div>
                         </el-form>
                     </div>
@@ -144,7 +138,7 @@
                             <el-empty description="未找到匹配的虚拟机" :image-size="80" />
                         </div>
                         <div class="vm-grid" v-else>
-                            <div v-for="vm in filteredVMs" :key="vm.uuid || vm.id" class="vm-item" :class="{
+                            <div v-for="vm in filteredVMs" :key="vm.vmKey" class="vm-item" :class="{
                                 selected: selectedVMs.has(vm.vmKey),
                                 'state-warning': !isVMStateNormal(vm)
                             }" @click="toggleVM(vm)">
@@ -154,7 +148,7 @@
                                     <div class="vm-spec">
                                         {{ vm.cpuCount > 0 ? vm.cpuCount + ' vCPU' : 'CPU: -' }}
                                         /
-                                        {{ vm.memoryGb > 0 ? formatMemory(vm.memoryGb * 1024) : '内存: 未获取' }}
+                                        {{ vm.memoryGb > 0 ? vm.memoryGb + ' GB' : '内存: 未获取' }}
                                     </div>
                                 </div>
                                 <div class="vm-state-badge" v-if="!isVMStateNormal(vm)">
@@ -177,13 +171,201 @@
                 </div>
             </div>
 
-            <!-- 步骤4：确认 -->
-            <div v-show="currentStep === 3" class="step-panel" style="max-width: 700px; margin: 0 auto;">
+            <!-- 步骤4：任务配置 -->
+            <div v-show="currentStep === 3" class="step-panel step-config">
+                <h2 class="section-title" style="margin-bottom: 40px">任务配置</h2>
+
+                <div class="config-layout">
+                    <!-- 基础配置 -->
+                    <div class="config-section">
+                        <el-descriptions :column="2" border size="default" class="config-descriptions">
+                            <el-descriptions-item label="任务类型">
+                                <el-tag size="small">{{ formData.platform === 'vcenter' ? 'vCenter 集群评估' : 'H3C UIS 评估' }}</el-tag>
+                            </el-descriptions-item>
+                            <el-descriptions-item label="评估对象">
+                                <span style="color: var(--el-color-primary); font-weight: 600">{{ selectedVMs.size }}</span> 台虚拟机
+                            </el-descriptions-item>
+                            <el-descriptions-item label="连接地址">
+                                <span style="font-family: monospace">{{ connectionForm.host }}:{{ connectionForm.port }}</span>
+                            </el-descriptions-item>
+                            <el-descriptions-item label="接入账户">
+                                {{ connectionForm.username }}
+                            </el-descriptions-item>
+                        </el-descriptions>
+                    </div>
+
+                    <!-- 分析模式配置 -->
+                    <div class="config-section">
+                        <div class="section-header">
+                            <h3>评估模式配置</h3>
+                            <el-tag size="small" :type="taskConfigForm.mode === 'custom' ? 'warning' : 'info'">
+                                {{ taskConfigForm.mode === 'custom' ? '可编辑' : '只读' }}
+                            </el-tag>
+                        </div>
+
+                        <el-form label-position="top" class="config-form">
+                            <el-row :gutter="16">
+                                <el-col :span="17">
+                                    <el-form-item label="评估模式">
+                                        <el-select v-model="taskConfigForm.mode" style="width: 100%" @change="handleModeChange">
+                                            <el-option v-for="mode in analysisModeOptions" :key="mode.value"
+                                                :label="mode.label" :value="mode.value">
+                                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                    <span>{{ mode.label }}</span>
+                                                    <span style="font-size: 12px; color: var(--el-text-color-secondary);">{{ mode.description }}</span>
+                                                </div>
+                                            </el-option>
+                                        </el-select>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="7">
+                                    <el-form-item label="采集天数">
+                                        <el-select v-model="taskConfigForm.metricDays" style="width: 100%">
+                                            <el-option label="30 天" :value="30" />
+                                            <el-option label="60 天" :value="60" />
+                                            <el-option label="90 天" :value="90" />
+                                        </el-select>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                        </el-form>
+
+                        <!-- 自定义模式参数配置 -->
+                        <el-collapse v-if="taskConfigForm.mode === 'custom'" v-model="customCollapseActiveNames" class="custom-params-collapse">
+                            <el-collapse-item name="zombie">
+                                <template #title>
+                                    <div class="collapse-header">
+                                        <el-icon><Monitor /></el-icon>
+                                        <span>僵尸 VM 检测</span>
+                                    </div>
+                                </template>
+                                <div class="param-list">
+                                    <ParamSlider
+                                        label="分析天数"
+                                        v-model="customConfig.idle.days"
+                                        :min="1"
+                                        :max="90"
+                                        unit="天"
+                                        description="分析过去N天的使用数据"
+                                    />
+                                    <ParamSlider
+                                        label="CPU 阈值"
+                                        v-model="customConfig.idle.cpuThreshold"
+                                        :min="0"
+                                        :max="100"
+                                        unit="%"
+                                        :step="0.5"
+                                        description="CPU使用率低于此值视为低使用"
+                                    />
+                                    <ParamSlider
+                                        label="内存阈值"
+                                        v-model="customConfig.idle.memoryThreshold"
+                                        :min="0"
+                                        :max="100"
+                                        unit="%"
+                                        :step="0.5"
+                                        description="内存使用率低于此值视为低使用"
+                                    />
+                                    <ParamSlider
+                                        label="最小置信度"
+                                        v-model="customConfig.idle.minConfidence"
+                                        :min="0"
+                                        :max="100"
+                                        unit="%"
+                                        :step="5"
+                                        description="判断为僵尸VM的最低置信度要求"
+                                    />
+                                </div>
+                            </el-collapse-item>
+
+                            <el-collapse-item name="rightsize">
+                                <template #title>
+                                    <div class="collapse-header">
+                                        <el-icon><TrendCharts /></el-icon>
+                                        <span>Right Size 分析</span>
+                                    </div>
+                                </template>
+                                <div class="param-list">
+                                    <ParamSlider
+                                        label="分析天数"
+                                        v-model="customConfig.resource.rightsize.days"
+                                        :min="1"
+                                        :max="30"
+                                        unit="天"
+                                        description="分析过去N天的使用数据"
+                                    />
+                                    <ParamSlider
+                                        label="CPU 缓冲比例"
+                                        v-model="customConfig.resource.rightsize.cpuBufferPercent"
+                                        :min="0"
+                                        :max="100"
+                                        unit="%"
+                                        :step="5"
+                                        description="CPU资源配置时的缓冲比例"
+                                    />
+                                    <ParamSlider
+                                        label="内存缓冲比例"
+                                        v-model="customConfig.resource.rightsize.memoryBufferPercent"
+                                        :min="0"
+                                        :max="100"
+                                        unit="%"
+                                        :step="5"
+                                        description="内存资源配置时的缓冲比例"
+                                    />
+                                </div>
+                            </el-collapse-item>
+
+                            <el-collapse-item name="health">
+                                <template #title>
+                                    <div class="collapse-header">
+                                        <el-icon><DataAnalysis /></el-icon>
+                                        <span>健康评分</span>
+                                    </div>
+                                </template>
+                                <div class="param-list">
+                                    <ParamSlider
+                                        label="超配阈值"
+                                        v-model="customConfig.health.overcommitThreshold"
+                                        :min="1.0"
+                                        :max="3.0"
+                                        :step="0.1"
+                                        description="CPU超配倍数阈值"
+                                    />
+                                    <ParamSlider
+                                        label="热点阈值"
+                                        v-model="customConfig.health.hotspotThreshold"
+                                        :min="1.0"
+                                        :max="10.0"
+                                        :step="0.5"
+                                        description="主机负载热点评分阈值"
+                                    />
+                                    <ParamSlider
+                                        label="均衡阈值"
+                                        v-model="customConfig.health.balanceThreshold"
+                                        :min="0"
+                                        :max="1"
+                                        :step="0.05"
+                                        description="资源分配均衡性阈值"
+                                    />
+                                </div>
+                            </el-collapse-item>
+                        </el-collapse>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤5：确认 -->
+            <div v-show="currentStep === 4" class="step-panel" style="max-width: 700px; margin: 0 auto;">
                 <h2 class="section-title">任务概览确认</h2>
                 <div class="confirm-card">
                     <el-descriptions :column="1" border size="large">
                         <el-descriptions-item label="任务类型">
                             <el-tag>{{ formData.platform === 'vcenter' ? 'vCenter 集群评估' : 'H3C UIS 评估' }}</el-tag>
+                        </el-descriptions-item>
+                        <el-descriptions-item label="评估模式">
+                            <el-tag :type="taskConfigForm.mode === 'safe' ? 'success' : taskConfigForm.mode === 'aggressive' ? 'danger' : 'primary'">
+                                {{ analysisModeOptions.find(m => m.value === taskConfigForm.mode)?.label || taskConfigForm.mode }}
+                            </el-tag>
                         </el-descriptions-item>
                         <el-descriptions-item label="连接地址">
                             <span style="font-family: monospace">{{ connectionForm.host }}:{{ connectionForm.port
@@ -196,7 +378,7 @@
                             <span style="color: #409EFF; font-weight: bold">{{ selectedVMs.size }}</span> 台虚拟机
                         </el-descriptions-item>
                         <el-descriptions-item label="采集天数">
-                            {{ connectionForm.metricsDays }} 天
+                            {{ taskConfigForm.metricDays }} 天
                         </el-descriptions-item>
                     </el-descriptions>
                 </div>
@@ -215,7 +397,7 @@
                     @click="testConnection">
                     测试并继续
                 </el-button>
-                <el-button v-else-if="currentStep < 3" type="primary" size="large" @click="nextStep">
+                <el-button v-else-if="currentStep < 4" type="primary" size="large" @click="nextStep">
                     下一步
                 </el-button>
                 <el-button v-else type="success" size="large" :loading="submitLoading" @click="submitTask">
@@ -231,8 +413,10 @@ import { ref, reactive, computed, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore, type CreateTaskParams } from '@/stores/task'
 import * as ConnectionAPI from '@/api/connection'
+import type { TestFetchVM } from '@/api/connection'
 import { ElMessage, ElMessageBox, ElNotification, type FormInstance } from 'element-plus'
-import { Monitor, Connection, Search, Check, Flag, ArrowLeft, Refresh, Cloudy } from '@element-plus/icons-vue'
+import { Monitor, Connection, Search, Check, Flag, ArrowLeft, Refresh, Cloudy, Setting, TrendCharts, Clock, DataAnalysis } from '@element-plus/icons-vue'
+import ParamSlider from './components/ParamSlider.vue'
 
 defineOptions({
     name: 'Wizard'
@@ -288,9 +472,56 @@ const connectionForm = reactive({
     host: '',
     port: 443,
     username: '',
-    password: '',
-    metricsDays: 30
+    password: ''
 })
+
+// 任务配置表单（独立于连接信息）
+const taskConfigForm = reactive({
+    mode: 'saving' as 'safe' | 'saving' | 'aggressive' | 'custom',
+    metricDays: 30,
+    baseMode: 'saving' as 'safe' | 'saving' | 'aggressive'  // 自定义模式的基础模式
+})
+
+// 自定义模式配置 - 直接使用后端字段结构（snake_case 转 camelCase）
+const customConfig = reactive({
+    idle: {
+        days: 14,
+        cpuThreshold: 10.0,
+        memoryThreshold: 20.0,
+        minConfidence: 60.0
+    },
+    resource: {
+        rightsize: {
+            days: 7,
+            cpuBufferPercent: 20.0,
+            memoryBufferPercent: 20.0
+        },
+        usagePattern: {
+            cvThreshold: 0.4,
+            peakValleyRatio: 2.5
+        },
+        mismatch: {
+            cpuLowThreshold: 30.0,
+            cpuHighThreshold: 70.0
+        }
+    },
+    health: {
+        overcommitThreshold: 1.5,
+        hotspotThreshold: 7.0,
+        balanceThreshold: 0.6
+    }
+})
+
+// 自定义参数折叠面板
+const customCollapseActiveNames = ref<string[]>([])
+
+// 分析模式选项
+const analysisModeOptions = [
+    { value: 'safe', label: '安全模式', description: '保守阈值，适用于生产环境' },
+    { value: 'saving', label: '节省模式', description: '平衡阈值，默认推荐' },
+    { value: 'aggressive', label: '激进模式', description: '最大化优化机会' },
+    { value: 'custom', label: '自定义模式', description: '用户自定义配置' }
+]
 
 const connectionRules = {
     name: [{ required: true, message: '请输入连接名称', trigger: 'blur' }],
@@ -299,8 +530,8 @@ const connectionRules = {
     password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
-// VM List
-const vmList = ref<any[]>([])
+// VM List - 使用后端返回的字段结构，不做映射
+const vmList = ref<TestFetchVM[]>([])
 const selectedVMs = ref<Set<string>>(new Set())
 const vmSearchQuery = ref('')
 const isAllSelected = ref(false)
@@ -360,7 +591,7 @@ function nextStep() {
         }
     }
 
-    if (currentStep.value < 3) currentStep.value++
+    if (currentStep.value < 4) currentStep.value++
 }
 
 function prevStep() {
@@ -370,6 +601,13 @@ function prevStep() {
 function handlePortInput(value: string) {
     const onlyDigits = value.replace(/\D/g, '').slice(0, 5)
     connectionForm.port = onlyDigits ? Number(onlyDigits) : 0
+}
+
+function handleModeChange(mode: string) {
+    // 切换到自定义模式时，展开第一个折叠面板
+    if (mode === 'custom' && customCollapseActiveNames.value.length === 0) {
+        customCollapseActiveNames.value = ['zombie']
+    }
 }
 
 async function testConnection() {
@@ -544,7 +782,7 @@ const VM_STATE_TEXT_MAP: Record<string, string> = {
  * @param vm 虚拟机对象
  * @returns 实际应该显示的状态字符串
  */
-function getVMActualState(vm: any): string {
+function getVMActualState(vm: TestFetchVM): string {
     // 如果有连接状态且不是正常连接，返回连接状态
     const connectionState = vm.connectionState || ''
     if (connectionState && !NORMAL_CONNECTION_STATES.has(connectionState.toLowerCase())) {
@@ -559,7 +797,7 @@ function getVMActualState(vm: any): string {
  * @param vm 虚拟机对象
  * @returns true=正常状态，false=异常状态
  */
-function isVMStateNormal(vm: any): boolean {
+function isVMStateNormal(vm: TestFetchVM): boolean {
     // 检查连接状态
     const connectionState = (vm.connectionState || '').toLowerCase()
     if (connectionState && !NORMAL_CONNECTION_STATES.has(connectionState)) {
@@ -587,7 +825,7 @@ function isVMStateNormal(vm: any): boolean {
  * @param vm 虚拟机对象
  * @returns 状态显示文本
  */
-function getVMStateText(vm: any): string {
+function getVMStateText(vm: TestFetchVM): string {
     const actualState = getVMActualState(vm)
     if (!actualState) return '未知'
 
@@ -612,7 +850,7 @@ function getVMStateText(vm: any): string {
  * @param vm 虚拟机对象
  * @returns 样式类名
  */
-function getVMStateDotClass(vm: any): string {
+function getVMStateDotClass(vm: TestFetchVM): string {
     const actualState = getVMActualState(vm)
     if (!actualState) return 'unknown'
 
@@ -639,7 +877,7 @@ function getVMStateDotClass(vm: any): string {
 
 // ==================== 虚拟机选择 ====================
 
-function toggleVM(vm: any) {
+function toggleVM(vm: TestFetchVM) {
     // 检查虚拟机状态，异常状态不允许选择
     if (!isVMStateNormal(vm)) {
         ElMessage.warning({
@@ -649,11 +887,11 @@ function toggleVM(vm: any) {
         return
     }
 
-    const key = vm.vmKey
-    if (selectedVMs.value.has(key)) {
-        selectedVMs.value.delete(key)
+    // 直接使用后端返回的 vmKey 字段
+    if (selectedVMs.value.has(vm.vmKey)) {
+        selectedVMs.value.delete(vm.vmKey)
     } else {
-        selectedVMs.value.add(key)
+        selectedVMs.value.add(vm.vmKey)
     }
 }
 
@@ -669,13 +907,6 @@ function handleSelectAll(val: boolean) {
     }
 }
 
-function formatMemory(value: number | undefined) {
-    if (!value) return '-'
-    // 后端 GetVMList 返回的 memory_mb 字段，单位是 MB
-    // 转换为 GB 显示
-    if (value >= 1024) return (value / 1024).toFixed(1) + ' GB'
-    return value + ' MB'
-}
 
 async function submitTask() {
     console.log('[Wizard.submitTask] ===== 开始创建任务 =====')
@@ -692,13 +923,20 @@ async function submitTask() {
             type: 'collection' as const,
             name: connectionForm.name,
             connectionId: createdConnectionId.value,
+            mode: taskConfigForm.mode,
+            metricDays: taskConfigForm.metricDays,
             config: {
                 platform: formData.platform,
                 connectionName: connectionForm.name,
                 connectionHost: connectionForm.host,
                 selectedVMs: Array.from(selectedVMs.value || []),
                 selectedVMCount: selectedVMs.value?.size || 0,
-                metricsDays: connectionForm.metricsDays
+                metricDays: taskConfigForm.metricDays,
+                // 自定义模式配置：直接使用后端字段结构（camelCase）
+                ...(taskConfigForm.mode === 'custom' ? {
+                    baseMode: taskConfigForm.baseMode,
+                    customConfig: customConfig
+                } : {})
             }
         }
         console.log('[Wizard.submitTask] 任务参数:', taskParams)
@@ -1110,10 +1348,6 @@ function handleCancel() {
         :deep(.field-password) {
             grid-column: 1 / -1;
         }
-
-        :deep(.field-metrics) {
-            grid-column: 1 / -1;
-        }
     }
 }
 
@@ -1291,6 +1525,8 @@ function handleCancel() {
     flex: 0 0 auto;
 }
 
+/* Task Config Styles */
+
 /* Footer Styles */
 .wizard-footer {
     flex: 0 0 auto;
@@ -1305,6 +1541,99 @@ function handleCancel() {
         margin-left: auto;
         display: flex;
         gap: 12px;
+    }
+}
+
+/* Step Config Styles */
+.step-config {
+    max-width: 900px !important;
+
+    .config-layout {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .config-section {
+        .config-descriptions {
+            :deep(.el-descriptions__label) {
+                font-weight: 500;
+                color: var(--el-text-color-regular);
+            }
+        }
+    }
+
+    .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--el-border-color-lighter);
+
+        h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--el-text-color-primary);
+        }
+    }
+
+    .config-form {
+        :deep(.el-form-item) {
+            margin-bottom: 16px;
+        }
+
+        :deep(.el-form-item__label) {
+            font-weight: 500;
+        }
+    }
+
+    .custom-params-collapse {
+        margin-top: 16px;
+
+        :deep(.el-collapse-item) {
+            border: 1px solid var(--el-border-color-lighter);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        :deep(.el-collapse-item__header) {
+            height: auto;
+            line-height: normal;
+            padding: 12px 14px;
+            background: var(--el-fill-color-blank);
+            border-bottom: none;
+        }
+
+        :deep(.el-collapse-item__wrap) {
+            border-bottom: none;
+        }
+
+        :deep(.el-collapse-item__content) {
+            padding: 0 14px 14px;
+        }
+
+        .collapse-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--el-text-color-primary);
+
+            .el-icon {
+                color: var(--el-color-primary);
+            }
+        }
+
+        .param-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-top: 8px;
+        }
     }
 }
 </style>
