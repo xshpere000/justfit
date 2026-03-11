@@ -2,30 +2,33 @@
   "name": "justfit-electron",
   "version": "0.0.3",
   "description": "JustFit Electron Main Process",
+  "type": "module",
   "main": "dist/main.js",
+  "author": {
+    "name": "JustFit Team"
+  },
   "scripts": {
     "dev": "tsc",
     "build": "tsc",
     "watch": "tsc --watch",
-    "dist": "electron-builder --win --x64",
-    "dist:portable": "electron-builder --win --x64 --config.portable=true"
+    "dist": "cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win --x64"
   },
   "build": {
     "appId": "com.justfit.app",
     "productName": "JustFit",
     "directories": {
-      "output": "../../dist/electron",
-      "buildResources": "../../resources"
+      "output": "../dist/electron",
+      "buildResources": "../resources"
     },
     "files": [
       "dist/**/*",
-      "../frontend/dist/**/*"
+      "../frontend/dist/**/*",
+      "package.json"
     ],
     "extraResources": [
       {
-        "from": "../backend/dist/justfit_backend.exe",
-        "to": "justfit_backend.exe",
-        "filter": ["**/*"]
+        "from": "../resources/backend/justfit_backend.exe",
+        "to": "backend/justfit_backend.exe"
       }
     ],
     "win": {
@@ -33,28 +36,18 @@
         {
           "target": "portable",
           "arch": "x64"
-        },
-        {
-          "target": "nsis",
-          "arch": "x64"
         }
       ],
       "icon": "../resources/icons/icon.ico"
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
     }
   },
   "devDependencies": {
     "@types/node": "^22.0",
     "@types/ws": "^8.5",
+    "cross-env": "^7.0.3",
     "electron": "^34.0",
     "electron-builder": "^25.0",
     "typescript": "^5.7"
