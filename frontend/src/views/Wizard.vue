@@ -410,7 +410,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, type Component } from 'vue'
 import { useRouter } from 'vue-router'
-import { useTaskStore, type CreateTaskParams } from '@/stores/task'
+import { useTaskStore } from '@/stores/task'
 import * as ConnectionAPI from '@/api/connection'
 import type { TestFetchVM } from '@/api/connection'
 import { ElMessage, ElMessageBox, ElNotification, type FormInstance } from 'element-plus'

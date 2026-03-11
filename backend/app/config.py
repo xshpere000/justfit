@@ -1,6 +1,7 @@
 """Application Configuration."""
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -25,6 +26,11 @@ def _get_default_data_dir() -> Path:
         return Path.home() / ".local" / "share" / "justfit"
 
 
+def _get_default_debug() -> bool:
+    """Disable debug defaults for frozen executables."""
+    return not getattr(sys, "frozen", False)
+
+
 class Settings(BaseSettings):
     """Application settings."""
 
@@ -38,7 +44,7 @@ class Settings(BaseSettings):
 
     # API Settings
     API_PORT: int = 22631
-    DEBUG: bool = True
+    DEBUG: bool = _get_default_debug()
 
     # Database Settings
     DATA_DIR: Path = _get_default_data_dir()

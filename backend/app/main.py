@@ -128,10 +128,15 @@ async def get_version() -> dict:
 if __name__ == "__main__":
     import uvicorn
 
+    is_frozen = getattr(sys, "frozen", False)
+    enable_reload = settings.DEBUG and not is_frozen
+    log_level = "debug" if enable_reload else "info"
+    app_target = "app.main:app" if enable_reload else app
+
     uvicorn.run(
-        "app.main:app",
+        app_target,
         host="0.0.0.0",  # Allow network access
         port=settings.API_PORT,
-        reload=settings.DEBUG,
-        log_level="info",
+        reload=enable_reload,
+        log_level=log_level,
     )

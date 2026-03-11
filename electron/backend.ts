@@ -11,6 +11,8 @@ import fs from "fs";
 const PYTHON_PORT = 22631;
 const HEALTH_CHECK_URL = `http://localhost:${PYTHON_PORT}/api/system/health`;
 const HEALTH_CHECK_INTERVAL = 5000; // 5 seconds
+const PACKAGED_STARTUP_GRACE_MS = 60000;
+const DEV_STARTUP_GRACE_MS = 10000;
 
 export interface BackendStatus {
     running: boolean;
@@ -29,6 +31,8 @@ export class BackendManager {
     private healthCheckTimer: NodeJS.Timeout | null = null;
     private unhealthyCount: number = 0;
     private readonly MAX_UNHEALTHY = 3;
+    private hasBeenHealthy: boolean = false;
+    private lastError?: string;
 
     private getPackagedBackendExe(): string {
         return path.join(process.resourcesPath, "backend", "justfit_backend.exe");
@@ -103,6 +107,9 @@ export class BackendManager {
         const useExe = this.usePackagedExe();
         const backendPath = this.getBackendPath();
 
+        this.hasBeenHealthy = false;
+        this.lastError = undefined;
+
         console.log(`[Backend] Starting with: ${pythonExe}`);
         console.log(`[Backend] Mode: ${useExe ? "Packaged EXE" : "Python + Uvicorn"}`);
 
@@ -129,7 +136,6 @@ export class BackendManager {
             env: {
                 ...process.env,
                 PYTHONUNBUFFERED: "1",
-                JUSTFIT_DATA_DIR: path.join(app.getPath("userData"), "data"),
             },
         });
 
@@ -141,14 +147,19 @@ export class BackendManager {
         });
 
         this.process.stderr?.on("data", (data) => {
-            console.error(`[Python Error] ${data.toString().trim()}`);
+            this.lastError = data.toString().trim();
+            console.error(`[Python Error] ${this.lastError}`);
         });
 
         this.process.on("error", (err) => {
+            this.lastError = err.message;
             console.error(`[Backend] Failed to start: ${err.message}`);
         });
 
         this.process.on("exit", (code, signal) => {
+            if (code !== 0) {
+                this.lastError = `Backend exited with code=${code}, signal=${signal}`;
+            }
             console.log(`[Backend] Exited: code=${code}, signal=${signal}`);
             this.stopHealthCheck();
             this.process = null;
@@ -206,6 +217,7 @@ export class BackendManager {
             healthy: running && this.unhealthyCount < this.MAX_UNHEALTHY,
             pid: this.process?.pid,
             uptime: running ? Date.now() - this.startTime : 0,
+            lastError: this.lastError,
         };
     }
 
@@ -236,6 +248,9 @@ export class BackendManager {
      * Check backend health via HTTP
      */
     private async checkHealth(): Promise<void> {
+        const startupGraceMs = this.usePackagedExe() ? PACKAGED_STARTUP_GRACE_MS : DEV_STARTUP_GRACE_MS;
+        const isInStartupGracePeriod = !this.hasBeenHealthy && Date.now() - this.startTime < startupGraceMs;
+
         try {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 3000);
@@ -247,12 +262,23 @@ export class BackendManager {
             clearTimeout(timeout);
 
             if (response.ok) {
+                this.hasBeenHealthy = true;
                 this.unhealthyCount = 0;
             } else {
+                if (isInStartupGracePeriod) {
+                    console.warn("[Backend] Health check not ready yet during startup grace period");
+                    return;
+                }
                 this.unhealthyCount++;
             }
         } catch (err) {
+            if (isInStartupGracePeriod) {
+                console.warn(`[Backend] Waiting for startup during grace period: ${err}`);
+                return;
+            }
+
             this.unhealthyCount++;
+            this.lastError = String(err);
             console.warn(`[Backend] Health check failed: ${err}`);
 
             // Auto-restart if unhealthy for too long
