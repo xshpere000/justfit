@@ -30,6 +30,10 @@
         "to": "frontend/dist"
       },
       {
+        "from": "../resources/icons",
+        "to": "icons"
+      },
+      {
         "from": "../resources/backend/justfit_backend.exe",
         "to": "backend/justfit_backend.exe"
       }

@@ -4,7 +4,13 @@
  */
 
 import { Tray, Menu, app, nativeImage } from "electron";
+import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+import { getMainWindow } from "./window.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let tray: Tray | null = null;
 
@@ -16,9 +22,17 @@ export function createTray(): Tray | null {
         return tray;
     }
 
-    // Create tray icon (use default icon for now, should be replaced with actual icon)
     const iconPath = getTrayIconPath();
+    if (!fs.existsSync(iconPath)) {
+        console.warn("[Tray] Icon not found, tray disabled", { iconPath });
+        return null;
+    }
+
     const icon = nativeImage.createFromPath(iconPath);
+    if (icon.isEmpty()) {
+        console.warn("[Tray] Icon file is invalid, tray disabled", { iconPath });
+        return null;
+    }
 
     tray = new Tray(icon);
 
@@ -31,7 +45,7 @@ export function createTray(): Tray | null {
             label: "Show JustFit",
             click: () => {
                 // Focus main window
-                const windows = require("./window").getMainWindow();
+                const windows = getMainWindow();
                 if (windows) {
                     windows.show();
                     windows.focus();
@@ -59,7 +73,6 @@ export function createTray(): Tray | null {
 
     // Handle double-click to show window
     tray.on("double-click", () => {
-        const { getMainWindow } = require("./window");
         const mainWindow = getMainWindow();
         if (mainWindow) {
             if (mainWindow.isMinimized()) {
@@ -77,17 +90,27 @@ export function createTray(): Tray | null {
  * Get tray icon path based on platform
  */
 function getTrayIconPath(): string {
-    // For now, return a placeholder path
-    // In production, this should point to actual icon files
-    const iconDir = path.join(__dirname, "../resources/icons");
+    const iconDir = app.isPackaged
+        ? path.join(process.resourcesPath, "icons")
+        : path.resolve(__dirname, "..", "resources", "icons");
+
+    const fallbackIcon = process.platform === "win32"
+        ? path.join(iconDir, "icon.ico")
+        : path.join(iconDir, "app.png");
 
     switch (process.platform) {
         case "darwin":
-            return path.join(iconDir, "tray", "iconTemplate.png");
+            return fs.existsSync(path.join(iconDir, "tray", "iconTemplate.png"))
+                ? path.join(iconDir, "tray", "iconTemplate.png")
+                : fallbackIcon;
         case "win32":
-            return path.join(iconDir, "tray", "icon.ico");
+            return fs.existsSync(path.join(iconDir, "tray", "icon.ico"))
+                ? path.join(iconDir, "tray", "icon.ico")
+                : fallbackIcon;
         default:
-            return path.join(iconDir, "tray", "icon.png");
+            return fs.existsSync(path.join(iconDir, "tray", "icon.png"))
+                ? path.join(iconDir, "tray", "icon.png")
+                : fallbackIcon;
     }
 }
 
@@ -97,13 +120,22 @@ function getTrayIconPath(): string {
 export function updateTrayIcon(backendHealthy: boolean): void {
     if (!tray) return;
 
-    const iconDir = path.join(__dirname, "../resources/icons");
+    const iconDir = app.isPackaged
+        ? path.join(process.resourcesPath, "icons")
+        : path.resolve(__dirname, "..", "resources", "icons");
     const iconName = backendHealthy ? "icon" : "icon-warning";
     const ext = process.platform === "win32" ? "ico" : "png";
 
     try {
         const iconPath = path.join(iconDir, "tray", `${iconName}.${ext}`);
-        const icon = nativeImage.createFromPath(iconPath);
+        const resolvedPath = fs.existsSync(iconPath)
+            ? iconPath
+            : (process.platform === "win32" ? path.join(iconDir, "icon.ico") : path.join(iconDir, "app.png"));
+        const icon = nativeImage.createFromPath(resolvedPath);
+        if (icon.isEmpty()) {
+            console.warn("[Tray] Failed to load tray icon", { resolvedPath });
+            return;
+        }
         tray.setImage(icon);
     } catch (err) {
         console.warn("Failed to update tray icon:", err);

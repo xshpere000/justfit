@@ -11,6 +11,13 @@ echo "========================================="
 echo "  JustFit - Electron Packaging"
 echo "========================================="
 
+echo ">>> 构建前端和 Electron 主进程..."
+./scripts/build.sh
+
+# 每次打包前都重建后端 exe，避免旧产物被打进包里
+echo ">>> 重新打包后端 exe..."
+./scripts/build_backend.sh
+
 # 检查并同步后端 exe 到打包资源目录
 BACKEND_DIST_EXE="backend/dist/justfit_backend.exe"
 BACKEND_RESOURCE_DIR="resources/backend"

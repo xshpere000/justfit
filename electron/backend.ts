@@ -7,12 +7,16 @@ import { spawn, ChildProcess } from "child_process";
 import { app } from "electron";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 
 const PYTHON_PORT = 22631;
 const HEALTH_CHECK_URL = `http://localhost:${PYTHON_PORT}/api/system/health`;
 const HEALTH_CHECK_INTERVAL = 5000; // 5 seconds
 const PACKAGED_STARTUP_GRACE_MS = 60000;
 const DEV_STARTUP_GRACE_MS = 10000;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface BackendStatus {
     running: boolean;
@@ -106,12 +110,19 @@ export class BackendManager {
         const pythonExe = this.getPythonExe();
         const useExe = this.usePackagedExe();
         const backendPath = this.getBackendPath();
+        const exeExists = fs.existsSync(pythonExe);
 
         this.hasBeenHealthy = false;
         this.lastError = undefined;
 
         console.log(`[Backend] Starting with: ${pythonExe}`);
         console.log(`[Backend] Mode: ${useExe ? "Packaged EXE" : "Python + Uvicorn"}`);
+        console.log("[Backend] Start context", {
+            exeExists,
+            isPackaged: app.isPackaged,
+            resourcesPath: process.resourcesPath,
+            backendPath,
+        });
 
         let args: string[];
         let cwd: string;
@@ -137,6 +148,7 @@ export class BackendManager {
                 ...process.env,
                 PYTHONUNBUFFERED: "1",
             },
+            windowsHide: true,
         });
 
         this.startTime = Date.now();
@@ -264,6 +276,7 @@ export class BackendManager {
             if (response.ok) {
                 this.hasBeenHealthy = true;
                 this.unhealthyCount = 0;
+                this.lastError = undefined;
             } else {
                 if (isInStartupGracePeriod) {
                     console.warn("[Backend] Health check not ready yet during startup grace period");

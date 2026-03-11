@@ -6,6 +6,17 @@ import { app, ipcMain, Menu } from "electron";
 import { backendManager } from "./backend.js";
 import { createMainWindow, getMainWindow, toggleMaximize, minimizeWindow } from "./window.js";
 import { createTray, destroyTray } from "./tray.js";
+import { getElectronLogFilePath, initElectronLogging } from "./logger.js";
+
+initElectronLogging();
+
+process.on("uncaughtException", (error) => {
+    console.error("[Electron] Uncaught exception", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+    console.error("[Electron] Unhandled rejection", reason);
+});
 
 /**
  * App lifecycle handlers
@@ -13,15 +24,28 @@ import { createTray, destroyTray } from "./tray.js";
 
 app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    console.log("[Electron] App ready", {
+        isPackaged: app.isPackaged,
+        userData: app.getPath("userData"),
+        logs: getElectronLogFilePath(),
+    });
+
+    // Start Python backend
+    try {
+        backendManager.start();
+    } catch (error) {
+        console.error("[Electron] Failed to start backend manager", error);
+    }
 
     // Create main window
     createMainWindow();
 
-    // Start Python backend
-    backendManager.start();
-
     // Create system tray
-    createTray();
+    try {
+        createTray();
+    } catch (error) {
+        console.error("[Electron] Failed to create tray", error);
+    }
 
     // Handle activate (especially for macOS)
     app.on("activate", () => {
@@ -74,6 +98,10 @@ ipcMain.handle("app:get-version", () => {
 
 ipcMain.handle("app:get-data-path", () => {
     return app.getPath("userData");
+});
+
+ipcMain.handle("app:get-log-path", () => {
+    return getElectronLogFilePath();
 });
 
 // Backend control

@@ -4,6 +4,7 @@
  */
 
 import { BrowserWindow, app } from "electron";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -32,7 +33,7 @@ export function createMainWindow(): BrowserWindow {
         titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
         frame: true,
         webPreferences: {
-            preload: path.join(__dirname, "preload.js"),
+            preload: path.join(__dirname, "preload.cjs"),
             nodeIntegration: false,
             contextIsolation: true,
             webSecurity: true,
@@ -48,8 +49,13 @@ export function createMainWindow(): BrowserWindow {
         mainWindow.webContents.openDevTools();
     } else {
         const packagedIndexPath = path.join(process.resourcesPath, "frontend", "dist", "index.html");
+        console.log("[Window] Loading packaged index", { packagedIndexPath, exists: fs.existsSync(packagedIndexPath) });
         mainWindow.loadFile(packagedIndexPath);
     }
+
+    mainWindow.webContents.on("did-finish-load", () => {
+        console.log("[Window] Renderer finished load");
+    });
 
     mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
         console.error("[Window] Failed to load:", {
@@ -58,6 +64,16 @@ export function createMainWindow(): BrowserWindow {
             validatedURL,
         });
         mainWindow?.show();
+    });
+
+    mainWindow.webContents.on("render-process-gone", (_event, details) => {
+        console.error("[Window] Renderer process gone", details);
+    });
+
+    mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+        if (level >= 2) {
+            console.warn("[Renderer] Console message", { level, message, line, sourceId });
+        }
     });
 
     // Handle window events
