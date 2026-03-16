@@ -118,7 +118,7 @@
                   <div class="cb-sub">
                     <span class="cb-platform">{{ task.platform === 'vcenter' ? 'vSphere' : 'UIS' }}</span>
                     <span class="cb-divider-inline">·</span>
-                    <span class="cb-conn">{{ task.connectionName || task.connectionHost || '未知平台' }}</span>
+                    <span class="cb-conn">{{ task.connectionHost || '未知平台' }}</span>
                   </div>
                 </div>
               </div>
@@ -497,34 +497,41 @@
                 <el-table-column prop="vmName" label="虚拟机" min-width="180" show-overflow-tooltip />
                 <el-table-column prop="cluster" label="集群" min-width="120" />
                 <el-table-column prop="hostIp" label="主机IP" width="120" />
-                <el-table-column label="当前配置" width="140">
+                <el-table-column label="当前配置" width="150">
                   <template #default="{ row }">
                     <div class="config-cell">
                       <div>CPU: {{ row.currentCpu }} vCPU</div>
-                      <div>内存: {{ row.currentMemory }} GB</div>
+                      <div>内存: {{ row.currentMemoryGb }} GB</div>
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="建议配置" width="140">
+                <el-table-column label="建议配置" width="150">
                   <template #default="{ row }">
                     <div class="config-cell">
                       <div
-                        :class="{ 'text-success': row.suggestedCpu < row.currentCpu, 'text-warning': row.suggestedCpu > row.currentCpu }">
-                        CPU: {{ row.suggestedCpu }} vCPU
+                        :class="{ 'text-success': row.recommendedCpu < row.currentCpu, 'text-warning': row.recommendedCpu > row.currentCpu }">
+                        CPU: {{ row.recommendedCpu }} vCPU
                       </div>
                       <div
-                        :class="{ 'text-success': row.suggestedMemory < row.currentMemory, 'text-warning': row.suggestedMemory > row.currentMemory }">
-                        内存: {{ row.suggestedMemory }} GB
+                        :class="{ 'text-success': row.recommendedMemoryGb < row.currentMemoryGb, 'text-warning': row.recommendedMemoryGb > row.currentMemoryGb }">
+                        内存: {{ row.recommendedMemoryGb }} GB
                       </div>
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="P95使用率" width="120">
+                <el-table-column label="P95使用率" width="130">
                   <template #default="{ row }">
                     <div class="p95-cell">
-                      <div>CPU: {{ row.cpuP95 }}%</div>
-                      <div>内存: {{ row.memoryP95 }}%</div>
+                      <div>CPU: {{ row.cpuP95 }}% (均{{ row.cpuAvg }}%)</div>
+                      <div>内存: {{ row.memoryP95 }}% (均{{ row.memoryAvg }}%)</div>
                     </div>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="wasteRatio" label="浪费比例" width="90" align="center">
+                  <template #default="{ row }">
+                    <span :class="{ 'text-success': row.wasteRatio > 0, 'text-warning': row.wasteRatio < 0 }">
+                      {{ row.wasteRatio > 0 ? '+' : '' }}{{ row.wasteRatio }}%
+                    </span>
                   </template>
                 </el-table-column>
                 <el-table-column prop="adjustmentType" label="调整类型" width="100">
@@ -534,6 +541,7 @@
                     </el-tag>
                   </template>
                 </el-table-column>
+                <el-table-column prop="recommendation" label="建议" min-width="160" show-overflow-tooltip />
                 <el-table-column prop="confidence" label="置信度" width="90" align="center">
                   <template #default="{ row }">
                     <el-progress :percentage="row.confidence" :color="getConfidenceColor(row.confidence)"
@@ -2140,21 +2148,25 @@ function getConfidenceColor(confidence: number): string {
   return '#f56c6c'
 }
 
-// 调整类型相关 (shrink=缩减, expand=扩展, no_change=无需调整)
+// 调整类型相关
 function getAdjustmentTypeText(type: string): string {
   const typeMap: Record<string, string> = {
-    'shrink': '缩减',
-    'expand': '扩展',
-    'no_change': '无需调整'
+    'down_significant': '大幅缩减',
+    'down': '缩减',
+    'none': '配置合理',
+    'up': '扩容',
+    'up_significant': '大幅扩容'
   }
   return typeMap[type] || type
 }
 
 function getAdjustmentTypeTagType(type: string): string {
   const tagMap: Record<string, string> = {
-    'shrink': 'success',
-    'expand': 'warning',
-    'no_change': 'info'
+    'down_significant': 'success',
+    'down': 'success',
+    'none': 'info',
+    'up': 'warning',
+    'up_significant': 'danger'
   }
   return tagMap[type] || 'info'
 }

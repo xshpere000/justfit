@@ -38,14 +38,9 @@ make test-backend     # 仅后端测试
 make clean            # 清理构建产物
 
 # 或直接运行脚本
-./scripts/dev.sh      # 开发模式 (网络访问模式, 绑定 0.0.0.0)
-./scripts/build.sh    # 生产构建
-```
-
-```powershell
-# Windows - 使用批处理脚本
-scripts\dev.bat       # 开发模式
-scripts\build.bat     # 生产构建
+./scripts/dev/dev-linux.sh    # Linux/macOS 开发模式 (绑定 0.0.0.0)
+./scripts/dev/dev-windows.sh  # Windows Git Bash 开发模式 (绑定 0.0.0.0)
+./scripts/build/build-all.sh  # 生产构建
 ```
 
 ### 分别启动（调试用）
@@ -53,7 +48,7 @@ scripts\build.bat     # 生产构建
 ```bash
 # 后端 (FastAPI) - 端口 22631
 cd backend
-python3.14 -m uvicorn app.main:app --reload --port 22631 --host 0.0.0.0
+python -m uvicorn app.main:app --reload --port 22631 --host 0.0.0.0
 # API 文档: http://localhost:22631/docs
 
 # 前端 (Vite Dev Server) - 端口 22632
@@ -69,20 +64,24 @@ npm run dev -- --host 0.0.0.0 --port 22632
 ```bash
 # Linux/macOS - 停止所有开发服务
 pkill -f "uvicorn app.main:app"      # 停止后端
-pkill -f "vite.*22632"                # 停止前端
+pkill -f "vite.*22632"               # 停止前端
 
-# 或使用 Ctrl+C 在运行 dev.sh 的终端中停止
+# 或使用 Ctrl+C 在运行 dev-linux.sh 的终端中停止
 ```
 
-```powershell
-# Windows - 使用停止脚本
-scripts\stop.bat
+```bash
+# Windows Git Bash - 停止所有开发服务
+taskkill //F //IM python.exe         # 停止后端
+taskkill //F //IM node.exe           # 停止前端
+
+# 或使用 Ctrl+C 在运行 dev-windows.sh 的终端中停止
 ```
 
 ### 测试命令
 
 ```bash
 # 后端测试 - 从项目根目录运行
+# Linux/macOS 使用 python3.14；Windows 使用 python（取决于安装方式）
 cd backend && PYTHONPATH=. python3.14 -m pytest tests/ -v                           # 所有后端测试
 cd backend && PYTHONPATH=. python3.14 -m pytest tests/backend/integration/ -v -s   # 集成测试（带输出）
 cd backend && PYTHONPATH=. python3.14 -m pytest tests/backend/e2e/ -v -s           # E2E 测试
@@ -150,11 +149,11 @@ backend/app/
 ├── models/         # SQLAlchemy 数据模型
 ├── schemas/        # Pydantic DTO (请求/响应)
 ├── connectors/     # 平台连接器 (vcenter.py, uis.py)
-├── analyzers/      # 分析算法 (zombie.py, rightsize.py, tidal.py, health.py)
+├── analyzers/      # 分析算法 (idle_detector.py, rightsize.py, resource_analyzer.py, health.py, modes.py)
 ├── report/         # 报告生成 (excel.py, pdf.py, builder.py)
 ├── repositories/   # 数据访问层
 ├── security/       # 凭证加密 (credentials.py)
-└── core/           # 核心配置 (database.py, errors.py, logging.py)
+└── core/           # 核心配置 (database.py, errors.py, logging.py, migration.py)
 
 frontend/src/
 ├── api/            # HTTP API 客户端
@@ -178,14 +177,13 @@ electron/
 
 后端 `analyzers/` 目录包含核心分析器：
 
-| 分析器 | 功能 | 输入 | 输出 |
-|--------|------|------|------|
-| `IdleDetector` | 检测长期闲置VM | VM资源信息 + 性能指标 | 闲置VM列表 + 置信度 |
-| `RightSizeAnalyzer` | 资源配置优化建议 | VM CPU/内存 + 历史指标 | 推荐配置 + 节省估算 |
-| `ResourceAnalyzer` | 资源使用分析 | VM时间序列指标 | 使用模式 + 配置不匹配 |
-| `UsagePatternAnalyzer` | 使用模式识别 | VM时间序列指标 | 峰谷波动 + 周期性规律 |
-| `MismatchDetector` | 配置不匹配检测 | VM CPU/内存使用率 | 配置不当VM列表 |
-| `HealthAnalyzer` | 平台健康评分 | 集群/主机/VM资源数据 | 健康分数 + 风险项 |
+| 分析器 | 文件 | 功能 |
+|--------|------|------|
+| `IdleDetector` | `idle_detector.py` | 检测长期闲置VM，返回闲置列表 + 置信度 |
+| `RightSizeAnalyzer` | `rightsize.py` | 资源配置优化建议，返回推荐配置 + 节省估算 |
+| `ResourceAnalyzer` | `resource_analyzer.py` | 资源使用分析、使用模式识别、配置不匹配检测 |
+| `HealthAnalyzer` | `health.py` | 平台健康评分，返回健康分数 + 风险项 |
+| 评估模式配置 | `modes.py` | 四种预设分析模式的阈值配置 |
 
 ---
 
@@ -315,8 +313,11 @@ async def override_get_db():
 #### 2. 修改策略
 当需要修改字段名、接口或数据结构时：
 1. **直接修改**：一次性修改到位
-2. **修改所有引用**：确保前后端完全同步
-3. **删除旧代码**：不保留任何兼容逻辑
+2. **修改所有引用**：确保前后端完全同步，**特别注意以下容易遗漏的地方**：
+   - `report/builder.py`：汇总字段计算（`build_resource_summary`、`build_savings_estimate`）
+   - `report/excel.py`：列定义（`COLUMNS` 字典）和数据标准化逻辑
+   - `report/pdf.py`：表格数据组装和图表数据取值
+3. **删除旧代码**：不保留任何兼容逻辑，包括定义了但未被调用的私有方法
 4. **验证完整性**：确保所有相关文件都已修改
 
 #### 3. 用户数据管理
@@ -362,6 +363,16 @@ const displayName = task.connectionHost  // 假设字段一定存在
 每次修改完成后，只需告知用户：
 - ✅ **需要删除数据重新测试**：当修改了数据库结构、config 格式、API 字段等
 - ✅ **无需删除数据**：当仅修改了 UI、样式、非数据相关的逻辑
+
+---
+
+## 版本迁移机制
+
+**⚠️ 重要**: `core/migration.py` 在每次应用启动时检查版本，若版本号与存储的版本不匹配，**会自动删除所有数据**（数据库、加密密钥、凭证、日志），然后写入新版本号。
+
+- 版本号定义在 `backend/app/__init__.py` 的 `__version__`
+- 升级版本时用户数据会在下次启动时自动清除
+- 调试时若遇到数据丢失，检查版本号是否与 `~/.local/share/justfit/version` 文件一致
 
 ---
 
@@ -436,7 +447,7 @@ const displayName = task.connectionHost  // 假设字段一定存在
 | `JUSTFIT_DEBUG` | 调试模式 | `True` |
 | `JUSTFIT_DATA_DIR` | 数据目录路径 | `~/.local/share/justfit` |
 | `JUSTFIT_DB_NAME` | 数据库文件名 | `justfit.db` |
-| `JUSTFIX_DEFAULT_METRIC_DAYS` | 默认采集天数 | `30` |
+| `JUSTFIT_DEFAULT_METRIC_DAYS` | 默认采集天数 | `30` |
 | `JUSTFIT_METRIC_INTERVAL_SECONDS` | 指标采集间隔 | `20` |
 | `JUSTFIT_VCENTER_TIMEOUT` | vCenter 连接超时(秒) | `30` |
 | `JUSTFIT_VCENTER_MAX_RETRIES` | vCenter 最大重试次数 | `3` |

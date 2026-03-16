@@ -2,7 +2,7 @@
  * Electron Main Process Entry Point
  */
 
-import { app, ipcMain, Menu } from "electron";
+import { app, ipcMain, Menu, globalShortcut } from "electron";
 import { backendManager } from "./backend.js";
 import { createMainWindow, getMainWindow, toggleMaximize, minimizeWindow } from "./window.js";
 import { createTray, destroyTray } from "./tray.js";
@@ -16,6 +16,25 @@ process.on("uncaughtException", (error) => {
 
 process.on("unhandledRejection", (reason) => {
     console.error("[Electron] Unhandled rejection", reason);
+});
+
+/**
+ * Single instance lock - prevent multiple app instances
+ */
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    console.log("[Electron] Another instance is already running, quitting");
+    app.quit();
+    process.exit(0);
+}
+
+app.on("second-instance", () => {
+    // When a second instance tries to launch, focus the existing window
+    const mainWindow = getMainWindow();
+    if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+    }
 });
 
 /**
@@ -47,6 +66,17 @@ app.whenReady().then(() => {
         console.error("[Electron] Failed to create tray", error);
     }
 
+    // Register global shortcuts
+    globalShortcut.register("F12", () => {
+        getMainWindow()?.webContents.toggleDevTools();
+    });
+    globalShortcut.register("F5", () => {
+        getMainWindow()?.webContents.reload();
+    });
+    globalShortcut.register("Shift+F5", () => {
+        getMainWindow()?.webContents.reloadIgnoringCache();
+    });
+
     // Handle activate (especially for macOS)
     app.on("activate", () => {
         if (!getMainWindow()) {
@@ -62,10 +92,18 @@ app.on("window-all-closed", () => {
     }
 });
 
-app.on("before-quit", () => {
-    // Stop backend gracefully before quit
-    backendManager.stop(true);
-    destroyTray();
+let isQuitting = false;
+
+app.on("will-quit", (event) => {
+    if (!isQuitting) {
+        event.preventDefault();
+        isQuitting = true;
+        destroyTray();
+        globalShortcut.unregisterAll();
+        backendManager.stopAndWait(true).then(() => {
+            app.quit();
+        });
+    }
 });
 
 /**

@@ -9,10 +9,18 @@ This module generates comprehensive PDF reports with:
 """
 
 import structlog
+import sys
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
+
+
+def _get_assets_dir() -> Path:
+    """Get assets directory path, handles both dev and PyInstaller frozen exe."""
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS) / 'app' / 'report' / 'assets'
+    return Path(__file__).parent / 'assets'
 
 try:
     from reportlab.lib.pagesizes import A4
@@ -156,7 +164,7 @@ class PDFReportGenerator:
     def _find_logo(self) -> Optional[str]:
         """Find logo file in default locations."""
         possible_paths = [
-            Path(__file__).parent / "assets" / "logo.png",
+            _get_assets_dir() / "logo.png",
             Path(__file__).parent.parent.parent / "frontend" / "src" / "assets" / "images" / "logo.png",
         ]
         for path in possible_paths:
@@ -178,9 +186,11 @@ class PDFReportGenerator:
                 pass
 
         # Try default font locations - check bundled font first
-        bundled_font = Path(__file__).parent / "assets" / "simhei.ttf"
+        assets_dir = _get_assets_dir()
         default_paths = [
-            str(bundled_font),
+            str(assets_dir / "simhei.ttf"),
+            str(assets_dir / "SourceHanSansCN-Regular.otf"),
+            str(assets_dir / "wqy-microhei.ttc"),
             '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
             '/System/Library/Fonts/PingFang.ttc',
@@ -1109,7 +1119,7 @@ class PDFReportGenerator:
         if self.charts and len(right_size) > 0:
             sample = right_size[:10]
             current_cpu = [r.get("currentCpu", 0) for r in sample]
-            suggested_cpu = [r.get("suggestedCpu", 0) for r in sample]
+            suggested_cpu = [r.get("recommendedCpu", 0) for r in sample]
             labels = [r.get("vmName", "")[:10] for r in sample]
 
             comparison = self.charts.draw_comparison_chart(
@@ -1166,9 +1176,9 @@ class PDFReportGenerator:
             table_data.append([
                 self._table_cell(item.get("vmName", "")),
                 self._table_cell(str(item.get("currentCpu", 0)), 'TableCellSmall'),
-                self._table_cell(str(item.get("suggestedCpu", 0)), 'TableCellSmall'),
-                self._table_cell(f"{item.get('currentMemory', 0):.0f}", 'TableCellSmall'),
-                self._table_cell(f"{item.get('suggestedMemory', 0):.0f}", 'TableCellSmall'),
+                self._table_cell(str(item.get("recommendedCpu", 0)), 'TableCellSmall'),
+                self._table_cell(f"{item.get('currentMemoryGb', 0):.1f}", 'TableCellSmall'),
+                self._table_cell(f"{item.get('recommendedMemoryGb', 0):.1f}", 'TableCellSmall'),
                 self._table_cell(f"{item.get('cpuP95', 0):.1f}%", 'TableCellSmall'),
                 self._table_cell(f"{item.get('memoryP95', 0):.1f}%", 'TableCellSmall'),
                 self._table_cell(type_text),

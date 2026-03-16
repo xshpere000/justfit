@@ -3,11 +3,15 @@
 ## 启动后端
 
 ```bash
-# 方式一：使用开发模式启动（推荐）
+# 方式一：手动启动后端
 cd backend
-python3.14 -m uvicorn app.main:app --reload --port 22631
+python -m uvicorn app.main:app --reload --port 22631
 
-# 方式二：使用 Makefile
+# 方式二：使用开发脚本（同时启动前后端）
+./scripts/dev/dev-linux.sh    # Linux/macOS
+./scripts/dev/dev-windows.sh  # Windows Git Bash
+
+# 方式三：使用 Makefile
 make dev
 
 # 启动成功后，API 服务地址为：

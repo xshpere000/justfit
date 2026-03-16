@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     # API Settings
     API_PORT: int = 22631
+    API_HOST: str = "127.0.0.1"
     DEBUG: bool = _get_default_debug()
 
     # Database Settings

@@ -8,8 +8,16 @@ import sys
 from pathlib import Path
 
 # 获取项目根目录（使用绝对路径）
-# 注意：在 Windows 打包时，请确保在项目根目录执行 pyinstaller backend/justfit_backend.spec
-BACKEND_ROOT = Path('./backend').resolve()
+# 自动检测运行位置：通过当前工作目录判断
+CWD = Path.cwd()
+if CWD.name == 'backend' or (CWD / 'app' / 'main.py').exists():
+    # 从 backend 目录内运行: cd backend && pyinstaller justfit_backend.spec
+    BACKEND_ROOT = CWD
+else:
+    # 从项目根目录运行: pyinstaller backend/justfit_backend.spec
+    BACKEND_ROOT = CWD / 'backend'
+
+BACKEND_ROOT = BACKEND_ROOT.resolve()
 PROJECT_ROOT = BACKEND_ROOT.parent.resolve()
 # 图标文件路径（Windows 需要 .ico 格式）
 ICON_PATH = PROJECT_ROOT / 'resources' / 'icons' / 'app.ico'
@@ -24,8 +32,8 @@ a = Analysis(
     pathex=[str(BACKEND_ROOT)],
     binaries=[],
     datas=[
-        # 包含配置文件（如果有）
-        # (str(BACKEND_ROOT / 'config.json'), 'app'),
+        # 包含报告资源文件（字体、logo）
+        (str(BACKEND_ROOT / 'app' / 'report' / 'assets'), 'app/report/assets'),
     ],
     hiddenimports=[
         # FastAPI 相关

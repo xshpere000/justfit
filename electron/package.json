@@ -11,7 +11,7 @@
     "dev": "tsc",
     "build": "tsc",
     "watch": "tsc --watch",
-    "dist": "cross-env ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ electron-builder --win --x64"
+    "package": "electron-builder --win --x64"
   },
   "build": {
     "appId": "com.justfit.app",

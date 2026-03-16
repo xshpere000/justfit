@@ -184,6 +184,42 @@ export class BackendManager {
     }
 
     /**
+     * Stop the Python backend and wait for it to exit
+     */
+    stopAndWait(graceful = true): Promise<void> {
+        return new Promise((resolve) => {
+            if (!this.process) {
+                resolve();
+                return;
+            }
+
+            this.stopHealthCheck();
+
+            // Force kill after timeout regardless
+            const forceKillTimer = setTimeout(() => {
+                if (this.process) {
+                    console.log("[Backend] Force kill after timeout");
+                    this.process.kill("SIGKILL");
+                }
+                resolve();
+            }, 5000);
+
+            this.process.once("exit", () => {
+                clearTimeout(forceKillTimer);
+                resolve();
+            });
+
+            if (graceful) {
+                console.log("[Backend] Stopping gracefully...");
+                this.process.kill("SIGTERM");
+            } else {
+                console.log("[Backend] Stopping forcefully...");
+                this.process.kill("SIGKILL");
+            }
+        });
+    }
+
+    /**
      * Stop the Python backend
      */
     stop(graceful = true): void {

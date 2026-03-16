@@ -1,7 +1,7 @@
 """Report Data Builder - Assembles data for report generation."""
 
 import structlog
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,16 +75,16 @@ class ReportBuilder:
 
         # Add VMs from idle results (has vmId)
         for vm in idle_results[:25]:  # Collect up to 25 VMs for potential charts
-            if vm.get("vmId") or vm.get("vm_id"):
+            if vm.get("vmId"):
                 vms_to_chart.append({
-                    "vm_id": vm.get("vmId") or vm.get("vm_id"),
-                    "vm_name": vm.get("vmName") or vm.get("vm_name", ""),
+                    "vm_id": vm.get("vmId"),
+                    "vm_name": vm.get("vmName", ""),
                 })
 
         # Add VMs from rightSize results (need to look up by name)
         right_size = resource_results.get("rightSize", [])[:25]
         for vm in right_size:
-            vm_name = vm.get("vmName") or vm.get("vm_name", "")
+            vm_name = vm.get("vmName", "")
             if vm_name and not any(v["vm_name"] == vm_name for v in vms_to_chart):
                 vms_to_chart.append({
                     "vm_name": vm_name,
@@ -93,7 +93,7 @@ class ReportBuilder:
         # Add VMs from usagePattern results
         usage_pattern = resource_results.get("usagePattern", [])[:25]
         for vm in usage_pattern:
-            vm_name = vm.get("vmName") or vm.get("vm_name", "")
+            vm_name = vm.get("vmName", "")
             if vm_name and not any(v["vm_name"] == vm_name for v in vms_to_chart):
                 vms_to_chart.append({
                     "vm_name": vm_name,
@@ -102,7 +102,7 @@ class ReportBuilder:
         # Add VMs from mismatch results
         mismatch = resource_results.get("mismatch", [])[:25]
         for vm in mismatch:
-            vm_name = vm.get("vmName") or vm.get("vm_name", "")
+            vm_name = vm.get("vmName", "")
             if vm_name and not any(v["vm_name"] == vm_name for v in vms_to_chart):
                 vms_to_chart.append({
                     "vm_name": vm_name,
@@ -263,23 +263,6 @@ class ReportBuilder:
 
         return results
 
-    async def _get_health_results(
-        self,
-        task_id: int,
-    ) -> Optional[Dict[str, Any]]:
-        """Get health score results for a task."""
-        if not task_id:
-            return None
-
-        # Get health analysis results from database
-        from app.services.analysis import AnalysisService
-        service = AnalysisService(self.db)
-        result = await service.get_analysis_results(task_id, "health")
-
-        if result.get("success") and result.get("data"):
-            return result.get("data")
-        return None
-
     def _build_summary(
         self,
         clusters: List[Dict],
@@ -373,9 +356,9 @@ class ReportBuilder:
 
         # Calculate potential savings from Right Size
         current_cpu = sum(r.get("currentCpu", 0) for r in right_size)
-        suggested_cpu = sum(r.get("suggestedCpu", 0) for r in right_size)
-        current_memory = sum(r.get("currentMemory", 0) for r in right_size)
-        suggested_memory = sum(r.get("suggestedMemory", 0) for r in right_size)
+        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in right_size)
+        current_memory = sum(r.get("currentMemoryGb", 0) for r in right_size)
+        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in right_size)
 
         right_size_summary["potential_savings"] = {
             "cpu_cores": max(0, current_cpu - suggested_cpu),
@@ -467,9 +450,9 @@ class ReportBuilder:
         # Right Size savings
         right_size = resource_results.get("rightSize", [])
         current_cpu = sum(r.get("currentCpu", 0) for r in right_size)
-        suggested_cpu = sum(r.get("suggestedCpu", 0) for r in right_size)
-        current_memory = sum(r.get("currentMemory", 0) for r in right_size)
-        suggested_memory = sum(r.get("suggestedMemory", 0) for r in right_size)
+        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in right_size)
+        current_memory = sum(r.get("currentMemoryGb", 0) for r in right_size)
+        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in right_size)
 
         rightsize_cpu_save = max(0, current_cpu - suggested_cpu)
         rightsize_memory_save = max(0, current_memory - suggested_memory)
@@ -515,9 +498,8 @@ class ReportBuilder:
         vm_names_to_lookup = []
 
         for vm in vm_list:
-            # Try to get vm_id directly
-            vm_id = vm.get("vm_id") or vm.get("vmId")
-            vm_name = vm.get("vm_name") or vm.get("vmName", "")
+            vm_id = vm.get("vm_id")
+            vm_name = vm.get("vm_name", "")
 
             if vm_id:
                 vm_ids.append(vm_id)

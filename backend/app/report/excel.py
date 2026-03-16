@@ -92,12 +92,12 @@ class RiskColors:
     COLORS = {
         # 英文键（原始数据）
         "critical": ColorScheme.DANGER,
-        "high": "FFFF6B6B",      # ARGB格式
+        "high": "FF6B6B",
         "medium": ColorScheme.WARNING,
         "low": ColorScheme.SUCCESS,
         # 中文键（标准化后）
         "危急": ColorScheme.DANGER,
-        "高": "FFFF6B6B",        # ARGB格式
+        "高": "FF6B6B",
         "中": ColorScheme.WARNING,
         "低": ColorScheme.SUCCESS,
         # 默认无颜色
@@ -185,13 +185,16 @@ COLUMNS = {
     "rightsize": [
         ("vmName", "虚拟机名称", "text", 30),
         ("cluster", "集群", "text", 18),
-        ("currentCpu", "当前CPU", "number", 12),
-        ("recommendedCpu", "建议CPU", "number", 12),
-        ("currentMemory", "当前内存(GB)", "number", 14),
-        ("recommendedMemory", "建议内存(GB)", "number", 14),
-        ("wasteRatio", "浪费比例", "percent", 12),
+        ("currentCpu", "当前CPU(核)", "number", 12),
+        ("recommendedCpu", "建议CPU(核)", "number", 12),
+        ("currentMemoryGb", "当前内存(GB)", "number", 14),
+        ("recommendedMemoryGb", "建议内存(GB)", "number", 14),
+        ("cpuP95", "CPU P95(%)", "number", 12),
+        ("memoryP95", "内存P95(%)", "number", 12),
+        ("wasteRatio", "浪费比例(%)", "number", 12),
         ("adjustmentType", "调整类型", "text", 15),
         ("recommendation", "建议", "text", 40),
+        ("evidence", "数据依据", "text", 60),
     ],
     "usage_pattern": [
         ("vmName", "虚拟机名称", "text", 30),
@@ -650,22 +653,22 @@ class ExcelReportGenerator:
             self._write_no_data(ws)
             return
 
-        # 标准化数据
+        # 标准化数据（直接使用扁平字段）
         normalized_data = []
         for item in rightsize:
-            current_config = item.get("currentConfig") or {}
-            recommended_config = item.get("recommendedConfig") or {}
-
             normalized_item = {
                 "vmName": item.get("vmName", ""),
                 "cluster": item.get("cluster", ""),
-                "currentCpu": current_config.get("cpu", 0) if current_config else 0,
-                "recommendedCpu": recommended_config.get("cpu", 0) if recommended_config else 0,
-                "currentMemory": current_config.get("memory", 0) if current_config else 0,
-                "recommendedMemory": recommended_config.get("memory", 0) if recommended_config else 0,
-                "wasteRatio": item.get("wasteRatio", 0) / 100 if item.get("wasteRatio") else 0,  # 转换为小数
+                "currentCpu": item.get("currentCpu", 0),
+                "recommendedCpu": item.get("recommendedCpu", 0),
+                "currentMemoryGb": item.get("currentMemoryGb", 0),
+                "recommendedMemoryGb": item.get("recommendedMemoryGb", 0),
+                "cpuP95": item.get("cpuP95", 0),
+                "memoryP95": item.get("memoryP95", 0),
+                "wasteRatio": item.get("wasteRatio", 0),
                 "adjustmentType": self._format_adjustment_type(item.get("adjustmentType") or ""),
                 "recommendation": item.get("recommendation", ""),
+                "evidence": item.get("evidence", ""),
             }
             normalized_data.append(normalized_item)
 
@@ -674,7 +677,6 @@ class ExcelReportGenerator:
             normalized_data,
             COLUMNS["rightsize"],
             add_row_colors=True,
-            percent_columns=["wasteRatio"]
         )
 
     def _create_usage_pattern_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
@@ -985,55 +987,6 @@ class ExcelReportGenerator:
             ws.cell(row=row, column=3, value=label2).font = label_style
             ws.cell(row=row, column=4, value=value2).alignment = ExcelStyles.ALIGN_LEFT
 
-    def _write_analysis_summary(
-        self,
-        ws,
-        start_row: int,
-        data: Dict[str, Any],
-    ) -> None:
-        """Write analysis summary section."""
-        self._write_section_header(ws, start_row, "优化建议摘要", 1, 4)
-        start_row += 1
-
-        analysis = data.get("analysis", {})
-        idle = analysis.get("idle", [])
-        resource = analysis.get("resource", {})
-        health = analysis.get("health", {})
-
-        # 闲置VM摘要
-        idle_count = len(idle)
-        critical_idle = sum(1 for i in idle if i.get("riskLevel") == "critical")
-
-        ws.cell(row=start_row, column=1, value="闲置虚拟机").font = Font(bold=True)
-        ws.cell(row=start_row, column=2, value=f"{idle_count} 个").alignment = ExcelStyles.ALIGN_RIGHT
-        ws.cell(row=start_row, column=3, value="其中危急").alignment = ExcelStyles.ALIGN_LEFT
-        ws.cell(row=start_row, column=4, value=f"{critical_idle} 个").font = Font(color=ColorScheme.DANGER)
-        start_row += 1
-
-        # Right Size摘要
-        rightsize = resource.get("rightSize", [])
-        downsize_count = sum(1 for r in rightsize if (r.get("adjustmentType") or "").startswith("down"))
-
-        ws.cell(row=start_row, column=1, value="可优化配置").font = Font(bold=True)
-        ws.cell(row=start_row, column=2, value=f"{len(rightsize)} 个").alignment = ExcelStyles.ALIGN_RIGHT
-        ws.cell(row=start_row, column=3, value="建议降配").alignment = ExcelStyles.ALIGN_LEFT
-        ws.cell(row=start_row, column=4, value=f"{downsize_count} 个").font = Font(color=ColorScheme.SUCCESS)
-        start_row += 1
-
-        # 健康评分摘要
-        if health:
-            overall_score = health.get("overallScore", 0)
-            grade = health.get("grade", "unknown")
-
-            ws.cell(row=start_row, column=1, value="平台健康评分").font = Font(bold=True)
-            score_cell = ws.cell(row=start_row, column=2, value=overall_score)
-            score_cell.alignment = ExcelStyles.ALIGN_RIGHT
-            score_cell.font = Font(color=HealthColors.get_color(overall_score))
-
-            ws.cell(row=start_row, column=3, value="等级").alignment = ExcelStyles.ALIGN_LEFT
-            grade_cell = ws.cell(row=start_row, column=4, value=self._format_grade(grade))
-            grade_cell.font = Font(bold=True, color=HealthColors.get_color(overall_score))
-
     def _write_no_data(self, ws, row: int = 1, message: str = "无数据") -> None:
         """Write a no data message."""
         cell = ws.cell(row=row, column=1)
@@ -1107,14 +1060,11 @@ class ExcelReportGenerator:
         if not adj_type:
             return "-"
         type_map = {
-            "downsize": "降配",
-            "downsize_cpu": "降配CPU",
-            "downsize_memory": "降配内存",
-            "downsize_both": "降配置",
-            "upsize": "升配",
-            "upsize_cpu": "升配CPU",
-            "upsize_memory": "升配内存",
-            "upsize_both": "升配置",
+            "down_significant": "大幅缩减",
+            "down": "缩减",
+            "none": "合理",
+            "up": "扩容",
+            "up_significant": "大幅扩容",
         }
         return type_map.get(adj_type, adj_type)
 

@@ -63,8 +63,9 @@ def clean_legacy_data() -> None:
     - Database file (justfit.db)
     - Encryption key (.key)
     - Encrypted credentials (credentials.enc)
-    - Log directory (logs/)
     - WAL files (justfit.db-wal, justfit.db-shm)
+
+    Note: Log directory is NOT cleaned as logs may be in use.
     """
     data_dir = settings.DATA_DIR
 
@@ -73,7 +74,8 @@ def clean_legacy_data() -> None:
         settings.db_path,           # Database
         settings.key_path,          # Encryption key
         settings.credentials_path,  # Encrypted credentials
-        data_dir / "logs",          # Log directory
+        # Note: Skip logs directory as it may be locked by the current process
+        # data_dir / "logs",          # Log directory
         data_dir / "justfit.db-wal",  # WAL file
         data_dir / "justfit.db-shm",  # SHM file
     ]

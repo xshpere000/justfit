@@ -1,132 +1,116 @@
 # JustFit 打包指南
 
-本文档说明如何将 JustFit 打包成独立的 Windows exe **便携版**程序
+本文档说明如何将 JustFit 打包成独立的 Windows exe **便携版**程序。
 
 ---
 
-## 🚀 快速打包（Makefile 方式）
+## 快速打包（推荐）
 
 ### 一键完整打包
 
-生成包含 Python 后端的独立 exe，用户无需安装 Python 环境即可运行。
-
 ```bash
-# 1. 首次使用或环境变动时，设置打包环境
-make setup
-# 2. 执行完整打包
-make package-all
+make build-all
 ```
 
-**输出文件**：`dist/electron/JustFit-0.0.3-portable.exe`
+该命令依次执行三个步骤：前端构建 → Python 后端打包 → Electron 应用打包，完成后无需安装 Python 或 Node.js，用户直接双击 exe 即可运行。
+
+**输出文件**：`dist/electron/` 目录下的便携版 exe
 
 ---
 
-## 🛠️ 手动打包（执行脚本）
+## 手动逐步打包
 
-如果你不想使用 Makefile，或者需要手动排查问题，可以按顺序执行以下脚本。
-
-### 1. 环境初始化（仅首次需要）
-
-确保已安装 Node.js 和 Python，然后运行：
+如需单独执行某一步骤，或排查某一环节的问题：
 
 ```bash
-# 安装 PyInstaller
-pip install pyinstaller
-# 安装前端依赖
-cd frontend && npm install && cd ..
-# 安装 Electron 依赖
-cd electron && npm install && cd ..
+# 第一步：构建前端（Vue 3 → 静态文件）
+make build-frontend
+# 或：./scripts/build/build-frontend.sh
+
+# 第二步：打包 Python 后端为 exe
+make build-backend
+# 或：./scripts/build/build-backend.sh
+
+# 第三步：打包 Electron 桌面应用（前两步都完成后再执行）
+make package-electron
+# 或：./scripts/build/package-electron.sh
 ```
 
-### 2. 完整打包流程
-
-依次执行以下三条命令：
-
-```bash
-# 第一步：打包 Python 后端为 exe
-./scripts/build_backend.sh
-# 第二步：构建前端代码和 Electron 主进程
-./scripts/build.sh
-# 第三步：打包成最终便携版程序
-./scripts/package.sh
-```
-
-`./scripts/package.sh` 在打包前会自动检查 `backend/dist/justfit_backend.exe`，如果存在会同步复制到 `resources/backend/` 后再执行 Electron 打包。
-
-**输出位置**：`dist/electron/JustFit-0.0.3-portable.exe`
+`package-electron.sh` 执行前会检查以下两项是否存在，缺少任意一项会报错退出：
+- `frontend/dist/`（前端构建产物）
+- `backend/dist/justfit_backend.exe`（后端构建产物）
 
 ---
 
-## 📦 命令说明
+## Makefile 命令一览
 
-### 当前实际生效的打包配置
-
-当前 `./scripts/package.sh` 会进入 `electron/` 目录执行 `electron-builder`，因此**实际生效的打包配置在 `electron/package.json` 的 `build` 字段**。
-
-根目录的 `electron-builder.json` 目前**不会被这条打包链路读取**，排查打包白屏、资源路径、extraResources 或 portable 输出名时，应以 `electron/package.json` 为准。
-
-当前打包链路会把前端构建产物复制到 `resources/frontend/dist/`，Electron 生产环境从该目录加载 `index.html`。
-
-### Makefile 命令
-
-| 命令 | 作用 | 说明 |
-| :--- | :--- | :--- |
-| **`make package-all`** | **完整打包** | 编译前端 + 打包 Python 后端 + 生成便携版 exe (推荐) |
-| `make setup` | 环境初始化 | 安装依赖和工具 |
-| `make clean` | 清理产物 | 删除所有构建生成文件 |
-
-### 手动脚本对应关系
-
-| Makefile 命令 | 对应脚本 | 作用 |
-| :--- | :--- | :--- |
-| `make package-backend` | `./scripts/build_backend.sh` | 打包 Python 后端 |
-| `make build` | `./scripts/build.sh` | 构建前端和主进程 |
-| `make package` | `./scripts/package.sh` | 生成便携版 exe |
+| 命令 | 作用 |
+| :--- | :--- |
+| `make build-all` | 一键完整打包（前端 + 后端 + Electron）⭐ 推荐 |
+| `make build-frontend` | 仅构建前端 |
+| `make build-backend` | 仅打包 Python 后端为 exe |
+| `make package-electron` | 基于已有前后端产物打包 Electron |
+| `make install` | 安装所有依赖（Python / 前端 / Electron） |
+| `make clean` | 清理所有构建文件 |
 
 ---
 
-## 📂 输出文件
+## 打包配置说明
 
-打包完成后，文件位于项目根目录下的 `dist/electron/` 文件夹：
+`package-electron.sh` 进入 `electron/` 目录执行 `electron-builder`，**实际生效的打包配置在 `electron/package.json` 的 `build` 字段**。
+
+排查打包白屏、资源路径、`extraResources` 或输出文件名等问题时，应以 `electron/package.json` 为准。
+
+打包链路会将后端 exe 复制到 `resources/backend/`，前端构建产物由 Electron 在生产模式下从 `frontend/dist/` 加载。
+
+---
+
+## 输出文件
 
 ```text
 dist/electron/
-└── JustFit-0.0.3-portable.exe   # 便携版 (单文件，免安装)
+└── JustFit-x.x.x-portable.exe   # 便携版（单文件，免安装）
 ```
 
-**使用方法**：双击 `JustFit-0.0.3-portable.exe` 即可直接运行，无需安装
+**使用方法**：双击 exe 直接运行，无需安装。
 
 ---
 
-## ⚠️ 常见问题
+## 常见问题
 
-### 1. 提示 `pyinstaller` 未找到
+### 1. pyinstaller 未找到
 
-运行 `pip install pyinstaller` 手动安装。
+```bash
+pip install pyinstaller
+```
 
-### 2. 脚本无法执行
+### 2. 脚本无法执行（权限错误）
 
-在 Windows Git Bash 中，如果提示权限错误，请以**管理员身份**运行终端。
+在 Windows Git Bash 中以**管理员身份**运行终端。
 
 ### 3. 想重新打包
 
-建议先清理再打包：
+先清理再打包，避免旧产物干扰：
 
 ```bash
-# Makefile 方式
-make clean && make package-all
-# 手动方式
-rm -rf frontend/dist electron/dist dist/electron
-./scripts/build_backend.sh
-./scripts/build.sh
-./scripts/package.sh
+make clean && make build-all
+```
+
+手动清理：
+
+```bash
+rm -rf frontend/dist backend/dist backend/build electron/dist dist/electron resources/backend
 ```
 
 ---
 
-## 📤 系统要求
+## 系统要求
+
+**开发 / 打包环境**：
+- Windows 10/11 (x64)
+- Node.js（含 npm）
+- Python（含 pip / pyinstaller）
 
 **用户运行环境**：
-
 - Windows 10/11 (x64)
 - 无需安装 Python 或 Node.js

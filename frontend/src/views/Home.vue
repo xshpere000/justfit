@@ -101,14 +101,8 @@ const pageSize = ref(8)
 const totalPages = computed(() => Math.ceil(filteredTasks.value.length / pageSize.value))
 
 // 初始化
-onMounted(async () => {
+onMounted(() => {
   console.log('[Home.vue] 首页挂载，启动轮询')
-  try {
-    await taskStore.syncTasksFromBackend()
-  } catch (error) {
-    console.error('[Home.vue] 任务列表同步失败:', error)
-  }
-  // 确保轮询正在运行
   taskStore.startPolling()
 })
 

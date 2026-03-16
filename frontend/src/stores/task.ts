@@ -205,7 +205,9 @@ export const useTaskStore = defineStore('task', () => {
     currentPollInterval = intervalMs
     console.log('[TaskStore] startPolling: 启动轮询，间隔', intervalMs, 'ms')
 
-    // 使用具名函数而不是箭头函数，便于调试
+    // 立即执行一次，避免等待第一个 interval
+    pollOnce()
+
     pollInterval = setInterval(() => {
       if (isPolling) {
         console.log('[TaskStore] setInterval 触发')

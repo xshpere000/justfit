@@ -3,7 +3,7 @@
  * Creates and manages the main application window
  */
 
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, app, Menu } from "electron";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -83,6 +83,35 @@ export function createMainWindow(): BrowserWindow {
 
     mainWindow.on("closed", () => {
         mainWindow = null;
+    });
+
+    // Right-click context menu with Reload and DevTools
+    mainWindow.webContents.on("context-menu", (_event, params) => {
+        const menu = Menu.buildFromTemplate([
+            {
+                label: "刷新",
+                accelerator: "F5",
+                click: () => mainWindow?.webContents.reload(),
+            },
+            {
+                label: "强制刷新",
+                accelerator: "Shift+F5",
+                click: () => mainWindow?.webContents.reloadIgnoringCache(),
+            },
+            { type: "separator" },
+            {
+                label: "检查元素",
+                click: () => {
+                    mainWindow?.webContents.inspectElement(params.x, params.y);
+                },
+            },
+            {
+                label: "开发者工具",
+                accelerator: "F12",
+                click: () => mainWindow?.webContents.toggleDevTools(),
+            },
+        ]);
+        menu.popup();
     });
 
     // Prevent navigation to external URLs

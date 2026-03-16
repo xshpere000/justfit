@@ -1,7 +1,6 @@
 """Right Size Analyzer - VM resource sizing recommendations."""
 
 import structlog
-from datetime import datetime
 from typing import List, Dict, Any
 
 from app.models import VMMetric
@@ -167,6 +166,7 @@ class RightSizeAnalyzer:
 
         # Calculate statistics（使用百分比）
         cpu_p95 = self._percentile(cpu_values_pct, 95) if cpu_values_pct else 0
+        cpu_p90 = self._percentile(cpu_values_pct, 90) if cpu_values_pct else 0
         cpu_max = max(cpu_values_pct) if cpu_values_pct else 0
         cpu_avg = sum(cpu_values_pct) / len(cpu_values_pct) if cpu_values_pct else 0
 
@@ -174,98 +174,170 @@ class RightSizeAnalyzer:
         memory_max = max(memory_values_pct) if memory_values_pct else 0
         memory_avg = sum(memory_values_pct) / len(memory_values_pct) if memory_values_pct else 0
 
-        # Calculate recommended configuration
-        # CPU: convert percentage to actual cores
+        # 推荐配置算法：P95+max 双重保障
+        # 推荐使用率 = max(P95, P90) * buffer，同时设置峰值保护下限 = max * 0.8
         if current_cpu > 0:
-            suggested_cpu = self._normalize_cpu(current_cpu * cpu_p95 / 100 * self.cpu_buffer)
+            base_cpu_pct = max(cpu_p95, cpu_p90) * self.cpu_buffer
+            peak_floor_pct = cpu_max * 0.8
+            effective_cpu_pct = max(base_cpu_pct, peak_floor_pct)
+            recommended_cpu = self._normalize_cpu(current_cpu * effective_cpu_pct / 100)
+            recommended_cpu = max(1, recommended_cpu)  # 最少1核
         else:
-            suggested_cpu = 0
-        # Memory: value is already in bytes for the total, so calculate percentage
+            recommended_cpu = 0
+
         if current_memory_gb > 0:
-            # memory_p95 is percentage, convert to GB
-            suggested_memory_gb = self._normalize_memory(current_memory_gb * memory_p95 / 100 * self.memory_buffer)
+            base_mem_pct = memory_p95 * self.memory_buffer
+            peak_floor_pct = memory_max * 0.8
+            effective_mem_pct = max(base_mem_pct, peak_floor_pct)
+            recommended_memory_gb = self._normalize_memory(current_memory_gb * effective_mem_pct / 100)
+            recommended_memory_gb = max(0.5, recommended_memory_gb)  # 最少 0.5GB
         else:
-            suggested_memory_gb = 0
+            recommended_memory_gb = 0
 
-        # Determine adjustment type
-        cpu_diff = suggested_cpu - current_cpu
-        memory_diff = suggested_memory_gb - current_memory_gb
+        # 按比例判断调整类型
+        adjustment_type = self._determine_adjustment_type(
+            current_cpu, recommended_cpu, current_memory_gb, recommended_memory_gb
+        )
 
-        if cpu_diff < -2 or memory_diff < -1:
-            adjustment_type = "down_significant"
-        elif cpu_diff < -1 or memory_diff < -0.5:
-            adjustment_type = "down"
-        elif cpu_diff > 2 or memory_diff > 2:
-            adjustment_type = "up_significant"
-        elif cpu_diff > 1 or memory_diff > 1:
-            adjustment_type = "up"
+        # wasteRatio：缩减为正（浪费比例），扩容为负（欠配比例）
+        if current_cpu > 0 and current_memory_gb > 0:
+            cpu_ratio = (current_cpu - recommended_cpu) / current_cpu
+            mem_ratio = (current_memory_gb - recommended_memory_gb) / current_memory_gb
+            # 取 CPU 和内存节省的加权平均（CPU 权重 0.4，内存权重 0.6）
+            waste_ratio = round((cpu_ratio * 0.4 + mem_ratio * 0.6) * 100, 1)
         else:
-            adjustment_type = "none"
+            waste_ratio = 0.0
 
         # Calculate risk level (使用 CPU 使用率的变异系数)
         cpu_stddev = self._stddev(cpu_values_pct) if cpu_values_pct else 0
         risk = self._calculate_risk(cpu_stddev, cpu_avg)
 
-        # Calculate confidence
-        # 数据存储是按小时聚合的，每小时1个数据点
+        # Calculate confidence（基于采样点数，同时考虑数据质量）
         total_samples = len(cpu_values_pct) + len(memory_values_pct)
-        expected_samples = self.days_threshold * 24  # 每小时1个数据点
-        confidence = min(100, (total_samples / expected_samples) * 100) if expected_samples > 0 else 0
+        expected_samples = self.days_threshold * 24 * 2  # CPU + 内存，每小时各1个
+        base_confidence = min(100, (total_samples / expected_samples) * 100) if expected_samples > 0 else 0
+
+        # 数据质量修正：方差过高降低置信度
+        if cpu_values_pct:
+            cv = cpu_stddev / cpu_avg if cpu_avg > 0 else 0
+            quality_factor = max(0.7, 1.0 - cv * 0.3)
+            confidence = base_confidence * quality_factor
+        else:
+            confidence = base_confidence
+
+        # 生成证据字符串（含具体数据）
+        evidence = self._build_evidence(
+            current_cpu, recommended_cpu,
+            current_memory_gb, recommended_memory_gb,
+            cpu_p95, cpu_p90, cpu_max, cpu_avg,
+            memory_p95, memory_max, memory_avg,
+        )
 
         # Generate recommendation
         recommendation = self._generate_recommendation(
-            adjustment_type, risk, suggested_cpu, suggested_memory_gb
+            adjustment_type, risk, recommended_cpu, recommended_memory_gb
         )
-
-        # 计算预计节省百分比（综合考虑 CPU 和内存）
-        if adjustment_type in ("down", "down_significant"):
-            cpu_saving = (1 - (suggested_cpu / current_cpu if current_cpu > 0 else 1)) * 100
-            memory_saving = (1 - (suggested_memory_gb / current_memory_gb if current_memory_gb > 0 else 1)) * 100
-            # 取平均值作为总体节省
-            saving_percent = round((cpu_saving + memory_saving) / 2, 1)
-            estimated_saving = f"{saving_percent}%"
-        else:
-            estimated_saving = "0%"
 
         return {
             "vmName": vm_name,
-            "datacenter": cluster,  # 前端期望 datacenter 字段
-            "cluster": cluster,  # 保留 cluster 以兼容
+            "cluster": cluster,
             "hostIp": host_ip,
-            # 前端期望的字段
             "currentCpu": current_cpu,
-            "recommendedCpu": suggested_cpu,  # 前端期望 recommendedCpu
-            "suggestedCpu": suggested_cpu,  # 保留 suggestedCpu 以兼容
-            "currentMemoryMb": round(current_memory_gb * 1024, 2),  # 前端期望 MB 单位
-            "currentMemory": round(current_memory_gb, 2),  # 保留 GB 单位
-            "recommendedMemoryMb": round(suggested_memory_gb * 1024, 2),  # 前端期望 MB 单位
-            "suggestedMemory": round(suggested_memory_gb, 2),  # 保留 GB 单位
+            "recommendedCpu": recommended_cpu,
+            "currentMemoryGb": round(current_memory_gb, 2),
+            "recommendedMemoryGb": round(recommended_memory_gb, 2),
             "cpuP95": round(cpu_p95, 2),
+            "cpuP90": round(cpu_p90, 2),
             "cpuMax": round(cpu_max, 2),
             "cpuAvg": round(cpu_avg, 2),
             "memoryP95": round(memory_p95, 2),
             "memoryMax": round(memory_max, 2),
             "memoryAvg": round(memory_avg, 2),
             "adjustmentType": adjustment_type,
+            "wasteRatio": waste_ratio,
             "riskLevel": risk,
             "confidence": round(confidence, 2),
-            "estimatedSaving": estimated_saving,  # 前端期望此字段
             "recommendation": recommendation,
-            "details": {
-                "daysAnalyzed": self.days_threshold,
-                "cpuSamples": len(cpu_values_pct),
-                "memorySamples": len(memory_values_pct),
-            },
+            "evidence": evidence,
         }
 
+    def _determine_adjustment_type(
+        self,
+        current_cpu: int,
+        recommended_cpu: int,
+        current_memory_gb: float,
+        recommended_memory_gb: float,
+    ) -> str:
+        """按比例判断调整类型。
+
+        缩减显著：推荐配置 ≤ 当前配置 * 0.5（节省 50%+）
+        缩减：推荐配置 ≤ 当前配置 * 0.75（节省 25%+）
+        扩容显著：推荐配置 ≥ 当前配置 * 1.5（增加 50%+）
+        扩容：推荐配置 ≥ 当前配置 * 1.25（增加 25%+）
+        合理：其余情况
+        """
+        if current_cpu <= 0 or current_memory_gb <= 0:
+            return "none"
+
+        cpu_ratio = recommended_cpu / current_cpu
+        mem_ratio = recommended_memory_gb / current_memory_gb
+
+        # 取 CPU 和内存比例的最小值（最大缩减幅度）
+        min_ratio = min(cpu_ratio, mem_ratio)
+        # 取 CPU 和内存比例的最大值（最大扩容幅度）
+        max_ratio = max(cpu_ratio, mem_ratio)
+
+        if min_ratio <= 0.5:
+            return "down_significant"
+        elif min_ratio <= 0.75:
+            return "down"
+        elif max_ratio >= 1.5:
+            return "up_significant"
+        elif max_ratio >= 1.25:
+            return "up"
+        else:
+            return "none"
+
+    def _build_evidence(
+        self,
+        current_cpu: int,
+        recommended_cpu: int,
+        current_memory_gb: float,
+        recommended_memory_gb: float,
+        cpu_p95: float,
+        cpu_p90: float,
+        cpu_max: float,
+        cpu_avg: float,
+        memory_p95: float,
+        memory_max: float,
+        memory_avg: float,
+    ) -> str:
+        """生成决策依据字符串，包含具体数据证据。"""
+        parts = []
+        parts.append(
+            f"CPU: P95={cpu_p95:.1f}% P90={cpu_p90:.1f}% 峰值={cpu_max:.1f}% 均值={cpu_avg:.1f}%"
+            f"，当前{current_cpu}核→建议{recommended_cpu}核"
+        )
+        parts.append(
+            f"内存: P95={memory_p95:.1f}% 峰值={memory_max:.1f}% 均值={memory_avg:.1f}%"
+            f"，当前{current_memory_gb:.1f}GB→建议{recommended_memory_gb:.1f}GB"
+        )
+        return "；".join(parts)
+
     def _percentile(self, values: List[float], percentile: int) -> float:
-        """Calculate percentile of values."""
+        """Calculate percentile using linear interpolation."""
         if not values:
             return 0.0
         sorted_values = sorted(values)
-        index = int(len(sorted_values) * percentile / 100)
-        index = min(index, len(sorted_values) - 1)
-        return sorted_values[index]
+        n = len(sorted_values)
+        if n == 1:
+            return sorted_values[0]
+        # 线性插值：更精确的百分位计算
+        rank = (percentile / 100) * (n - 1)
+        lower = int(rank)
+        upper = min(lower + 1, n - 1)
+        frac = rank - lower
+        return sorted_values[lower] + frac * (sorted_values[upper] - sorted_values[lower])
 
     def _stddev(self, values: List[float]) -> float:
         """Calculate standard deviation."""
@@ -297,7 +369,7 @@ class RightSizeAnalyzer:
         if mean == 0:
             return "low"
 
-        cv = stddev / mean if mean > 0 else 0
+        cv = stddev / mean
         if cv > 0.4:
             return "high"
         elif cv > 0.2:
@@ -309,17 +381,21 @@ class RightSizeAnalyzer:
         self,
         adjustment_type: str,
         risk: str,
-        suggested_cpu: int,
-        suggested_memory_gb: float,
+        recommended_cpu: int,
+        recommended_memory_gb: float,
     ) -> str:
-        """Generate right-sizing recommendation."""
+        """Generate right-sizing recommendation with evidence."""
         if adjustment_type == "down_significant":
-            return f"建议大幅缩容至 {suggested_cpu} vCPU / {suggested_memory_gb}GB RAM"
+            base = f"建议大幅缩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
         elif adjustment_type == "down":
-            return f"建议缩容至 {suggested_cpu} vCPU / {suggested_memory_gb}GB RAM"
+            base = f"建议缩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
         elif adjustment_type == "up_significant":
-            return f"需要大幅扩容至 {suggested_cpu} vCPU / {suggested_memory_gb}GB RAM"
+            base = f"需要大幅扩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
         elif adjustment_type == "up":
-            return f"建议扩容至 {suggested_cpu} vCPU / {suggested_memory_gb}GB RAM"
+            base = f"建议扩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
         else:
             return "当前配置合理，无需调整"
+
+        if risk == "high":
+            base += "（注意：负载波动较大，建议谨慎调整）"
+        return base

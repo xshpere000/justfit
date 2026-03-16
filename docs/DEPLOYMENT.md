@@ -26,11 +26,12 @@ npm install
 ### 3. 启动开发模式
 
 ```bash
-# 使用 Makefile（推荐）
+# 使用 Makefile（推荐，Linux/macOS）
 make dev
 
 # 或直接运行脚本
-./scripts/dev.sh
+./scripts/dev/dev-linux.sh    # Linux/macOS
+./scripts/dev/dev-windows.sh  # Windows Git Bash
 ```
 
 ## 生产构建
@@ -94,7 +95,7 @@ make package
 ```bash
 # 安装依赖
 sudo apt update
-sudo apt install python3.14 python3.14-venv nodejs npm
+sudo apt install python3 python3-venv nodejs npm
 
 # 安装 uv
 pip install uv
@@ -108,7 +109,7 @@ make package  # 打包
 
 ```bash
 # 安装依赖
-sudo dnf install python3.14 nodejs npm
+sudo dnf install python3 nodejs npm
 
 # 其余步骤同上
 ```

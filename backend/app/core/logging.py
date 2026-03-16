@@ -32,7 +32,13 @@ def setup_logging(level: int = logging.INFO) -> None:
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    # 1. 控制台处理器 (带颜色)
+    # 1. 控制台处理器
+    try:
+        # 强制 stdout 使用 utf-8，避免 Windows 下中文字符导致 OSError
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
@@ -83,7 +89,7 @@ def setup_logging(level: int = logging.INFO) -> None:
         stdlib_logger = logging.getLogger(logger_name)
         log_level = getattr(logging, level, logging.INFO)
         stdlib_logger.log(log_level, full_msg)
-        return event_dict
+        raise structlog.DropEvent()
 
     structlog.configure(
         processors=[
@@ -94,8 +100,6 @@ def setup_logging(level: int = logging.INFO) -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             add_logger,
-            # 生产环境用 JSON，开发环境用可读格式
-            structlog.processors.JSONRenderer() if not is_debug else structlog.dev.ConsoleRenderer(colors=True),
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
