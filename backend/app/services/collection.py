@@ -168,6 +168,7 @@ class CollectionService:
                 connection_id=connection_id,
                 name=info.name,
                 datacenter=info.datacenter,
+                cluster_name=info.cluster_name,
                 ip_address=info.ip_address,
                 cpu_cores=info.cpu_cores,
                 cpu_mhz=info.cpu_mhz,

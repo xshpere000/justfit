@@ -370,10 +370,11 @@ class UISConnector(Connector):
         client = await self._get_client()
 
         try:
-            # 并行调用两个 API：主机详情和主机状态
-            detail_response, summary_response = await asyncio.gather(
+            # 并行调用三个 API：主机详情、主机状态、集群详情
+            detail_response, summary_response, cluster_response = await asyncio.gather(
                 client.get("/uis/host/detail"),
                 client.get("/uis/host/summary"),
+                client.get("/uis/cluster/clusterInfo/detail"),
                 return_exceptions=True
             )
 
@@ -403,6 +404,16 @@ class UISConnector(Connector):
                             # hostStatus: 0=不正常, 1=正常
                             # 映射到标准状态字符串
                             host_status_map[host_id] = "green" if host_status == 1 else "red"
+
+            # 处理集群数据，创建 cluster_id -> cluster_name 映射
+            cluster_name_map = {}
+            if not isinstance(cluster_response, Exception) and cluster_response.status_code == 200:
+                cluster_data = cluster_response.json()
+                if isinstance(cluster_data, dict) and cluster_data.get("data"):
+                    for cluster in cluster_data.get("data", []):
+                        cid = cluster.get("id")
+                        if cid is not None:
+                            cluster_name_map[cid] = cluster.get("name", "")
 
             hosts = []
 
@@ -436,10 +447,15 @@ class UISConnector(Connector):
                     host_id = host_data.get("id")
                     overall_status = host_status_map.get(host_id, "")
 
+                    # 获取集群名称
+                    cluster_id = host_data.get("clusterId")
+                    cluster_name = cluster_name_map.get(cluster_id, "") if cluster_id is not None else ""
+
                     # 构造 HostInfo
                     hosts.append(HostInfo(
                         name=host_data.get("name", ""),
                         datacenter="",  # UIS 可能没有 datacenter 概念
+                        cluster_name=cluster_name,
                         ip_address=host_data.get("ip", ""),
                         cpu_cores=cpu_cores,
                         cpu_mhz=cpu_mhz,

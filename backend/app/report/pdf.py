@@ -289,16 +289,17 @@ class PDFReportGenerator:
                 subsections=["4.1 优化摘要", "4.2 优化方法", "4.3 优化建议详情", "4.4 优化建议VM资源趋势"]
             ))
 
-        # Section 5: Usage Pattern
-        usage_pattern = resource_data.get("usagePattern", []) if resource_data else []
-        if usage_pattern:
+        # Section 5: Tidal Detection
+        tidal = resource_data.get("tidal", []) if resource_data else []
+        if tidal:
             self.sections.append(ReportSection(
-                "5. 使用模式分析",
-                subsections=["5.1 模式分布", "5.2 模式说明", "5.3 详细列表", "5.4 特殊模式VM资源趋势"]
+                "5. 潮汐检测分析",
+                subsections=["5.1 潮汐分布", "5.2 潮汐说明", "5.3 详细列表", "5.4 潮汐VM资源趋势"]
             ))
 
-        # Section 6: Mismatch Analysis
-        mismatch = resource_data.get("mismatch", []) if resource_data else []
+        # Section 6: Mismatch Analysis (from resourceOptimization)
+        resource_opt = resource_data.get("resourceOptimization", []) if resource_data else []
+        mismatch = [r for r in resource_opt if r.get("mismatchType") and r.get("mismatchType") != "balanced"]
         if mismatch:
             self.sections.append(ReportSection(
                 "6. 配置错配分析",
@@ -342,8 +343,8 @@ class PDFReportGenerator:
             story.extend(self._build_resource_section(data, styles))
             story.append(PageBreak())
 
-        # 8. Usage Pattern
-        if usage_pattern:
+        # 8. Tidal Detection
+        if tidal:
             story.extend(self._build_usage_pattern_section(data, styles))
             story.append(PageBreak())
 
@@ -834,7 +835,7 @@ class PDFReportGenerator:
 
         # Right Size finding
         resource = data.get("analysis", {}).get("resource", {})
-        right_size = resource.get("rightSize", [])
+        right_size = resource.get("resourceOptimization", [])
         if right_size:
             downsize = sum(1 for r in right_size if r.get("adjustmentType", "").startswith("down"))
             findings.append(f"> 有 <b>{downsize}</b> 台虚拟机存在资源配置过高的现象")
@@ -1083,7 +1084,7 @@ class PDFReportGenerator:
         story.append(title)
 
         resource = data.get("analysis", {}).get("resource", {})
-        right_size = resource.get("rightSize", [])
+        right_size = resource.get("resourceOptimization", [])
 
         if not right_size:
             story.append(Paragraph("未发现需要优化资源配置的虚拟机", styles['BodyText']))
@@ -1093,7 +1094,7 @@ class PDFReportGenerator:
         from app.report.builder import ReportBuilder
         builder = ReportBuilder(None)
         summary = builder.build_resource_summary(resource)
-        rs_summary = summary["right_size"]
+        rs_summary = summary["resource_optimization"]
 
         story.append(Paragraph("<b>4.1 优化摘要</b>", styles['SubsectionTitle']))
 
@@ -1207,29 +1208,32 @@ class PDFReportGenerator:
         return story
 
     def _build_usage_pattern_section(self, data: Dict, styles: dict) -> List:
-        """Build usage pattern section."""
+        """Build tidal detection section."""
         story = []
 
-        title = Paragraph("5. 使用模式分析", styles['SectionTitle'])
+        title = Paragraph("5. 潮汐检测分析", styles['SectionTitle'])
         story.append(title)
 
         resource = data.get("analysis", {}).get("resource", {})
-        patterns = resource.get("usagePattern", [])
+        patterns = resource.get("tidal", [])
 
         if not patterns:
-            story.append(Paragraph("未发现特殊使用模式的虚拟机", styles['BodyText']))
+            story.append(Paragraph("未发现潮汐模式的虚拟机", styles['BodyText']))
             return story
 
         # Summary
         from app.report.builder import ReportBuilder
         builder = ReportBuilder(None)
         summary = builder.build_resource_summary(resource)
-        pattern_summary = summary["usage_pattern"]
+        tidal_summary = summary["tidal"]
 
-        story.append(Paragraph("<b>5.1 模式分布</b>", styles['SubsectionTitle']))
+        story.append(Paragraph("<b>5.1 潮汐分布</b>", styles['SubsectionTitle']))
 
         summary_text = (
-            f"共识别 <b>{pattern_summary['total']}</b> 台具有特殊使用模式的虚拟机。"
+            f"共识别 <b>{tidal_summary['total']}</b> 台具有潮汐特征的虚拟机，"
+            f"日粒度 <b>{tidal_summary['by_granularity']['daily']}</b> 台、"
+            f"周粒度 <b>{tidal_summary['by_granularity']['weekly']}</b> 台、"
+            f"月粒度 <b>{tidal_summary['by_granularity']['monthly']}</b> 台。"
         )
         story.append(Paragraph(summary_text, styles['BodyText']))
 
@@ -1238,16 +1242,15 @@ class PDFReportGenerator:
         # Pie chart
         if self.charts:
             pattern_data = [
-                pattern_summary['by_pattern']['stable'],
-                pattern_summary['by_pattern']['burst'],
-                pattern_summary['by_pattern']['tidal'],
+                tidal_summary['by_granularity']['daily'],
+                tidal_summary['by_granularity']['weekly'],
+                tidal_summary['by_granularity']['monthly'],
             ]
-            pattern_labels = ["稳定", "突发", "潮汐"]
-            # 使用统一图表色系 (3种颜色)
+            pattern_labels = ["日粒度", "周粒度", "月粒度"]
             pie = self.charts.draw_pie_chart(
                 data=pattern_data,
                 labels=pattern_labels,
-                title="使用模式分布",
+                title="潮汐粒度分布",
                 colors_list=self.CHART_COLORS[:3],
                 width=12*cm,
                 height=8*cm,
@@ -1258,12 +1261,12 @@ class PDFReportGenerator:
         story.append(Spacer(0.5*cm, 0.5*cm))
 
         # Pattern explanation
-        story.append(Paragraph("<b>5.2 模式说明</b>", styles['SubsectionTitle']))
+        story.append(Paragraph("<b>5.2 潮汐说明</b>", styles['SubsectionTitle']))
         story.extend(self._build_term_explanations([
-            ("稳定模式", "资源使用率相对平稳，波动性较低，适合固定配置。"),
-            ("突发模式", "资源使用率在短时间内急剧上升，可能需要自动扩缩容。"),
-            ("潮汐模式", "资源使用呈现明显的周期性规律（如白天高、夜间低），适合调度优化。"),
-            ("变异系数", "衡量数据波动程度的指标，值越大表示波动越剧烈。"),
+            ("日粒度", "资源使用呈现昼夜周期性规律，如白天高、夜间低，可在低谷时段关机或降低配置。"),
+            ("周粒度", "资源使用呈现工作日/周末差异，周末明显低于工作日，可在周末调度缩容。"),
+            ("月粒度", "资源使用呈现月内周期性规律，如月初/月末业务高峰，其余时段可优化。"),
+            ("变异系数", "衡量数据波动程度的指标，值越大表示波动越剧烈，潮汐特征越明显。"),
         ], styles))
 
         story.append(Spacer(0.5*cm, 0.5*cm))
@@ -1274,37 +1277,35 @@ class PDFReportGenerator:
         table_data = [
             [
                 self._table_cell("VM名称", 'TableCellHeader'),
-                self._table_cell("模式", 'TableCellHeader'),
-                self._table_cell("波动性", 'TableCellHeader'),
+                self._table_cell("潮汐粒度", 'TableCellHeader'),
                 self._table_cell("峰谷比", 'TableCellHeader'),
-                self._table_cell("建议", 'TableCellHeader'),
+                self._table_cell("推荐关机时段", 'TableCellHeader'),
+                self._table_cell("判断依据", 'TableCellHeader'),
             ],
         ]
 
         for item in patterns[:15]:
-            pattern = item.get("usagePattern", "unknown")
-            pattern_map = {"stable": "稳定", "burst": "突发", "tidal": "潮汐", "unknown": "未知"}
-            pattern_text = pattern_map.get(pattern, pattern)
+            granularity = item.get("tidalGranularity", "daily")
+            gran_map = {"daily": "日粒度", "weekly": "周粒度", "monthly": "月粒度"}
+            gran_text = gran_map.get(granularity, granularity)
 
-            volatility = item.get("volatilityLevel", "unknown")
-            vol_map = {"high": "高", "moderate": "中", "low": "低"}
-            vol_text = vol_map.get(volatility, volatility)
-
-            rec = item.get("recommendation", "")  # 不再截断，让 Paragraph 自动换行
+            off_hours = item.get("recommendedOffHours") or {}
+            off_desc = off_hours.get("description", "")
+            reason = item.get("reason", "")
 
             table_data.append([
                 self._table_cell(item.get("vmName", "")),
-                self._table_cell(pattern_text),
-                self._table_cell(vol_text),
+                self._table_cell(gran_text),
                 self._table_cell(f"{item.get('peakValleyRatio', 0):.1f}", 'TableCellSmall'),
-                self._table_cell(rec),
+                self._table_cell(off_desc),
+                self._table_cell(reason),
             ])
 
-        table = Table(table_data, colWidths=[5*cm, 2*cm, 1.5*cm, 1.8*cm, 7*cm])
+        table = Table(table_data, colWidths=[4*cm, 2*cm, 1.5*cm, 3.5*cm, 6.3*cm])
         table.setStyle(TableStyle([
             ('FONTNAME', (0, 0), (-1, -1), self.font_name),
             ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),  # 居左对齐
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
             ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_BORDER),
             ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_PRIMARY),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -1318,7 +1319,7 @@ class PDFReportGenerator:
             story.append(Paragraph(f"<i>... 还有 {len(patterns) - 15} 台VM未显示</i>", styles['Explanation']))
 
         # VM 资源分析图表
-        story.extend(self._build_vm_resource_charts(data, patterns[:25], styles, "5.4 特殊模式VM资源趋势"))
+        story.extend(self._build_vm_resource_charts(data, patterns[:25], styles, "5.4 潮汐VM资源趋势"))
 
         return story
 
@@ -1330,7 +1331,8 @@ class PDFReportGenerator:
         story.append(title)
 
         resource = data.get("analysis", {}).get("resource", {})
-        mismatch = resource.get("mismatch", [])
+        resource_opt = resource.get("resourceOptimization", [])
+        mismatch = [r for r in resource_opt if r.get("mismatchType") and r.get("mismatchType") != "balanced"]
 
         if not mismatch:
             story.append(Paragraph("未发现资源配置错配的虚拟机", styles['BodyText']))
@@ -1340,12 +1342,12 @@ class PDFReportGenerator:
         from app.report.builder import ReportBuilder
         builder = ReportBuilder(None)
         summary = builder.build_resource_summary(resource)
-        mm_summary = summary["mismatch"]
+        mm_summary = summary["resource_optimization"]["mismatch_types"]
 
         story.append(Paragraph("<b>6.1 错配类型分布</b>", styles['SubsectionTitle']))
 
         summary_text = (
-            f"共发现 <b>{mm_summary['total']}</b> 台虚拟机存在资源配置错配问题。"
+            f"共发现 <b>{len(mismatch)}</b> 台虚拟机存在资源配置错配问题。"
         )
         story.append(Paragraph(summary_text, styles['BodyText']))
 
@@ -1354,10 +1356,10 @@ class PDFReportGenerator:
         # Horizontal bar chart - 使用统一色系
         if self.charts:
             bar_data = [
-                ("CPU富裕/内存紧张", mm_summary['cpu_rich_memory_poor']),
-                ("CPU紧张/内存富裕", mm_summary['cpu_poor_memory_rich']),
-                ("双重过剩", mm_summary['both_underutilized']),
-                ("双重紧张", mm_summary['both_overutilized']),
+                ("CPU富裕/内存紧张", mm_summary.get('cpu_rich_memory_poor', 0)),
+                ("CPU紧张/内存富裕", mm_summary.get('cpu_poor_memory_rich', 0)),
+                ("双重过剩", mm_summary.get('both_underutilized', 0)),
+                ("双重紧张", mm_summary.get('both_overutilized', 0)),
             ]
             # 使用统一图表色系 (蓝/绿/橙/红)
             bar_chart = self.charts.draw_horizontal_bar_chart(
@@ -1407,14 +1409,14 @@ class PDFReportGenerator:
             }
             type_text = type_map.get(mm_type, mm_type)
 
-            config = f"{item.get('currentCpu', 0)}核/{item.get('currentMemory', 0):.0f}GB"
-            rec = item.get("recommendation", "")  # 不再截断，让 Paragraph 自动换行
+            config = f"{item.get('currentCpu', 0)}核/{item.get('currentMemoryGb', 0):.0f}GB"
+            rec = item.get("reason", "")
 
             table_data.append([
                 self._table_cell(item.get("vmName", "")),
                 self._table_cell(type_text),
-                self._table_cell(f"{item.get('cpuUtilization', 0):.1f}%", 'TableCellSmall'),
-                self._table_cell(f"{item.get('memoryUtilization', 0):.1f}%", 'TableCellSmall'),
+                self._table_cell(f"{item.get('cpuP95', 0):.1f}%", 'TableCellSmall'),
+                self._table_cell(f"{item.get('memoryP95', 0):.1f}%", 'TableCellSmall'),
                 self._table_cell(config, 'TableCellSmall'),
                 self._table_cell(rec),
             ])

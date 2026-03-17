@@ -11,37 +11,13 @@
         <span>{{ platformLabel }}</span>
       </div>
       <div class="task-actions" @click.stop>
-        <el-dropdown trigger="click" @command="handleCommand">
-          <el-icon class="more-icon"><MoreFilled /></el-icon>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <!-- 取消任务 - 仅运行中/等待中 -->
-              <el-dropdown-item
-                v-if="['running', 'pending'].includes(task.status)"
-                command="cancel"
-                :icon="CircleClose"
-              >
-                取消任务
-              </el-dropdown-item>
-              <!-- 重试任务 - 仅失败状态 -->
-              <el-dropdown-item
-                v-if="task.status === 'failed'"
-                command="retry"
-                :icon="Refresh"
-              >
-                重试任务
-              </el-dropdown-item>
-              <!-- 删除任务 - 分隔线 -->
-              <el-dropdown-item
-                command="delete"
-                :icon="Delete"
-                divided
-              >
-                删除任务
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <el-button
+          class="delete-btn"
+          :icon="Delete"
+          circle
+          size="small"
+          @click="handleDelete"
+        />
       </div>
     </div>
 
@@ -116,13 +92,15 @@
       <!-- 失败 -->
       <template v-else-if="task.status === 'failed'">
         <div class="failed-section">
-          <el-tag type="danger" effect="plain" size="small">
+          <div class="failed-info">
+            <span class="error-message" :title="task.error || ''">
+              {{ truncatedError || '点击查看详情' }}
+            </span>
+          </div>
+          <div class="failed-badge">
             <el-icon><CircleCloseFilled /></el-icon>
-            执行失败
-          </el-tag>
-          <span v-if="task.error" class="error-message" :title="task.error">
-            {{ truncatedError }}
-          </span>
+            <span>执行失败</span>
+          </div>
         </div>
       </template>
 
@@ -141,15 +119,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import {
-  MoreFilled,
   Connection,
   Clock,
   Loading,
   CircleCheckFilled,
   CircleCloseFilled,
   CircleClose,
-  Refresh,
   Delete,
   Monitor,
   Platform
@@ -228,7 +205,7 @@ const statusLabel = computed(() => {
     failed: '执行失败',
     cancelled: '已取消'
   }
-  return labels[props.task.status] || props.task.status
+  return labels[props.task.status] || '-'
 })
 
 // 进度条颜色
@@ -268,9 +245,15 @@ const truncatedError = computed(() => {
   return error.length > 30 ? error.substring(0, 30) + '...' : error
 })
 
-// 处理命令
-function handleCommand(command: string) {
-  emit('command', command, props.task)
+// 处理删除
+async function handleDelete() {
+  await ElMessageBox.confirm('确定要删除该任务吗？此操作不可撤销。', '删除任务', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning',
+    confirmButtonClass: 'el-button--danger',
+  })
+  emit('command', 'delete', props.task)
 }
 </script>
 
@@ -324,7 +307,7 @@ function handleCommand(command: string) {
     transform: translateY(-3px);
     box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
 
-    .more-icon {
+    .delete-btn {
       opacity: 1;
     }
   }
@@ -345,18 +328,15 @@ function handleCommand(command: string) {
       letter-spacing: 0.3px;
     }
 
-    .more-icon {
-      color: #909399;
-      font-size: 16px;
-      padding: 4px;
-      border-radius: 6px;
-      opacity: 0.6;
+    .delete-btn {
+      opacity: 0.5;
       transition: all 0.2s;
 
       &:hover {
-        color: #409eff;
-        background: #ecf5ff;
         opacity: 1;
+        color: #f56c6c !important;
+        border-color: #f56c6c !important;
+        background: #fef0f0 !important;
       }
     }
   }
@@ -519,15 +499,32 @@ function handleCommand(command: string) {
 
     .failed-section {
       display: flex;
-      flex-direction: column;
-      gap: 8px;
+      justify-content: space-between;
+      align-items: center;
 
-      .error-message {
-        font-size: 11px;
+      .failed-info {
+        .error-message {
+          font-size: 11px;
+          color: #909399;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 130px;
+          display: block;
+        }
+      }
+
+      .failed-badge {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 13px;
+        font-weight: 600;
         color: #f56c6c;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+
+        .el-icon {
+          font-size: 16px;
+        }
       }
     }
 

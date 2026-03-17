@@ -3,7 +3,7 @@
         <div class="wizard-header">
             <div class="header-content">
                 <div class="title-row">
-                    <el-button class="back-button" icon="ArrowLeft" circle plain @click="$router.push('/')" size="small" />
+                    <el-button class="back-button" icon="ArrowLeft" circle plain @click="$router.push('/')" />
                     <h1 class="page-title">创建评估任务</h1>
                     <div class="title-row-spacer"></div>
                 </div>
@@ -220,6 +220,7 @@
                                 <el-col :span="7">
                                     <el-form-item label="采集天数">
                                         <el-select v-model="taskConfigForm.metricDays" style="width: 100%">
+                                            <el-option label="7 天" :value="7" />
                                             <el-option label="30 天" :value="30" />
                                             <el-option label="60 天" :value="60" />
                                             <el-option label="90 天" :value="90" />
@@ -755,15 +756,13 @@ const NORMAL_VM_STATES = new Set([
 
 // 异常状态映射表（支持扩展）
 const VM_STATE_TEXT_MAP: Record<string, string> = {
-    // VMware vCenter 状态
+    // VMware vCenter 连接状态（全小写，getVMStateText 中统一 toLowerCase）
     'orphaned': '孤立',
     'inaccessible': '无法访问',
     'disconnected': '已断开',
-    'notResponding': '无响应',
+    'notresponding': '无响应',
     'unknown': '未知状态',
     'invalid': '无效',
-    'wait': '等待中',
-    'blocked': '已阻塞',
 
     // H3C UIS 状态
     'isolated': '孤立',
@@ -835,9 +834,9 @@ function getVMStateText(vm: TestFetchVM): string {
         return VM_STATE_TEXT_MAP[state]
     }
 
-    // 如果不是正常状态也不是已知异常状态，返回原始值
+    // 如果不是正常状态也不是已知异常状态，返回"未知"
     if (!isVMStateNormal(vm)) {
-        return actualState
+        return '未知'
     }
 
     // 正常状态不需要显示标签

@@ -179,9 +179,15 @@ class VCenterConnector(Connector):
             # Get IP from vmk0 (management network)
             ip_address = self._get_host_ip(host)
 
+            # Get cluster name from parent (only for ClusterComputeResource, not standalone ComputeResource)
+            cluster_name = ""
+            if host.parent and isinstance(host.parent, vim.ClusterComputeResource):
+                cluster_name = host.parent.name
+
             hosts.append(HostInfo(
                 name=host.name,
                 datacenter=self._get_datacenter_name(host),
+                cluster_name=cluster_name,
                 ip_address=ip_address,
                 cpu_cores=host.summary.hardware.numCpuCores,
                 cpu_mhz=host.summary.hardware.cpuMhz,
@@ -234,10 +240,13 @@ class VCenterConnector(Connector):
         # 先收集所有唯一的 host（用于缓存预热）
         unique_hosts = {}
         for vm in vm_list:
-            if vm.runtime and vm.runtime.host and hasattr(vm.runtime.host, 'name'):
-                host_name = vm.runtime.host.name
-                if host_name and host_name not in unique_hosts:
-                    unique_hosts[host_name] = vm.runtime.host
+            try:
+                if vm.runtime and vm.runtime.host and hasattr(vm.runtime.host, 'name'):
+                    host_name = vm.runtime.host.name
+                    if host_name and host_name not in unique_hosts:
+                        unique_hosts[host_name] = vm.runtime.host
+            except Exception:
+                pass
 
         # 并发预加载所有 host IP（最多 10 个并发）
         if unique_hosts:
@@ -263,14 +272,6 @@ class VCenterConnector(Connector):
 
         async def extract_vm_info(vm: vim.VirtualMachine) -> Optional[VMInfo]:
             """提取单个 VM 的信息（在线程池中执行同步操作）"""
-            # 快速检查：过滤异常状态
-            if not vm.runtime:
-                return None
-
-            connection_state_str = vm.runtime.connectionState
-            if connection_state_str and connection_state_str.lower() in ["orphaned", "disconnected", "inaccessible", "invalid"]:
-                return None
-
             # 使用 run_in_executor 在线程池中执行属性访问
             loop = asyncio.get_event_loop()
 
@@ -335,7 +336,11 @@ class VCenterConnector(Connector):
                     return None
 
             async with semaphore:
-                return await loop.run_in_executor(None, _extract)
+                try:
+                    return await loop.run_in_executor(None, _extract)
+                except Exception as e:
+                    logger.warning("vcenter_vm_extract_coroutine_failed", vm_name=getattr(vm, 'name', 'unknown'), error=str(e))
+                    return None
 
         # 并发提取所有 VM 信息
         results = await asyncio.gather(*[extract_vm_info(vm) for vm in vm_list])
@@ -499,28 +504,19 @@ class VCenterConnector(Connector):
             has_network=has_network,
         )
 
-        # Determine historical interval based on time range
+        # 固定使用天级（86400s）采集 CPU/内存，与 UIS 保持一致
         time_diff_seconds = (end_time - start_time).total_seconds()
         time_diff_days = time_diff_seconds / 86400
-
-        if time_diff_days <= 1:
-            historical_interval = 300
-        elif time_diff_days <= 7:
-            historical_interval = 1800
-        elif time_diff_days <= 90:
-            historical_interval = 7200
-        else:
-            historical_interval = 86400
+        historical_interval = 86400
 
         logger.info(
-            "vcenter_hybrid_query_strategy",
+            "vcenter_daily_query_strategy",
             vm_name=vm_name,
             days_requested=f"{time_diff_days:.1f}",
             historical_interval=historical_interval,
-            io_interval=20,
         )
 
-        # Query 1: CPU and Memory with historical interval
+        # Query 1: CPU and Memory with daily interval
         cpu_memory_metric_ids = [
             vim.PerformanceManager.MetricId(counterId=counter_ids['cpu'], instance=""),
             vim.PerformanceManager.MetricId(counterId=counter_ids['memory'], instance=""),
@@ -529,7 +525,7 @@ class VCenterConnector(Connector):
         cpu_memory_stats = await self._query_perf_stats(
             perf_manager, vm, cpu_memory_metric_ids,
             interval_id=historical_interval,
-            max_sample=min(10000, int(time_diff_seconds / historical_interval) + 100),
+            max_sample=min(10000, int(time_diff_seconds / historical_interval) + 10),
             start_time=start_time,
             end_time=end_time,
         )

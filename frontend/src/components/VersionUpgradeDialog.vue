@@ -15,9 +15,9 @@
       <h3>检测到大版本升级</h3>
 
       <p class="version-info">
-        当前版本：<el-tag type="warning">0.0.3</el-tag>
+        当前版本：<el-tag type="warning">0.0.4</el-tag>
         <span style="margin: 0 8px">→</span>
-        最新版本：<el-tag type="success">0.0.3</el-tag>
+        最新版本：<el-tag type="success">0.0.4</el-tag>
       </p>
 
       <el-alert

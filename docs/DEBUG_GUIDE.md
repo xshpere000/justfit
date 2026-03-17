@@ -43,8 +43,11 @@ curl -X POST http://localhost:22631/api/connections/1/test
 ### 2. 数据库问题
 
 ```bash
-# 查看数据库
-sqlite3 ~/.justfit/data.db
+# 查看数据库（Linux/macOS）
+sqlite3 ~/.local/share/justfit/justfit.db
+
+# 查看数据库（Windows，在 Git Bash 中）
+sqlite3 "$LOCALAPPDATA/justfit/justfit.db"
 
 # 查看所有表
 .tables
@@ -79,12 +82,19 @@ tail -f logs/electron.log
 ## 重置数据
 
 ```bash
-# 删除数据库重新开始
-rm ~/.justfit/data.db
+# 删除数据库重新开始（Linux/macOS）
+rm ~/.local/share/justfit/justfit.db
 
-# 删除加密凭据
-rm ~/.justfit/credentials.enc
-rm ~/.justfit/.key
+# 删除数据库重新开始（Windows，在 Git Bash 中）
+rm "$LOCALAPPDATA/justfit/justfit.db"
+
+# 删除加密凭据（Linux/macOS）
+rm ~/.local/share/justfit/credentials.enc
+rm ~/.local/share/justfit/.key
+
+# 删除加密凭据（Windows，在 Git Bash 中）
+rm "$LOCALAPPDATA/justfit/credentials.enc"
+rm "$LOCALAPPDATA/justfit/.key"
 ```
 
 ## 测试覆盖

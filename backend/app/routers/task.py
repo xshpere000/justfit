@@ -520,9 +520,8 @@ async def execute_collection_task(task_id: int, connection_id: int, config: dict
                         resource_data = resource_result.get("data", {})
                         summary = resource_data.get("summary", {})
                         await task_service.add_log(task_id, "info",
-                            f"资源分析完成 - Right Size: {summary.get('rightSizeCount', 0)} 台, "
-                            f"使用模式: {summary.get('usagePatternCount', 0)} 台, "
-                            f"配置错配: {summary.get('mismatchCount', 0)} 台"
+                            f"资源分析完成 - 资源优化: {summary.get('resourceOptimizationCount', 0)} 台, "
+                            f"潮汐检测: {summary.get('tidalCount', 0)} 台"
                         )
                         logger.info("resource_analysis_success", task_id=task_id, summary=summary)
                     else:

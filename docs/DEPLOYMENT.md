@@ -14,9 +14,7 @@ cd justfit
 ```bash
 # Python 依赖
 cd backend
-pip install -e .
-# 或使用 uv
-uv pip install -e .
+pip install -r requirements.txt
 
 # Node.js 依赖
 cd ../frontend
@@ -47,12 +45,15 @@ npm run build
 
 ### 2. 构建后端
 
-后端使用 Python，无需编译，确保依赖已安装：
+后端使用 PyInstaller 打包为独立可执行文件：
 
 ```bash
-cd backend
-uv pip install -r requirements.txt  # 或使用 pip install -e .
+make build-backend
+# 或
+./scripts/build/build-backend.sh
 ```
+
+输出：`backend/dist/justfit-backend.exe`（Windows）
 
 ### 3. 构建 Electron
 
@@ -64,9 +65,8 @@ npm run build
 ### 4. 打包应用
 
 ```bash
-make package
-# 或
-./scripts/package.sh
+make build-all        # 完整打包（前端 + 后端 exe + Electron 安装包）⭐
+make package-electron # 基于已打包前后端生成 Electron 安装包
 ```
 
 输出：`dist/electron/`
@@ -141,36 +141,37 @@ FROM python:3.14-slim
 # ...
 ```
 
-## 配置
+### 配置
 
 ### 环境变量
 
-创建 `.env` 文件：
+所有变量使用 `JUSTFIT_` 前缀，可通过环境变量或 `.env` 文件设置：
 
 ```env
-# 数据库
-DB_PATH=/path/to/database.db
-
-# API 服务
-API_HOST=127.0.0.1
-API_PORT=22631
-
-# 日志
-LOG_LEVEL=INFO
+JUSTFIT_API_PORT=22631
+JUSTFIT_API_HOST=127.0.0.1
+JUSTFIT_DEBUG=False
+JUSTFIT_DATA_DIR=C:\Users\YourUser\AppData\Local\justfit
+JUSTFIT_DB_NAME=justfit.db
+JUSTFIT_DEFAULT_METRIC_DAYS=30
+JUSTFIT_METRIC_INTERVAL_SECONDS=20
+JUSTFIT_VCENTER_TIMEOUT=30
+JUSTFIT_VCENTER_MAX_RETRIES=3
 ```
 
 ### 数据目录
 
 应用数据存储在：
 
-- Windows: `%APPDATA%/JustFit/`
-- Linux: `~/.local/share/JustFit/`
-- macOS: `~/Library/Application Support/JustFit/`
+- Windows: `%LOCALAPPDATA%\justfit\`
+- Linux/macOS: `~/.local/share/justfit/`
 
 包含：
-- `data.db` - SQLite 数据库
+- `justfit.db` - SQLite 数据库
 - `.key` - 加密密钥
 - `credentials.enc` - 加密凭据
+- `logs/justfit.log` - 应用日志
+- `version` - 版本标记文件（版本变更时自动清除所有数据）
 
 ## 更新
 
@@ -201,11 +202,14 @@ taskkill /PID <PID> /F  # Windows
 ### 数据库错误
 
 ```bash
-# 检查数据库文件
-ls -la ~/.local/share/JustFit/
+# 检查数据库文件（Linux/macOS）
+ls -la ~/.local/share/justfit/
 
 # 重置数据库（警告：会丢失所有数据）
-rm ~/.local/share/JustFit/data.db
+rm ~/.local/share/justfit/justfit.db
+
+# Windows（Git Bash）
+rm "$LOCALAPPDATA/justfit/justfit.db"
 ```
 
 ### Python 依赖问题
@@ -213,7 +217,7 @@ rm ~/.local/share/JustFit/data.db
 ```bash
 # 重新安装依赖
 cd backend
-pip install -e . --force-reinstall
+pip install -r requirements.txt --force-reinstall
 ```
 
 ## 性能优化

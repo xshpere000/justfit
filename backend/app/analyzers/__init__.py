@@ -3,7 +3,7 @@
 from .rightsize import RightSizeAnalyzer
 from .health import HealthAnalyzer
 from .idle_detector import IdleDetector
-from .resource_analyzer import ResourceAnalyzer, UsagePatternAnalyzer, MismatchDetector
+from .resource_analyzer import ResourceAnalyzer, TidalDetector
 from .modes import AnalysisModes
 
 __all__ = [
@@ -11,7 +11,6 @@ __all__ = [
     "HealthAnalyzer",
     "IdleDetector",
     "ResourceAnalyzer",
-    "UsagePatternAnalyzer",
-    "MismatchDetector",
+    "TidalDetector",
     "AnalysisModes",
 ]

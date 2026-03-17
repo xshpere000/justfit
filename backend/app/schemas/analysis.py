@@ -49,16 +49,15 @@ class RightSizeResult(BaseSchema):
     cluster: str
     host_ip: str = Field(..., alias="hostIp")
     current_cpu: int = Field(..., alias="currentCpu")
-    suggested_cpu: int = Field(..., alias="suggestedCpu")
-    current_memory: float = Field(..., alias="currentMemory")
-    suggested_memory: float = Field(..., alias="suggestedMemory")
+    recommended_cpu: int = Field(..., alias="recommendedCpu")
+    current_memory_gb: float = Field(..., alias="currentMemoryGb")
+    recommended_memory_gb: float = Field(..., alias="recommendedMemoryGb")
     cpu_p95: float = Field(..., alias="cpuP95")
-    cpu_max: float = Field(..., alias="cpuMax")
     cpu_avg: float = Field(..., alias="cpuAvg")
     memory_p95: float = Field(..., alias="memoryP95")
-    memory_max: float = Field(..., alias="memoryMax")
     memory_avg: float = Field(..., alias="memoryAvg")
     adjustment_type: str = Field(..., alias="adjustmentType")
+    waste_ratio: float = Field(..., alias="wasteRatio")
     risk_level: str = Field(..., alias="riskLevel")
     confidence: float
     recommendation: str

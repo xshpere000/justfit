@@ -241,57 +241,223 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="虚拟机列表" name="vms">
-          <div class="vms-content">
-            <!-- 任务进行中提示 -->
-            <div v-if="!task?.id" class="vm-list-placeholder">
-              <el-empty description="任务执行中，虚拟机列表将在任务完成后显示">
-                <template #image>
-                  <el-icon :size="60" class="is-loading">
-                    <Loading />
-                  </el-icon>
-                </template>
-              </el-empty>
-            </div>
-            <!-- 虚拟机列表 -->
-            <template v-else>
-              <div class="table-toolbar">
-                <el-input v-model="vmSearch" placeholder="搜索虚拟机" prefix-icon="Search" clearable style="width: 300px"
-                  @input="handleVMSearch" />
-                <div class="table-stats">
-                  共 {{ vmTotal }} 台虚拟机
+        <el-tab-pane label="分析结果" name="analysis">
+          <div class="analysis-summary-content">
+            <!-- 上方三栏布局 -->
+            <div class="summary-top-panel">
+              <!-- 左侧：当前集群资源情况 -->
+              <div class="summary-panel summary-current">
+                <div class="summary-panel-title">当前集群资源</div>
+                <div class="summary-metrics">
+                  <div class="summary-metric-item">
+                    <div class="sm-value">{{ analysisSummaryData?.current?.totalHosts ?? '-' }}</div>
+                    <div class="sm-label">物理主机</div>
+                  </div>
+                  <div class="summary-metric-item">
+                    <div class="sm-value">{{ analysisSummaryData?.current?.totalCpuCores ?? '-' }}</div>
+                    <div class="sm-label">CPU 核数</div>
+                  </div>
+                  <div class="summary-metric-item">
+                    <div class="sm-value">{{ analysisSummaryData?.current?.totalMemoryGb != null ? analysisSummaryData.current.totalMemoryGb.toFixed(0) : '-' }}</div>
+                    <div class="sm-label">内存 (GB)</div>
+                  </div>
+                  <div class="summary-metric-item">
+                    <div class="sm-value">{{ analysisSummaryData?.current?.totalVms ?? '-' }}</div>
+                    <div class="sm-label">虚拟机数</div>
+                  </div>
                 </div>
               </div>
-              <div class="table-wrapper">
-                <el-table :data="vmList" stripe :loading="vmListLoading" height="400">
-                  <el-table-column prop="name" label="虚拟机名称" min-width="180" />
-                  <el-table-column prop="cpuCount" label="CPU" width="100">
-                    <template #default="{ row }">
-                      {{ row.cpuCount > 0 ? row.cpuCount + ' 核' : '-' }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="memoryGb" label="内存" width="120">
-                    <template #default="{ row }">
-                      {{ row.memoryGb > 0 ? row.memoryGb + ' GB' : '-' }}
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="powerState" label="状态" width="100">
-                    <template #default="{ row }">
-                      <el-tag :type="getPowerStateType(row.powerState)" size="small">
-                        {{ getPowerStateText(row.powerState) }}
-                      </el-tag>
-                    </template>
-                  </el-table-column>
-                  <el-table-column prop="datacenter" label="数据中心" width="150" />
-                  <el-table-column prop="hostIp" label="主机IP" width="150" />
-                </el-table>
+
+              <!-- 中间：勾选优化项 -->
+              <div class="summary-panel summary-controls">
+                <div class="summary-panel-title">选择优化项</div>
+                <div class="summary-checkboxes">
+                  <el-checkbox
+                    v-model="summaryOptimizations.resource"
+                    :disabled="!hasAnalysisResults.resource"
+                    @change="fetchAnalysisSummary"
+                    class="summary-checkbox"
+                  >
+                    <span class="checkbox-label">资源优化</span>
+                    <el-tag v-if="!hasAnalysisResults.resource" size="small" type="info" style="margin-left:6px">未运行</el-tag>
+                  </el-checkbox>
+                  <el-checkbox
+                    v-model="summaryOptimizations.idle"
+                    :disabled="!hasAnalysisResults.idle"
+                    @change="fetchAnalysisSummary"
+                    class="summary-checkbox"
+                  >
+                    <span class="checkbox-label">闲置检测</span>
+                    <el-tag v-if="!hasAnalysisResults.idle" size="small" type="info" style="margin-left:6px">未运行</el-tag>
+                  </el-checkbox>
+                </div>
+                <el-button
+                  type="primary"
+                  size="small"
+                  :loading="analysisSummaryLoading"
+                  @click="fetchAnalysisSummary"
+                  class="summary-calc-btn"
+                >
+                  重新计算
+                </el-button>
               </div>
-              <div class="table-pagination">
-                <el-pagination v-model:current-page="vmCurrentPage" v-model:page-size="vmPageSize"
-                  :page-sizes="[20, 50, 100, 200]" :total="vmTotal" layout="total, sizes, prev, pager, next, jumper"
-                  @current-change="handleVMPageChange" @size-change="handleVMSizeChange" />
+
+              <!-- 右侧：优化后可节省资源 -->
+              <div class="summary-panel summary-optimized">
+                <div class="summary-panel-title">优化后可释放</div>
+                <div v-if="analysisSummaryData" class="summary-metrics">
+                  <div class="summary-metric-item highlight">
+                    <div class="sm-value text-success">{{ analysisSummaryData.optimized?.freedCpuCores ?? '-' }}</div>
+                    <div class="sm-label">释放 CPU 核</div>
+                  </div>
+                  <div class="summary-metric-item highlight">
+                    <div class="sm-value text-success">{{ analysisSummaryData.optimized?.freedMemoryGb != null ? analysisSummaryData.optimized.freedMemoryGb.toFixed(0) : '-' }}</div>
+                    <div class="sm-label">释放内存 (GB)</div>
+                  </div>
+                  <div class="summary-metric-item highlight">
+                    <div class="sm-value text-primary">{{ analysisSummaryData.freeableHosts?.length ?? 0 }}</div>
+                    <div class="sm-label">可释放主机</div>
+                  </div>
+                </div>
+                <div v-else-if="analysisSummaryLoading" class="summary-loading">
+                  <el-icon class="is-loading"><Loading /></el-icon>
+                  <span>计算中...</span>
+                </div>
+                <div v-else class="summary-empty-hint">请勾选优化项后点击计算</div>
               </div>
-            </template>
+            </div>
+
+            <!-- 下方：可释放主机列表 -->
+            <div class="summary-hosts-section" v-if="analysisSummaryData?.freeableHosts?.length > 0">
+              <div class="summary-hosts-title">
+                可释放的物理主机
+                <el-tag size="small" type="success">{{ analysisSummaryData.freeableHosts.length }} 台</el-tag>
+              </div>
+              <el-table :data="analysisSummaryData.freeableHosts" stripe class="detail-table hosts-table">
+                <el-table-column prop="hostName" label="主机名" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="hostIp" label="主机IP" width="140" />
+                <el-table-column prop="cpuCores" label="CPU 核数" width="100" align="center" />
+                <el-table-column prop="memoryGb" label="内存 (GB)" width="110" align="center">
+                  <template #default="{ row }">{{ row.memoryGb?.toFixed(0) }}</template>
+                </el-table-column>
+                <el-table-column prop="currentVmCount" label="当前VM数" width="100" align="center" />
+                <el-table-column label="原因" min-width="200" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span class="reason-text">{{ row.reason || '资源已被其他主机吸收' }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+            <div v-else-if="analysisSummaryData && analysisSummaryData.freeableHosts?.length === 0" class="summary-no-hosts">
+              <el-empty description="根据当前选择的优化项，暂无可完全释放的物理主机" :image-size="80" />
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="资源优化" name="rightsize">
+          <div class="analysis-content" v-if="hasAnalysisResults.resource">
+            <!-- 汇总栏 -->
+            <div class="rightsize-summary-bar" v-if="filteredResourceOptData.length > 0">
+              <span class="rs-summary-text">
+                共 <strong>{{ filteredResourceOptData.length }}</strong> 台 VM 需要调整
+                &nbsp;·&nbsp; 可释放 CPU: <strong>{{ resourceOptSavings.cpu }} 核</strong>
+                &nbsp;·&nbsp; 可释放内存: <strong>{{ resourceOptSavings.memory }} GB</strong>
+              </span>
+            </div>
+            <div class="analysis-toolbar">
+              <el-input v-model="rightsizeSearch" placeholder="搜索虚拟机" clearable class="search-input">
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+              <el-select v-model="mismatchTypeFilter" placeholder="错配类型" clearable class="filter-select" style="width:160px">
+                <el-option label="全部类型" value="" />
+                <el-option label="CPU富余/内存紧张" value="cpu_rich_memory_poor" />
+                <el-option label="CPU不足/内存富余" value="cpu_poor_memory_rich" />
+                <el-option label="双重过剩" value="both_underutilized" />
+                <el-option label="双重超载" value="both_overutilized" />
+                <el-option label="配比合理" value="balanced" />
+              </el-select>
+            </div>
+            <div class="table-wrapper" :style="{ height: rightsizeTableHeight + 'px' }">
+              <el-table :data="pagedResourceOptData" stripe v-loading="analysisLoading.resource"
+                :height="rightsizeTableHeight" class="detail-table" row-key="vmName" style="min-width: 1400px">
+                <el-table-column prop="vmName" label="虚拟机" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="cluster" label="集群" min-width="110" show-overflow-tooltip />
+                <el-table-column prop="hostIp" label="主机IP" width="120" />
+                <el-table-column label="当前CPU" width="90" align="center">
+                  <template #default="{ row }">{{ row.currentCpu }} 核</template>
+                </el-table-column>
+                <el-table-column label="推荐CPU" width="90" align="center">
+                  <template #default="{ row }">
+                    <span :class="{ 'text-success': row.recommendedCpu < row.currentCpu, 'text-warning': row.recommendedCpu > row.currentCpu }">
+                      {{ row.recommendedCpu }} 核
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="当前内存" width="100" align="center">
+                  <template #default="{ row }">{{ row.currentMemoryGb }} GB</template>
+                </el-table-column>
+                <el-table-column label="推荐内存" width="100" align="center">
+                  <template #default="{ row }">
+                    <span :class="{ 'text-success': row.recommendedMemoryGb < row.currentMemoryGb, 'text-warning': row.recommendedMemoryGb > row.currentMemoryGb }">
+                      {{ row.recommendedMemoryGb }} GB
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="P95 使用率" width="140">
+                  <template #default="{ row }">
+                    <div class="p95-cell">
+                      <div>CPU: {{ row.cpuP95 }}% (均{{ row.cpuAvg }}%)</div>
+                      <div>内存: {{ row.memoryP95 }}% (均{{ row.memoryAvg }}%)</div>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="mismatchType" label="错配类型" width="150" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="getMismatchTypeTagType(row.mismatchType)" size="small">
+                      {{ getMismatchTypeText(row.mismatchType) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="wasteRatio" label="浪费比例" width="90" align="center">
+                  <template #default="{ row }">
+                    <span :class="{ 'text-success': row.wasteRatio > 0, 'text-warning': row.wasteRatio < 0 }">
+                      {{ row.wasteRatio > 0 ? '+' : '' }}{{ row.wasteRatio }}%
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="adjustmentType" label="调整方向" width="100" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="getAdjustmentTypeTagType(row.adjustmentType)" size="small">
+                      {{ getAdjustmentTypeText(row.adjustmentType) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="confidence" label="置信度" width="80" align="center">
+                  <template #default="{ row }">
+                    <el-progress :percentage="row.confidence" :color="getConfidenceColor(row.confidence)"
+                      :show-text="false" :stroke-width="8" style="width:55px" />
+                    <span class="confidence-text">{{ row.confidence }}%</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="判断依据" min-width="200" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <span class="reason-text">{{ row.reason }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+            <div class="table-pagination" v-if="filteredResourceOptData.length > 0">
+              <span class="pagination-total">共 {{ filteredResourceOptData.length }} 条</span>
+              <el-pagination v-model:current-page="rightsizeCurrentPage" v-model:page-size="analysisPageSize"
+                :page-sizes="logsPageSizes" :total="filteredResourceOptData.length" :layout="logsPaginationLayout"
+                :size="paginationSize" />
+            </div>
+            <el-empty v-if="!analysisLoading.resource && filteredResourceOptData.length === 0" description="暂无资源优化数据" />
+          </div>
+          <div v-else class="analysis-placeholder">
+            <el-empty description="该分析尚未运行">
+              <el-button type="primary" :loading="analysisLoading.resource" @click="runAnalysis('resource')">开始分析</el-button>
+            </el-empty>
           </div>
         </el-tab-pane>
 
@@ -378,7 +544,7 @@
               <div class="table-wrapper" :style="{ height: idleTableHeight + 'px' }">
                 <el-table :data="pagedIdleData" stripe v-loading="analysisLoading.idle" :height="idleTableHeight"
                   class="detail-table zombie-table" :empty-text="filteredIdleData.length === 0 ? '未找到匹配的结果' : '暂无分析结果'"
-                  flex>
+                  flex style="min-width: 1100px">
                   <el-table-column prop="vmName" label="虚拟机" min-width="160" show-overflow-tooltip>
                     <template #default="{ row }">
                       <div class="vm-cell">
@@ -437,10 +603,8 @@
               </div>
 
               <!-- 分页 -->
-              <div class="logs-pagination" v-if="filteredIdleData.length > 0">
-                <span class="logs-total">
-                  共 {{ filteredIdleData.length }} 条
-                </span>
+              <div class="table-pagination" v-if="filteredIdleData.length > 0">
+                <span class="pagination-total">共 {{ filteredIdleData.length }} 条</span>
                 <el-pagination v-model:current-page="zombieCurrentPage" v-model:page-size="analysisPageSize"
                   :page-sizes="logsPageSizes" :total="filteredIdleData.length" :layout="logsPaginationLayout"
                   :size="paginationSize" />
@@ -480,157 +644,70 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="资源配置优化" name="rightsize">
-          <div class="analysis-content" v-if="hasAnalysisResults.resource">
+        <el-tab-pane label="潮汐检测" name="tidal">
+          <div class="analysis-content" v-if="hasAnalysisResults.resource && analysisData.tidal.length > 0">
             <div class="analysis-toolbar">
-              <el-input v-model="rightsizeSearch" placeholder="搜索虚拟机" clearable class="search-input">
-                <template #prefix>
-                  <el-icon>
-                    <Search />
-                  </el-icon>
-                </template>
+              <el-input v-model="tidalSearch" placeholder="搜索虚拟机名称、集群、主机IP..." clearable class="search-input">
+                <template #prefix><el-icon><Search /></el-icon></template>
               </el-input>
-            </div>
-            <div class="table-wrapper" :style="{ height: rightsizeTableHeight + 'px' }">
-              <el-table :data="pagedRightSizeData" stripe v-loading="analysisLoading.resource"
-                :height="rightsizeTableHeight" class="detail-table">
-                <el-table-column prop="vmName" label="虚拟机" min-width="180" show-overflow-tooltip />
-                <el-table-column prop="cluster" label="集群" min-width="120" />
-                <el-table-column prop="hostIp" label="主机IP" width="120" />
-                <el-table-column label="当前配置" width="150">
-                  <template #default="{ row }">
-                    <div class="config-cell">
-                      <div>CPU: {{ row.currentCpu }} vCPU</div>
-                      <div>内存: {{ row.currentMemoryGb }} GB</div>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="建议配置" width="150">
-                  <template #default="{ row }">
-                    <div class="config-cell">
-                      <div
-                        :class="{ 'text-success': row.recommendedCpu < row.currentCpu, 'text-warning': row.recommendedCpu > row.currentCpu }">
-                        CPU: {{ row.recommendedCpu }} vCPU
-                      </div>
-                      <div
-                        :class="{ 'text-success': row.recommendedMemoryGb < row.currentMemoryGb, 'text-warning': row.recommendedMemoryGb > row.currentMemoryGb }">
-                        内存: {{ row.recommendedMemoryGb }} GB
-                      </div>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="P95使用率" width="130">
-                  <template #default="{ row }">
-                    <div class="p95-cell">
-                      <div>CPU: {{ row.cpuP95 }}% (均{{ row.cpuAvg }}%)</div>
-                      <div>内存: {{ row.memoryP95 }}% (均{{ row.memoryAvg }}%)</div>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="wasteRatio" label="浪费比例" width="90" align="center">
-                  <template #default="{ row }">
-                    <span :class="{ 'text-success': row.wasteRatio > 0, 'text-warning': row.wasteRatio < 0 }">
-                      {{ row.wasteRatio > 0 ? '+' : '' }}{{ row.wasteRatio }}%
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="adjustmentType" label="调整类型" width="100">
-                  <template #default="{ row }">
-                    <el-tag :type="getAdjustmentTypeTagType(row.adjustmentType)" size="small">
-                      {{ getAdjustmentTypeText(row.adjustmentType) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="recommendation" label="建议" min-width="160" show-overflow-tooltip />
-                <el-table-column prop="confidence" label="置信度" width="90" align="center">
-                  <template #default="{ row }">
-                    <el-progress :percentage="row.confidence" :color="getConfidenceColor(row.confidence)"
-                      :show-text="false" :stroke-width="8" style="width: 60px" />
-                    <span class="confidence-text">{{ row.confidence }}%</span>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-            <div class="logs-pagination" v-if="filteredRightSizeData.length > 0">
-              <span class="logs-total">
-                共 {{ filteredRightSizeData.length }} 条
-              </span>
-              <el-pagination v-model:current-page="rightsizeCurrentPage" v-model:page-size="analysisPageSize"
-                :page-sizes="logsPageSizes" :total="filteredRightSizeData.length" :layout="logsPaginationLayout"
-                :size="paginationSize" />
-            </div>
-            <el-empty v-if="!analysisLoading.resource && filteredRightSizeData.length === 0" description="暂无分析结果" />
-          </div>
-          <div v-else class="analysis-placeholder">
-            <el-empty description="该分析尚未运行">
-              <el-button type="primary" :loading="analysisLoading.resource" @click="runAnalysis('rightsize')">
-                开始分析
-              </el-button>
-            </el-empty>
-          </div>
-        </el-tab-pane>
-
-        <el-tab-pane label="使用模式" name="tidal">
-          <div class="analysis-content" v-if="hasAnalysisResults.resource">
-            <div class="analysis-toolbar">
-              <el-input v-model="tidalSearch" placeholder="搜索虚拟机" clearable class="search-input">
-                <template #prefix>
-                  <el-icon>
-                    <Search />
-                  </el-icon>
-                </template>
-              </el-input>
+              <el-select v-model="tidalGranularityFilter" placeholder="潮汐粒度" clearable class="filter-select" style="width:140px">
+                <el-option label="全部粒度" value="" />
+                <el-option label="周粒度" value="weekly" />
+                <el-option label="月粒度" value="monthly" />
+              </el-select>
+              <el-button :icon="Refresh" @click="refreshResourceData" :loading="analysisLoading.resource">刷新</el-button>
             </div>
             <div class="table-wrapper" :style="{ height: tidalTableHeight + 'px' }">
-              <el-table :data="pagedUsagePatternData" stripe v-loading="analysisLoading.resource"
-                :height="tidalTableHeight" class="detail-table">
-                <el-table-column prop="vmName" label="虚拟机" min-width="180" show-overflow-tooltip />
-                <el-table-column prop="cluster" label="集群" min-width="120" show-overflow-tooltip />
-                <el-table-column prop="hostIp" label="主机IP" width="130" />
-                <el-table-column prop="usagePattern" label="使用模式" width="100">
+              <el-table :data="pagedTidalData" stripe v-loading="analysisLoading.resource"
+                :height="tidalTableHeight" class="detail-table" row-key="vmName" style="min-width: 1100px">
+                <el-table-column prop="vmName" label="虚拟机" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="cluster" label="集群" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="hostIp" label="主机IP" width="120" />
+                <el-table-column prop="tidalGranularity" label="潮汐粒度" width="100" align="center">
                   <template #default="{ row }">
-                    <el-tag :type="getUsagePatternTagType(row.usagePattern)" size="small">
-                      {{ getUsagePatternText(row.usagePattern) }}
+                    <el-tag :type="row.tidalGranularity === 'monthly' ? 'warning' : 'primary'" size="small">
+                      {{ row.tidalGranularity === 'monthly' ? '月粒度' : '周粒度' }}
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="volatilityLevel" label="波动性" width="90">
+                <el-table-column prop="volatilityLevel" label="波动程度" width="90" align="center">
                   <template #default="{ row }">
-                    <el-tag :type="getVolatilityLevelTagType(row.volatilityLevel)" size="small">
-                      {{ getVolatilityLevelText(row.volatilityLevel) }}
+                    <el-tag :type="row.volatilityLevel === 'high' ? 'danger' : 'warning'" size="small">
+                      {{ row.volatilityLevel === 'high' ? '高' : '中等' }}
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="coefficientOfVariation" label="变异系数" width="110">
+                <el-table-column prop="coefficientOfVariation" label="CV 变异系数" width="110" align="center">
+                  <template #default="{ row }">{{ row.coefficientOfVariation?.toFixed(3) }}</template>
+                </el-table-column>
+                <el-table-column prop="peakValleyRatio" label="峰谷比" width="90" align="center">
+                  <template #default="{ row }">{{ row.peakValleyRatio?.toFixed(1) }}</template>
+                </el-table-column>
+                <el-table-column label="建议关机时段" min-width="180" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span>{{ row.coefficientOfVariation !== null && row.coefficientOfVariation !== undefined ?
-                      row.coefficientOfVariation.toFixed(2) : '-' }}</span>
+                    {{ row.recommendedOffHours?.description || '-' }}
                   </template>
                 </el-table-column>
-                <el-table-column prop="peakValleyRatio" label="峰谷比" width="100">
+                <el-table-column label="分析依据" min-width="200" show-overflow-tooltip>
                   <template #default="{ row }">
-                    <span>{{ row.peakValleyRatio !== null && row.peakValleyRatio !== undefined ?
-                      row.peakValleyRatio.toFixed(2) : '-' }}</span>
+                    <span class="reason-text">{{ row.reason }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="recommendation" label="建议" min-width="200" show-overflow-tooltip />
               </el-table>
             </div>
-            <div class="logs-pagination" v-if="filteredUsagePatternData.length > 0">
-              <span class="logs-total">
-                共 {{ filteredUsagePatternData.length }} 条
-              </span>
+            <div class="table-pagination" v-if="filteredTidalData.length > 0">
+              <span class="pagination-total">共 {{ filteredTidalData.length }} 条</span>
               <el-pagination v-model:current-page="tidalCurrentPage" v-model:page-size="analysisPageSize"
-                :page-sizes="logsPageSizes" :total="filteredUsagePatternData.length" :layout="logsPaginationLayout"
+                :page-sizes="logsPageSizes" :total="filteredTidalData.length" :layout="logsPaginationLayout"
                 :size="paginationSize" />
             </div>
-            <el-empty v-if="!analysisLoading.resource && filteredUsagePatternData.length === 0" description="暂无分析结果" />
+          </div>
+          <div v-else-if="hasAnalysisResults.resource && analysisData.tidal.length === 0" class="analysis-placeholder">
+            <el-empty description="未检测到具有潮汐特征的虚拟机（需至少7天数据覆盖完整一周）" />
           </div>
           <div v-else class="analysis-placeholder">
-            <el-empty description="该分析尚未运行">
-              <el-button type="primary" :loading="analysisLoading.resource" @click="runAnalysis('resource')">
-                开始分析
-              </el-button>
+            <el-empty description="潮汐检测基于天级数据，支持周粒度（≥7天）和月粒度（≥30天）检测">
+              <el-button type="primary" :loading="analysisLoading.resource" @click="runAnalysis('resource')">开始分析</el-button>
             </el-empty>
           </div>
         </el-tab-pane>
@@ -820,6 +897,62 @@
           </div>
         </el-tab-pane>
 
+        <el-tab-pane label="虚拟机列表" name="vms">
+          <div class="vms-content">
+            <!-- 任务进行中提示 -->
+            <div v-if="!task?.id" class="vm-list-placeholder">
+              <el-empty description="任务执行中，虚拟机列表将在任务完成后显示">
+                <template #image>
+                  <el-icon :size="60" class="is-loading">
+                    <Loading />
+                  </el-icon>
+                </template>
+              </el-empty>
+            </div>
+            <!-- 虚拟机列表 -->
+            <template v-else>
+              <div class="table-toolbar">
+                <el-input v-model="vmSearch" placeholder="搜索虚拟机" prefix-icon="Search" clearable style="width: 300px"
+                  @input="handleVMSearch" />
+                <div class="table-stats">
+                  共 {{ vmTotal }} 台虚拟机
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <el-table :data="vmList" stripe :loading="vmListLoading" height="400" style="min-width: 800px">
+                  <el-table-column prop="name" label="虚拟机名称" min-width="180" />
+                  <el-table-column prop="cpuCount" label="CPU" width="100">
+                    <template #default="{ row }">
+                      {{ row.cpuCount > 0 ? row.cpuCount + ' 核' : '-' }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="memoryGb" label="内存" width="120">
+                    <template #default="{ row }">
+                      {{ row.memoryGb > 0 ? row.memoryGb + ' GB' : '-' }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="powerState" label="状态" width="100">
+                    <template #default="{ row }">
+                      <el-tag :type="getPowerStateType(row.powerState)" size="small">
+                        {{ getPowerStateText(row.powerState) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="datacenter" label="数据中心" width="150" />
+                  <el-table-column prop="hostIp" label="主机IP" width="150" />
+                </el-table>
+              </div>
+              <div class="table-pagination">
+                <span class="pagination-total">共 {{ vmTotal }} 条</span>
+                <el-pagination v-model:current-page="vmCurrentPage" v-model:page-size="vmPageSize"
+                  :page-sizes="vmPageSizes" :total="vmTotal" :layout="vmPaginationLayout"
+                  :size="paginationSize"
+                  @current-change="handleVMPageChange" @size-change="handleVMSizeChange" />
+              </div>
+            </template>
+          </div>
+        </el-tab-pane>
+
         <el-tab-pane label="执行日志" name="logs">
           <div class="analysis-content">
             <!-- 工具栏：级别筛选、搜索和刷新 -->
@@ -882,10 +1015,8 @@
               </div>
 
               <!-- 分页 -->
-              <div class="logs-pagination">
-                <span class="logs-total">
-                  共 {{ logsTotal }} 条
-                </span>
+              <div class="table-pagination">
+                <span class="pagination-total">共 {{ logsTotal }} 条</span>
                 <el-pagination v-model:current-page="logsCurrentPage" v-model:page-size="logsPageSize"
                   :page-sizes="logsPageSizes" :total="logsTotal" :layout="logsPaginationLayout"
                   :size="paginationSize" />
@@ -956,9 +1087,6 @@ import {
   VideoPause,
   VideoPlay,
   CloseBold,
-  Platform,
-  Coin,
-  Cpu,
   DataAnalysis,
   CircleCheck,
   CircleClose,
@@ -993,6 +1121,8 @@ const idleTypeFilter = ref('')
 const riskLevelFilter = ref('')
 const rightsizeSearch = ref('')
 const tidalSearch = ref('')
+const mismatchTypeFilter = ref('')
+const tidalGranularityFilter = ref('')
 const vmList = ref<any[]>([])
 const vmListLoading = ref(false)
 const vmTotal = ref(0)
@@ -1001,6 +1131,11 @@ const vmPageSize = ref(50)
 const zombieCurrentPage = ref(1)
 const rightsizeCurrentPage = ref(1)
 const tidalCurrentPage = ref(1)
+
+// 分析结果Tab状态
+const analysisSummaryData = ref<any>(null)
+const analysisSummaryLoading = ref(false)
+const summaryOptimizations = reactive({ resource: true, idle: true })
 const analysisPageSize = ref(20)
 const taskLogs = ref<any[]>([])
 const allLogs = ref<any[]>([])  // 存储所有日志（用于过滤）
@@ -1030,7 +1165,7 @@ const isCompactWindow = computed(() => windowHeight.value <= 700 || windowWidth.
 const paginationSize = computed(() => isCompactWindow.value ? 'small' : 'default')
 
 // 各表格独立高度
-const idleTableHeight = 280        // 闲置检测表格
+const idleTableHeight = 380        // 闲置检测表格
 const rightsizeTableHeight = 380  // 资源配置优化表格
 const tidalTableHeight = 380       // 使用模式表格
 const logsTableHeight = 380        // 执行日志表格
@@ -1068,13 +1203,13 @@ const analysisModeOptions = [
 // 分析数据存储 - 使用后端返回的字段结构
 const analysisData = reactive<{
   idle: AnalysisAPI.IdleResult[]
-  rightSize: AnalysisAPI.RightSizeResult[]
-  usagePattern: AnalysisAPI.UsagePatternResult[]
+  resourceOptimization: any[]
+  tidal: any[]
   health: AnalysisAPI.HealthScoreResult | null
 }>({
   idle: [],
-  rightSize: [],
-  usagePattern: [],
+  resourceOptimization: [],
+  tidal: [],
   health: null
 })
 
@@ -1088,7 +1223,7 @@ watch(task, (newTask) => {
 
 // 分析项类型定义
 interface AnalysisItem {
-  key: 'zombie' | 'rightsize' | 'tidal' | 'health'
+  key: 'idle' | 'rightsize' | 'health'
   title: string
   description: string
   icon: string
@@ -1097,8 +1232,7 @@ interface AnalysisItem {
 
 const analyses: AnalysisItem[] = [
   { key: 'idle', title: '闲置检测', description: '识别长期低负载或已关机的虚拟机', icon: 'Monitor', color: 'orange' },
-  { key: 'rightsize', title: '资源配置优化', description: 'CPU和内存配置优化建议', icon: 'TrendCharts', color: 'blue' },
-  { key: 'tidal', title: '使用模式', description: '发现周期性使用规律', icon: 'Coin', color: 'green' },
+  { key: 'rightsize', title: '资源优化', description: '资源配置优化与潮汐模式分析', icon: 'TrendCharts', color: 'blue' },
   { key: 'health', title: '健康评分', description: '平台健康度评估', icon: 'DataAnalysis', color: 'purple' }
 ]
 
@@ -1130,7 +1264,7 @@ function getAnalysisStatus(analysisKey: string): boolean {
 // 检查分析是否正在加载
 function isAnalysisLoading(analysisKey: string): boolean {
   const loadingMapping: Record<string, 'idle' | 'resource' | 'health'> = {
-    zombie: 'idle',
+    idle: 'idle',
     rightsize: 'resource',
     tidal: 'resource',
     health: 'health'
@@ -1164,18 +1298,36 @@ const filteredIdleData = computed(() => {
   })
 })
 
-// 资源配置优化 (Right Size) Tab 过滤
-const filteredRightSizeData = computed(() => {
-  return analysisData.rightSize.filter((row) =>
-    matchByKeyword(row, rightsizeSearch.value, ['vmName', 'cluster', 'hostIp'])
-  )
+// 资源优化 Tab 过滤
+const filteredResourceOptData = computed(() => {
+  return analysisData.resourceOptimization.filter((row) => {
+    if (!matchByKeyword(row, rightsizeSearch.value, ['vmName', 'cluster', 'hostIp'])) return false
+    if (mismatchTypeFilter.value && row.mismatchType !== mismatchTypeFilter.value) return false
+    return true
+  })
 })
 
-// 使用模式分析 (Usage Pattern) Tab 过滤
-const filteredUsagePatternData = computed(() => {
-  return analysisData.usagePattern.filter((row) =>
-    matchByKeyword(row, tidalSearch.value, ['vmName', 'cluster', 'usagePattern', 'recommendation'])
-  )
+// 潮汐检测 Tab 过滤
+const filteredTidalData = computed(() => {
+  return analysisData.tidal.filter((row) => {
+    if (!matchByKeyword(row, tidalSearch.value, ['vmName', 'cluster', 'hostIp'])) return false
+    if (tidalGranularityFilter.value && row.tidalGranularity !== tidalGranularityFilter.value) return false
+    return true
+  })
+})
+
+// 资源优化 - 可释放CPU/内存汇总
+const resourceOptSavings = computed(() => {
+  const data = filteredResourceOptData.value
+  const cpu = data.reduce((sum: number, row: any) => {
+    const diff = (row.currentCpu || 0) - (row.recommendedCpu || 0)
+    return sum + (diff > 0 ? diff : 0)
+  }, 0)
+  const memory = data.reduce((sum: number, row: any) => {
+    const diff = (row.currentMemoryGb || 0) - (row.recommendedMemoryGb || 0)
+    return sum + (diff > 0 ? diff : 0)
+  }, 0)
+  return { cpu, memory: memory.toFixed(1) }
 })
 
 const pagedIdleData = computed(() => {
@@ -1183,14 +1335,14 @@ const pagedIdleData = computed(() => {
   return filteredIdleData.value.slice(start, start + analysisPageSize.value)
 })
 
-const pagedRightSizeData = computed(() => {
+const pagedResourceOptData = computed(() => {
   const start = (rightsizeCurrentPage.value - 1) * analysisPageSize.value
-  return filteredRightSizeData.value.slice(start, start + analysisPageSize.value)
+  return filteredResourceOptData.value.slice(start, start + analysisPageSize.value)
 })
 
-const pagedUsagePatternData = computed(() => {
+const pagedTidalData = computed(() => {
   const start = (tidalCurrentPage.value - 1) * analysisPageSize.value
-  return filteredUsagePatternData.value.slice(start, start + analysisPageSize.value)
+  return filteredTidalData.value.slice(start, start + analysisPageSize.value)
 })
 
 // 初始化任务数据
@@ -1214,8 +1366,8 @@ async function initTaskData(preserveTabState = false) {
   taskLogs.value = []
   allLogs.value = []
   analysisData.idle = []
-  analysisData.rightSize = []
-  analysisData.usagePattern = []
+  analysisData.resourceOptimization = []
+  analysisData.tidal = []
   analysisData.health = null
 
   // 如果没有有效的 taskId，不执行后续操作
@@ -1357,7 +1509,7 @@ watch(activeTab, async (newTab) => {
     case 'analysis':
       console.log('[TaskDetail] 切换到分析结果标签')
       if (task.value?.id) {
-        await loadAnalysisResultFromBackend(task.value.id)
+        await fetchAnalysisSummary()
       }
       break
   }
@@ -1672,7 +1824,7 @@ async function loadAnalysisResultFromBackend(id: number) {
     // 并行获取所有分析结果
     const [idleResult, resourceResult, healthResult] = await Promise.allSettled([
       AnalysisAPI.getIdleResults(id).catch(() => []),
-      AnalysisAPI.getResourceResults(id).catch(() => ({ rightSize: [], usagePattern: [], mismatch: [], summary: { rightSizeCount: 0, usagePatternCount: 0, mismatchCount: 0, totalVmsAnalyzed: 0 } })),
+      AnalysisAPI.getResourceResults(id).catch(() => ({ resourceOptimization: [], tidal: [], summary: {} })),
       AnalysisAPI.getHealthResults(id).catch(() => null)
     ])
 
@@ -1687,10 +1839,13 @@ async function loadAnalysisResultFromBackend(id: number) {
 
     // 处理资源分析结果
     if (resourceResult.status === 'fulfilled' && resourceResult.value) {
-      analysisData.rightSize = resourceResult.value.rightSize || []
-      analysisData.usagePattern = resourceResult.value.usagePattern || []
-      hasAnalysisResults.resource = true
-      console.log('[loadAnalysisResultFromBackend] resource 结果加载完成, rightSize:', analysisData.rightSize.length, 'usagePattern:', analysisData.usagePattern.length)
+      const rv = resourceResult.value as any
+      analysisData.resourceOptimization = rv.resourceOptimization || []
+      analysisData.tidal = rv.tidal || []
+      if (analysisData.resourceOptimization.length > 0 || analysisData.tidal.length > 0) {
+        hasAnalysisResults.resource = true
+      }
+      console.log('[loadAnalysisResultFromBackend] resource 结果加载完成, resourceOptimization:', analysisData.resourceOptimization.length, 'tidal:', analysisData.tidal.length)
     } else {
       console.log('[loadAnalysisResultFromBackend] 未找到 resource 数据')
     }
@@ -1769,10 +1924,11 @@ async function runAnalysis(type: string) {
       ElMessage.success(`闲置检测完成，发现 ${results.length} 条结果`)
     } else if (type === 'rightsize' || type === 'tidal') {
       const results = await AnalysisAPI.runResourceAnalysis(assessmentTaskId, config)
-      analysisData.rightSize = results.rightSize || []
-      analysisData.usagePattern = results.usagePattern || []
+      const rv = results as any
+      analysisData.resourceOptimization = rv.resourceOptimization || []
+      analysisData.tidal = rv.tidal || []
       hasAnalysisResults.resource = true
-      const totalCount = (results.rightSize?.length || 0) + (results.usagePattern?.length || 0)
+      const totalCount = (analysisData.resourceOptimization.length || 0) + (analysisData.tidal.length || 0)
       ElMessage.success(`资源分析完成，发现 ${totalCount} 条结果`)
     } else if (type === 'health') {
       const result = await AnalysisAPI.runHealthAnalysis(assessmentTaskId, config)
@@ -1940,7 +2096,7 @@ function getStatusText(status: string | undefined) {
     failed: '失败',
     cancelled: '已取消'
   }
-  return textMap[status || ''] || (status || '')
+  return textMap[status || ''] || '-'
 }
 
 function formatMemory(mb: number): string {
@@ -2026,7 +2182,7 @@ function getIdleTypeText(type: string): string {
     'idle_powered_on': '开机闲置',
     'low_activity': '低活跃'
   }
-  return typeMap[type] || type
+  return typeMap[type] || '未知'
 }
 
 function getIdleTypeTagType(type: string): string {
@@ -2046,7 +2202,7 @@ function getRiskLevelText(level: string): string {
     'medium': '中',
     'low': '低'
   }
-  return levelMap[level] || level
+  return levelMap[level] || '未知'
 }
 
 function getRiskLevelTagType(level: string): string {
@@ -2083,6 +2239,22 @@ async function refreshIdleData() {
     ElMessage.error('刷新失败: ' + (error.message || '未知错误'))
   } finally {
     analysisLoading.idle = false
+  }
+}
+
+// 资源优化/潮汐检测 - 刷新数据
+async function refreshResourceData() {
+  if (!task.value?.id) return
+  analysisLoading.resource = true
+  try {
+    const rv = await AnalysisAPI.getResourceResults(task.value.id)
+    analysisData.resourceOptimization = rv.resourceOptimization || []
+    analysisData.tidal = rv.tidal || []
+    ElMessage.success(`刷新成功，资源优化 ${analysisData.resourceOptimization.length} 条，潮汐 ${analysisData.tidal.length} 条`)
+  } catch (error: any) {
+    ElMessage.error('刷新失败: ' + (error.message || '未知错误'))
+  } finally {
+    analysisLoading.resource = false
   }
 }
 
@@ -2148,6 +2320,37 @@ function getConfidenceColor(confidence: number): string {
   return '#f56c6c'
 }
 
+// 分析结果 - 获取汇总数据
+async function fetchAnalysisSummary() {
+  if (!task.value?.id) return
+  const opts: string[] = []
+  if (summaryOptimizations.resource && hasAnalysisResults.resource) opts.push('resource')
+  if (summaryOptimizations.idle && hasAnalysisResults.idle) opts.push('idle')
+  if (opts.length === 0) {
+    analysisSummaryData.value = null
+    return
+  }
+  analysisSummaryLoading.value = true
+  try {
+    const result = await AnalysisAPI.getAnalysisSummary(task.value.id, opts.join(','))
+    analysisSummaryData.value = result
+  } catch (error: any) {
+    ElMessage.error('获取分析汇总失败: ' + (error.message || '未知错误'))
+  } finally {
+    analysisSummaryLoading.value = false
+  }
+}
+
+// 潮汐粒度文本
+function getTidalGranularityText(granularity: string): string {
+  const map: Record<string, string> = {
+    daily: '日粒度',
+    weekly: '周粒度',
+    monthly: '月粒度'
+  }
+  return map[granularity] || granularity || '未知'
+}
+
 // 调整类型相关
 function getAdjustmentTypeText(type: string): string {
   const typeMap: Record<string, string> = {
@@ -2157,7 +2360,7 @@ function getAdjustmentTypeText(type: string): string {
     'up': '扩容',
     'up_significant': '大幅扩容'
   }
-  return typeMap[type] || type
+  return typeMap[type] || '未知'
 }
 
 function getAdjustmentTypeTagType(type: string): string {
@@ -2171,23 +2374,23 @@ function getAdjustmentTypeTagType(type: string): string {
   return tagMap[type] || 'info'
 }
 
-// 使用模式相关
+// 使用模式相关（后端实际返回值：stable/tidal/burst/unknown）
 function getUsagePatternText(pattern: string): string {
   const patternMap: Record<string, string> = {
-    'stable': '稳定型',
-    'tidal_day_night': '日夜潮汐',
-    'tidal_work_week': '工作日潮汐',
-    'volatile': '不稳定'
+    'stable': '稳定',
+    'tidal': '潮汐',
+    'burst': '突发',
+    'unknown': '未知'
   }
-  return patternMap[pattern] || pattern
+  return patternMap[pattern] || '未知'
 }
 
 function getUsagePatternTagType(pattern: string): string {
   const tagMap: Record<string, string> = {
     'stable': 'success',
-    'tidal_day_night': 'primary',
-    'tidal_work_week': 'primary',
-    'volatile': 'warning'
+    'tidal': 'primary',
+    'burst': 'warning',
+    'unknown': 'info'
   }
   return tagMap[pattern] || 'info'
 }
@@ -2197,22 +2400,43 @@ function getVolatilityLevelText(level: string): string {
   const levelMap: Record<string, string> = {
     'low': '低',
     'moderate': '中',
-    'medium': '中',
     'high': '高',
     'unknown': '未知'
   }
-  return levelMap[level] || level
+  return levelMap[level] || '未知'
 }
 
 function getVolatilityLevelTagType(level: string): string {
   const tagMap: Record<string, string> = {
     'low': 'success',
     'moderate': 'warning',
-    'medium': 'warning',
     'high': 'danger',
     'unknown': 'info'
   }
   return tagMap[level] || 'info'
+}
+
+// 配置错配相关
+function getMismatchTypeText(type: string): string {
+  const typeMap: Record<string, string> = {
+    'cpu_rich_memory_poor': 'CPU富足/内存不足',
+    'cpu_poor_memory_rich': 'CPU不足/内存富足',
+    'both_underutilized': '均利用不足',
+    'both_overutilized': '均利用过高',
+    'balanced': '配比合理'
+  }
+  return typeMap[type] || '未知'
+}
+
+function getMismatchTypeTagType(type: string): string {
+  const tagMap: Record<string, string> = {
+    'cpu_rich_memory_poor': 'warning',
+    'cpu_poor_memory_rich': 'warning',
+    'both_underutilized': 'info',
+    'both_overutilized': 'danger',
+    'balanced': 'success'
+  }
+  return tagMap[type] || 'info'
 }
 
 // 健康评分相关
@@ -2225,7 +2449,7 @@ function getHealthGradeText(grade: string): string {
     'critical': '危急',
     'no_data': '无数据'
   }
-  return gradeMap[grade] || grade
+  return gradeMap[grade] || '未知'
 }
 
 function getHealthGradeTagType(grade: string): string {
@@ -2276,10 +2500,10 @@ function getHotspotScoreColor(score: number | undefined): string {
 function getFindingCategoryText(category: string): string {
   const categoryMap: Record<string, string> = {
     'overcommit': '超配',
-    'balance': '负载',
+    'balance': '负载均衡',
     'hotspot': '热点'
   }
-  return categoryMap[category] || category
+  return categoryMap[category] || '其他'
 }
 
 function getFindingCategoryTagType(category: string): string {
@@ -2291,23 +2515,21 @@ function getFindingCategoryTagType(category: string): string {
   return tagMap[category] || 'info'
 }
 
-// 严重程度相关
+// 严重程度相关（后端实际返回值：high/critical/severe）
 function getSeverityText(severity: string): string {
   const severityMap: Record<string, string> = {
-    'critical': '严重',
     'high': '高',
-    'medium': '中',
-    'low': '低'
+    'critical': '严重',
+    'severe': '极严重'
   }
-  return severityMap[severity] || severity
+  return severityMap[severity] || '未知'
 }
 
 function getSeverityTagType(severity: string): string {
   const tagMap: Record<string, string> = {
-    'critical': 'danger',
     'high': 'warning',
-    'medium': 'info',
-    'low': 'info'
+    'critical': 'danger',
+    'severe': 'danger'
   }
   return tagMap[severity] || 'info'
 }
@@ -2362,20 +2584,24 @@ async function syncTaskFromBackend() {
 
 function getPowerStateType(state: string) {
   const typeMap: Record<string, string> = {
-    poweredOn: 'success',
-    poweredOff: 'info',
-    suspended: 'warning'
+    'poweredon': 'success',
+    'poweredOn': 'success',
+    'poweredoff': 'info',
+    'poweredOff': 'info',
+    'suspended': 'warning'
   }
   return typeMap[state] || 'info'
 }
 
 function getPowerStateText(state: string) {
   const textMap: Record<string, string> = {
-    poweredOn: '开机',
-    poweredOff: '关机',
-    suspended: '挂起'
+    'poweredon': '开机',
+    'poweredOn': '开机',
+    'poweredoff': '关机',
+    'poweredOff': '关机',
+    'suspended': '挂起'
   }
-  return textMap[state] || state
+  return textMap[state] || '未知'
 }
 
 function getTaskTypeText(type: string | undefined) {
@@ -2383,15 +2609,15 @@ function getTaskTypeText(type: string | undefined) {
     collection: '数据采集',
     analysis: '数据分析'
   }
-  return typeMap[type || ''] || type || '-'
+  return typeMap[type || ''] || '-'
 }
 
 function getPlatformText(platform: string | undefined) {
   const platformMap: Record<string, string> = {
     vcenter: 'VMware vCenter',
-    uis: 'H3C UIS'
+    'h3c-uis': 'H3C UIS'
   }
-  return platformMap[platform || ''] || platform || '-'
+  return platformMap[platform || ''] || '-'
 }
 
 // 格式化日志时间戳
@@ -3229,26 +3455,6 @@ function formatConfigTime(timestamp: string | undefined): string {
   .table-wrapper :deep(.el-table__body-wrapper) {
     overflow-x: auto;
   }
-
-  .table-pagination {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: $spacing-md;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-
-    :deep(.el-pagination) {
-      justify-content: flex-end;
-      flex-wrap: wrap;
-      row-gap: 6px;
-    }
-
-    .logs-total {
-      color: var(--el-text-color-secondary);
-      font-size: 13px;
-    }
-  }
 }
 
 .analysis-content {
@@ -3292,6 +3498,9 @@ function formatConfigTime(timestamp: string | undefined): string {
 
   .analysis-toolbar {
     margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 
     .search-input {
       width: 300px;
@@ -3325,43 +3534,206 @@ function formatConfigTime(timestamp: string | undefined): string {
     flex-direction: column;
   }
 
-  .table-pagination {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: $spacing-md;
-    flex-wrap: wrap;
-    gap: 8px;
+}
 
-    :deep(.el-pagination) {
-      justify-content: flex-end;
-      flex-wrap: wrap;
-      row-gap: 6px;
-    }
+// ============ 统一分页器样式 ============
+
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 12px;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  .pagination-total {
+    color: var(--el-text-color-secondary);
+    font-size: 13px;
+    white-space: nowrap;
   }
 
-  .logs-pagination {
-    margin-top: 12px;
-    display: flex;
+  :deep(.el-pagination) {
     justify-content: flex-end;
-    align-items: center;
-    gap: 12px;
     flex-wrap: wrap;
-
-    :deep(.el-pagination) {
-      justify-content: flex-end;
-      flex-wrap: wrap;
-      row-gap: 6px;
-    }
-
-    .logs-total {
-      color: var(--el-text-color-secondary);
-      font-size: 13px;
-    }
+    row-gap: 6px;
   }
 }
 
 .analysis-placeholder {
   padding: $spacing-xl 0;
+}
+
+// 资源优化汇总栏
+.rightsize-summary-bar {
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+
+  .rs-summary-text strong {
+    color: var(--el-color-primary);
+  }
+}
+
+// 判断依据文本
+.reason-text {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+
+// 推荐关机时段文本
+.off-hours-text {
+  color: var(--el-color-warning);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+// P95数据展示
+.p95-cell {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+// 分析结果Tab
+.analysis-summary-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+  overflow-y: auto;
+
+  .summary-top-panel {
+    display: grid;
+    grid-template-columns: 1fr 220px 1fr;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  .summary-panel {
+    border: 1px solid var(--el-border-color-light);
+    border-radius: 8px;
+    padding: 16px;
+    background: var(--el-fill-color-blank);
+
+    .summary-panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--el-border-color-lighter);
+    }
+  }
+
+  .summary-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+
+    .summary-metric-item {
+      text-align: center;
+      padding: 10px;
+      background: var(--el-fill-color-light);
+      border-radius: 6px;
+
+      .sm-value {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--el-text-color-primary);
+        line-height: 1.2;
+      }
+
+      .sm-label {
+        font-size: 11px;
+        color: var(--el-text-color-secondary);
+        margin-top: 4px;
+      }
+
+      &.highlight .sm-value {
+        font-size: 24px;
+      }
+    }
+  }
+
+  .text-success {
+    color: var(--el-color-success) !important;
+  }
+
+  .text-primary {
+    color: var(--el-color-primary) !important;
+  }
+
+  .summary-controls {
+    display: flex;
+    flex-direction: column;
+
+    .summary-checkboxes {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+
+      .summary-checkbox {
+        height: auto;
+        align-items: flex-start;
+
+        .checkbox-label {
+          font-size: 13px;
+          font-weight: 500;
+        }
+      }
+    }
+
+    .summary-calc-btn {
+      margin-top: 16px;
+      width: 100%;
+    }
+  }
+
+  .summary-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 20px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .summary-empty-hint {
+    text-align: center;
+    color: var(--el-text-color-secondary);
+    font-size: 13px;
+    padding: 20px 0;
+  }
+
+  .summary-hosts-section {
+    flex: 1;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
+
+    .summary-hosts-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+  }
+
+  .summary-no-hosts {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 // 健康评分样式
@@ -3560,8 +3932,8 @@ function formatConfigTime(timestamp: string | undefined): string {
   }
 }
 
-@media (max-width: 1024px),
-(max-height: 640px) {
+@media (max-width: 768px),
+(max-height: 500px) {
   .task-detail-page {
     padding: 10px;
     gap: 8px;
@@ -3591,11 +3963,6 @@ function formatConfigTime(timestamp: string | undefined): string {
       }
     }
 
-    .table-pagination {
-      :deep(.el-pagination__total) {
-        margin-right: 0;
-      }
-    }
   }
 
   .analysis-content {
@@ -3627,6 +3994,7 @@ function formatConfigTime(timestamp: string | undefined): string {
   flex-wrap: nowrap;
   gap: 8px;
   width: 100%;
+  margin-bottom: 12px;
 }
 
 .zombie-stat-card {

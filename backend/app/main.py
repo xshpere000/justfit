@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Run version migration (cleans legacy data on version change)
     migrate()
 
-    logger.info("application_starting", version="0.0.3")
+    logger.info("application_starting", version="0.0.4")
     # Create database tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="JustFit API",
     description="Cloud Platform Resource Assessment Tool",
-    version="0.0.3",
+    version="0.0.4",
     lifespan=lifespan,
 )
 
@@ -116,13 +116,13 @@ sys.excepthook = log_exception
 @app.get("/api/system/health")
 async def health_check() -> dict:
     """Health check endpoint."""
-    return {"status": "healthy", "version": "0.0.3"}
+    return {"status": "healthy", "version": "0.0.4"}
 
 
 @app.get("/api/system/version")
 async def get_version() -> dict:
     """Get version information."""
-    return {"version": "0.0.3", "name": "JustFit"}
+    return {"version": "0.0.4", "name": "JustFit"}
 
 
 if __name__ == "__main__":

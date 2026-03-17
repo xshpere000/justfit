@@ -61,7 +61,7 @@ class ReportBuilder:
         idle_response = await analysis_service.get_analysis_results(task_id, "idle")
         idle_results = idle_response.get("data", []) if idle_response.get("success") else []
 
-        # Get resource results (structured dict with rightSize, usagePattern, mismatch)
+        # Get resource results (structured dict with resourceOptimization and tidal)
         resource_response = await analysis_service.get_analysis_results(task_id, "resource")
         resource_results = resource_response.get("data", {}) if resource_response.get("success") else {}
 
@@ -70,7 +70,7 @@ class ReportBuilder:
         health_results = health_response.get("data") if health_response.get("success") else None
 
         # Collect VM metrics for charts
-        # Combine VMs from idle, rightSize, usagePattern, and mismatch results
+        # Combine VMs from idle and resource optimization results
         vms_to_chart = []
 
         # Add VMs from idle results (has vmId)
@@ -81,27 +81,18 @@ class ReportBuilder:
                     "vm_name": vm.get("vmName", ""),
                 })
 
-        # Add VMs from rightSize results (need to look up by name)
-        right_size = resource_results.get("rightSize", [])[:25]
-        for vm in right_size:
+        # Add VMs from resourceOptimization results
+        resource_optimization = resource_results.get("resourceOptimization", [])[:25]
+        for vm in resource_optimization:
             vm_name = vm.get("vmName", "")
             if vm_name and not any(v["vm_name"] == vm_name for v in vms_to_chart):
                 vms_to_chart.append({
                     "vm_name": vm_name,
                 })
 
-        # Add VMs from usagePattern results
-        usage_pattern = resource_results.get("usagePattern", [])[:25]
-        for vm in usage_pattern:
-            vm_name = vm.get("vmName", "")
-            if vm_name and not any(v["vm_name"] == vm_name for v in vms_to_chart):
-                vms_to_chart.append({
-                    "vm_name": vm_name,
-                })
-
-        # Add VMs from mismatch results
-        mismatch = resource_results.get("mismatch", [])[:25]
-        for vm in mismatch:
+        # Add VMs from tidal results
+        tidal = resource_results.get("tidal", [])[:25]
+        for vm in tidal:
             vm_name = vm.get("vmName", "")
             if vm_name and not any(v["vm_name"] == vm_name for v in vms_to_chart):
                 vms_to_chart.append({
@@ -335,56 +326,47 @@ class ReportBuilder:
         }
 
     def build_resource_summary(self, resource_results: Dict) -> Dict[str, Any]:
-        """Build resource analysis summary.
+        """Build resource analysis summary."""
+        resource_optimization = resource_results.get("resourceOptimization", [])
+        tidal = resource_results.get("tidal", [])
 
-        Args:
-            resource_results: Resource analysis results dict
+        # Resource optimization summary
+        current_cpu = sum(r.get("currentCpu", 0) for r in resource_optimization)
+        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in resource_optimization)
+        current_memory = sum(r.get("currentMemoryGb", 0) for r in resource_optimization)
+        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in resource_optimization)
 
-        Returns:
-            Summary dict with optimization opportunities
-        """
-        right_size = resource_results.get("rightSize", [])
-        usage_pattern = resource_results.get("usagePattern", [])
-        mismatch = resource_results.get("mismatch", [])
+        mismatch_type_counts = {}
+        for r in resource_optimization:
+            mt = r.get("mismatchType", "balanced")
+            mismatch_type_counts[mt] = mismatch_type_counts.get(mt, 0) + 1
 
-        # Right Size summary
-        right_size_summary = {
-            "total": len(right_size),
-            "downsize_candidates": sum(1 for r in right_size if r.get("adjustmentType", "").startswith("down")),
-            "upsize_candidates": sum(1 for r in right_size if r.get("adjustmentType", "").startswith("up")),
+        resource_summary = {
+            "total": len(resource_optimization),
+            "downsize_candidates": sum(1 for r in resource_optimization if r.get("adjustmentType", "").startswith("down")),
+            "upsize_candidates": sum(1 for r in resource_optimization if r.get("adjustmentType", "").startswith("up")),
+            "mismatch_types": mismatch_type_counts,
+            "potential_savings": {
+                "cpu_cores": max(0, current_cpu - suggested_cpu),
+                "memory_gb": max(0, current_memory - suggested_memory),
+            },
         }
 
-        # Calculate potential savings from Right Size
-        current_cpu = sum(r.get("currentCpu", 0) for r in right_size)
-        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in right_size)
-        current_memory = sum(r.get("currentMemoryGb", 0) for r in right_size)
-        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in right_size)
+        # Tidal summary
+        granularity_counts = {"daily": 0, "weekly": 0, "monthly": 0}
+        for t in tidal:
+            g = t.get("tidalGranularity", "daily")
+            if g in granularity_counts:
+                granularity_counts[g] += 1
 
-        right_size_summary["potential_savings"] = {
-            "cpu_cores": max(0, current_cpu - suggested_cpu),
-            "memory_gb": max(0, current_memory - suggested_memory),
-        }
-
-        # Usage Pattern summary
-        pattern_counts = {"stable": 0, "burst": 0, "tidal": 0, "unknown": 0}
-        for p in usage_pattern:
-            pattern = p.get("usagePattern", "unknown")
-            if pattern in pattern_counts:
-                pattern_counts[pattern] += 1
-
-        # Mismatch summary
-        mismatch_summary = {
-            "total": len(mismatch),
-            "cpu_rich_memory_poor": sum(1 for m in mismatch if m.get("mismatchType") == "cpu_rich_memory_poor"),
-            "cpu_poor_memory_rich": sum(1 for m in mismatch if m.get("mismatchType") == "cpu_poor_memory_rich"),
-            "both_underutilized": sum(1 for m in mismatch if m.get("mismatchType") == "both_underutilized"),
-            "both_overutilized": sum(1 for m in mismatch if m.get("mismatchType") == "both_overutilized"),
+        tidal_summary = {
+            "total": len(tidal),
+            "by_granularity": granularity_counts,
         }
 
         return {
-            "right_size": right_size_summary,
-            "usage_pattern": {"total": len(usage_pattern), "by_pattern": pattern_counts},
-            "mismatch": mismatch_summary,
+            "resource_optimization": resource_summary,
+            "tidal": tidal_summary,
         }
 
     def build_health_summary(self, health_results: Optional[Dict]) -> Dict[str, Any]:
@@ -448,11 +430,11 @@ class ReportBuilder:
         idle_memory = sum(item.get("memoryGb", 0) for item in idle_results)
 
         # Right Size savings
-        right_size = resource_results.get("rightSize", [])
-        current_cpu = sum(r.get("currentCpu", 0) for r in right_size)
-        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in right_size)
-        current_memory = sum(r.get("currentMemoryGb", 0) for r in right_size)
-        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in right_size)
+        resource_optimization = resource_results.get("resourceOptimization", [])
+        current_cpu = sum(r.get("currentCpu", 0) for r in resource_optimization)
+        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in resource_optimization)
+        current_memory = sum(r.get("currentMemoryGb", 0) for r in resource_optimization)
+        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in resource_optimization)
 
         rightsize_cpu_save = max(0, current_cpu - suggested_cpu)
         rightsize_memory_save = max(0, current_memory - suggested_memory)
@@ -466,7 +448,7 @@ class ReportBuilder:
                 "memory_gb": round(idle_memory, 2),
             },
             "right_size": {
-                "count": len(right_size),
+                "count": len(resource_optimization),
                 "cpu_cores": rightsize_cpu_save,
                 "memory_gb": round(rightsize_memory_save, 2),
             },

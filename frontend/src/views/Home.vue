@@ -328,7 +328,7 @@ async function handleDeleteTask(task: Task) {
       }
 
       .search-input {
-        width: 280px;
+        width: 200px;
 
         :deep(.el-input__wrapper) {
           border-radius: 8px;
@@ -438,7 +438,7 @@ async function handleDeleteTask(task: Task) {
 }
 
 // 响应式适配
-@media (max-width: 1024px) {
+@media (max-width: 1023px) {
   .tasks-section {
     padding: 16px;
 

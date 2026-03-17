@@ -4,7 +4,7 @@
 
 - **Base URL**: `http://localhost:22631`
 - **Content-Type**: `application/json`
-- **API 版本**: `v0.0.3`
+- **API 版本**: `v0.0.4`
 
 ## 统一响应格式
 
@@ -752,7 +752,7 @@ GET /api/analysis/modes
           "lowUsageThreshold": 15.0,
           "minConfidence": 70.0
         },
-        "usagePattern": {
+        "usage_pattern": {
           "cvThreshold": 0.3,
           "peakValleyRatio": 2.0
         },
@@ -786,7 +786,7 @@ GET /api/analysis/modes
           "lowUsageThreshold": 30.0,
           "minConfidence": 60.0
         },
-        "usagePattern": {
+        "usage_pattern": {
           "cvThreshold": 0.4,
           "peakValleyRatio": 2.5
         },
@@ -820,7 +820,7 @@ GET /api/analysis/modes
           "lowUsageThreshold": 40.0,
           "minConfidence": 50.0
         },
-        "usagePattern": {
+        "usage_pattern": {
           "cvThreshold": 0.5,
           "peakValleyRatio": 3.0
         },
@@ -842,7 +842,7 @@ GET /api/analysis/modes
       "idle": {},
       "resource": {
         "rightsize": {},
-        "usagePattern": {},
+        "usage_pattern": {},
         "mismatch": {}
       },
       "health": {}
@@ -863,9 +863,9 @@ GET /api/analysis/modes
 
 | 字段 | 说明 |
 |------|------|
-| rightsize | 资源配置优化（Right Size） |
-| usagePattern | 使用模式分析（潮汐检测） |
-| mismatch | 配置错配分析 |
+| rightsize | 资源配置优化（含错配检测） |
+| usage_pattern | 潮汐检测参数（cv_threshold、peak_valley_ratio） |
+| mismatch | 错配阈值（cpu_low_threshold / cpu_high_threshold 等，保留结构供未来扩展）|
 
 ## 获取特定模式
 
@@ -930,13 +930,13 @@ Content-Type: application/json
 }
 ```
 
-**示例 - 更新使用模式分析:**
+**示例 - 更新潮汐检测参数:**
 
 ```json
 {
   "analysisType": "resource",
   "config": {
-    "usagePattern": {
+    "usage_pattern": {
       "cvThreshold": 0.3,
       "peakValleyRatio": 2.0
     }
@@ -1046,7 +1046,7 @@ Content-Type: application/json
 }
 ```
 
-资源分析包含三个子分析：Right Size（资源配置优化）、Usage Pattern（使用模式）、Mismatch（配置错配）。
+资源分析包含两个子分析：**资源配置优化**（RightSizeAnalyzer，内置错配检测）和**潮汐检测**（TidalDetector）。
 
 **响应:**
 
@@ -1054,107 +1054,171 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "rightSize": [
+    "resourceOptimization": [
       {
         "vmName": "vm-001",
         "cluster": "Cluster01",
         "hostIp": "192.168.1.100",
         "currentCpu": 8,
-        "suggestedCpu": 4,
-        "currentMemory": 32.0,
-        "suggestedMemory": 16.0,
+        "recommendedCpu": 4,
+        "currentMemoryGb": 32.0,
+        "recommendedMemoryGb": 16.0,
         "cpuP95": 28.5,
+        "cpuP90": 25.2,
         "cpuMax": 45.2,
         "cpuAvg": 22.1,
         "memoryP95": 45.2,
         "memoryMax": 52.1,
         "memoryAvg": 38.5,
-        "adjustmentType": "shrink",
+        "mismatchType": "both_underutilized",
+        "adjustmentType": "down_significant",
+        "wasteRatio": 0.55,
         "riskLevel": "low",
         "confidence": 85.0,
-        "recommendation": "建议缩减CPU配置：8核→4核，内存配置：32GB→16GB",
-        "details": {}
+        "reason": "CPU P95=28.5%/P90=25.2%/Max=45.2%/Avg=22.1%，推荐缩减至4核；内存P95=45.2%/Max=52.1%/Avg=38.5%，推荐缩减至16GB"
       }
     ],
-    "usagePattern": [
+    "tidal": [
       {
         "vmName": "vm-002",
-        "datacenter": "DC01",
         "cluster": "Cluster01",
         "hostIp": "192.168.1.101",
-        "optimizationType": "usage_pattern",
-        "usagePattern": "tidal_day_night",
+        "usagePattern": "tidal",
         "volatilityLevel": "high",
         "coefficientOfVariation": 0.65,
         "peakValleyRatio": 4.5,
+        "tidalGranularity": "daily",
         "tidalDetails": {
-          "patternType": "day_night_tidal",
-          "dayAvg": 65.2,
-          "nightAvg": 14.5,
           "hourlyAvg": {
-            "0": 12.5, "1": 10.2, ..., "14": 72.1, "15": 68.5
+            "0": 12.5, "1": 10.2, "9": 68.5, "14": 72.1, "22": 15.0
           }
         },
-        "recommendation": "检测到潮汐模式：白天高负载、夜间低负载，建议配置调度策略",
-        "details": {}
-      }
-    ],
-    "mismatch": [
-      {
-        "vmName": "vm-003",
-        "datacenter": "DC01",
-        "cluster": "Cluster01",
-        "hostIp": "192.168.1.102",
-        "hasMismatch": true,
-        "mismatchType": "cpu_high_memory_low",
-        "cpuUtilization": 85.5,
-        "memoryUtilization": 15.2,
-        "currentCpu": 4,
-        "currentMemory": 32.0,
-        "recommendation": "CPU使用率高但内存使用率低，存在配置错配。建议增加CPU或减少内存",
-        "details": {}
+        "recommendedOffHours": {
+          "type": "night_shutdown",
+          "description": "建议 22:00~06:00 关机或缩减配置"
+        },
+        "reason": "检测到日粒度潮汐：白天均值65.2%，夜间均值14.5%，峰谷比4.5，CV=0.65"
       }
     ],
     "summary": {
-      "rightSizeCount": 12,
-      "usagePatternCount": 8,
-      "mismatchCount": 5,
+      "resourceOptimizationCount": 12,
+      "tidalCount": 5,
       "totalVmsAnalyzed": 50
     }
   }
 }
 ```
 
-**调整类型 (adjustmentType):**
+**resourceOptimization 字段说明:**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `vmName` | string | VM 名称 |
+| `cluster` | string | 所属集群 |
+| `hostIp` | string | 主机 IP |
+| `currentCpu` | int | 当前 CPU 核数 |
+| `recommendedCpu` | int | 推荐 CPU 核数 |
+| `currentMemoryGb` | float | 当前内存 GB |
+| `recommendedMemoryGb` | float | 推荐内存 GB |
+| `cpuP95` | float | CPU P95 百分比 |
+| `cpuP90` | float | CPU P90 百分比 |
+| `cpuMax` | float | CPU 峰值百分比 |
+| `cpuAvg` | float | CPU 均值百分比 |
+| `memoryP95` | float | 内存 P95 百分比 |
+| `memoryMax` | float | 内存峰值百分比 |
+| `memoryAvg` | float | 内存均值百分比 |
+| `mismatchType` | string | 见下表 |
+| `adjustmentType` | string | 见下表 |
+| `wasteRatio` | float | 浪费比例（负数=欠配） |
+| `riskLevel` | string | `high` / `medium` / `low` |
+| `confidence` | float | 置信度 0~100 |
+| `reason` | string | 详细判断依据（含具体数值） |
+
+**mismatchType 可选值:**
 
 | 类型 | 说明 |
 |------|------|
-| shrink | 缩减配置 - 资源过剩 |
-| expand | 扩展配置 - 资源不足 |
-| no_change | 无需调整 - 配置合理 |
+| `cpu_rich_memory_poor` | CPU 富余，内存紧张 |
+| `cpu_poor_memory_rich` | CPU 紧张，内存富余 |
+| `both_underutilized` | CPU 和内存双低（建议降配）|
+| `both_overutilized` | CPU 和内存双高（建议扩容）|
+| `balanced` | 配比合理（不会出现在错配报告中）|
 
-**使用模式 (usagePattern):**
-
-| 模式 | 说明 |
-|------|------|
-| stable | 稳定型 - 负载平稳 |
-| tidal_day_night | 日夜潮汐型 - 白天高夜间低 |
-| tidal_work_week | 工作日潮汐型 - 工作日高周末低 |
-| volatile | 不稳定型 - 负载波动大且无规律 |
-
-**配置错配类型 (mismatchType):**
+**adjustmentType 可选值:**
 
 | 类型 | 说明 |
 |------|------|
-| cpu_high_memory_low | CPU高内存低 |
-| cpu_low_memory_high | CPU低内存高 |
-| both_high | CPU和内存都高 |
-| both_low | CPU和内存都低 |
+| `down_significant` | 显著缩容（≥50%）|
+| `down` | 缩容（≥25%）|
+| `up` | 扩容 |
+| `up_significant` | 显著扩容 |
+| `none` | 无需调整 |
+
+**tidal 字段说明:**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `vmName` | string | VM 名称 |
+| `cluster` | string | 所属集群 |
+| `hostIp` | string | 主机 IP |
+| `usagePattern` | string | 固定值 `"tidal"` |
+| `volatilityLevel` | string | `"high"` / `"moderate"` |
+| `coefficientOfVariation` | float | 变异系数 |
+| `peakValleyRatio` | float | 峰谷比 |
+| `tidalGranularity` | string | `"daily"` / `"weekly"` / `"monthly"` |
+| `tidalDetails` | object | 粒度详情（小时/星期/月内均值）|
+| `recommendedOffHours` | object | `{type, description}` 推荐关机时段 |
+| `reason` | string | 详细判断依据 |
 
 ## 获取资源分析结果
 
 ```http
 GET /api/analysis/tasks/{task_id}/resource
+```
+
+## 计算可释放主机
+
+```http
+GET /api/analysis/tasks/{task_id}/summary?optimizations=resource,idle
+```
+
+基于贪心算法，综合资源优化和闲置检测结果，计算可完全释放（下线）的物理主机。
+
+**查询参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| optimizations | string | 否 | 逗号分隔，可选 `resource`、`idle`，默认 `resource,idle` |
+
+**响应:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "current": {
+      "totalHosts": 5,
+      "totalCpuCores": 320,
+      "totalMemoryGb": 1280.0,
+      "totalVms": 80
+    },
+    "savings": {
+      "cpuCores": 64,
+      "memoryGb": 256.0,
+      "freeableHosts": 1
+    },
+    "freeableHosts": [
+      {
+        "hostName": "esxi-05.example.com",
+        "hostIp": "192.168.1.105",
+        "cpuCores": 64,
+        "memoryGb": 256.0,
+        "currentVmCount": 8,
+        "reason": "该主机上8台VM共需48核CPU/180.0 GB内存，优化后可节省资源足以迁移这些VM，主机可下线"
+      }
+    ]
+  }
+}
 ```
 
 ## 运行健康评分分析
@@ -1365,7 +1429,7 @@ GET /api/system/health
 ```json
 {
   "status": "healthy",
-  "version": "0.0.3"
+  "version": "0.0.4"
 }
 ```
 
@@ -1379,7 +1443,7 @@ GET /api/system/version
 
 ```json
 {
-  "version": "0.0.3",
+  "version": "0.0.4",
   "name": "JustFit"
 }
 ```

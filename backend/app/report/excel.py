@@ -159,61 +159,57 @@ COLUMNS = {
         ("power_state", "电源状态", "text", 12),
         ("overall_status", "状态", "text", 10),
     ],
+    # 与前端"虚拟机列表"Tab 完全对齐：虚拟机名称、CPU、内存、状态、数据中心、主机IP
     "vms": [
-        ("name", "名称", "text", 30),
-        ("datacenter", "数据中心", "text", 18),
-        ("cpu_count", "CPU", "number", 8),
+        ("name", "虚拟机名称", "text", 30),
+        ("cpu_count", "CPU (核)", "number", 10),
         ("memory_gb", "内存 (GB)", "number", 12),
-        ("power_state", "电源状态", "text", 12),
-        ("guest_os", "操作系统", "text", 25),
-        ("ip_address", "IP地址", "text", 15),
+        ("power_state", "状态", "text", 12),
+        ("datacenter", "数据中心", "text", 18),
         ("host_ip", "主机IP", "text", 15),
-        ("connection_state", "连接状态", "text", 12),
-        ("overall_status", "状态", "text", 10),
     ],
+    # 与前端"闲置检测"Tab 完全对齐：虚拟机→状态→集群→主机IP→闲置类型→风险等级→闲置天数→最后活动→置信度→优化建议
     "idle": [
-        ("vmName", "虚拟机名称", "text", 30),
+        ("vmName", "虚拟机", "text", 30),
+        ("isIdle", "状态", "text", 8),
         ("cluster", "集群", "text", 18),
         ("hostIp", "主机IP", "text", 15),
-        ("cpuCores", "CPU核数", "number", 10),
-        ("memoryGb", "内存 (GB)", "number", 12),
-        ("idleType", "闲置类型", "text", 15),
-        ("confidence", "置信度", "number", 10),
+        ("idleType", "闲置类型", "text", 12),
         ("riskLevel", "风险等级", "text", 12),
-        ("recommendation", "建议", "text", 40),
+        ("daysInactive", "闲置天数", "number", 10),
+        ("lastActivityTime", "最后活动", "date", 18),
+        ("confidence", "置信度(%)", "number", 10),
+        ("recommendation", "优化建议", "text", 45),
     ],
+    # 与前端"资源优化"Tab 完全对齐
     "rightsize": [
-        ("vmName", "虚拟机名称", "text", 30),
+        ("vmName", "虚拟机", "text", 30),
         ("cluster", "集群", "text", 18),
+        ("hostIp", "主机IP", "text", 15),
         ("currentCpu", "当前CPU(核)", "number", 12),
-        ("recommendedCpu", "建议CPU(核)", "number", 12),
         ("currentMemoryGb", "当前内存(GB)", "number", 14),
-        ("recommendedMemoryGb", "建议内存(GB)", "number", 14),
+        ("recommendedCpu", "推荐CPU(核)", "number", 12),
+        ("recommendedMemoryGb", "推荐内存(GB)", "number", 14),
         ("cpuP95", "CPU P95(%)", "number", 12),
+        ("cpuAvg", "CPU均值(%)", "number", 12),
         ("memoryP95", "内存P95(%)", "number", 12),
+        ("memoryAvg", "内存均值(%)", "number", 12),
+        ("mismatchType", "错配类型", "text", 20),
         ("wasteRatio", "浪费比例(%)", "number", 12),
-        ("adjustmentType", "调整类型", "text", 15),
-        ("recommendation", "建议", "text", 40),
-        ("evidence", "数据依据", "text", 60),
+        ("adjustmentType", "调整方向", "text", 15),
+        ("reason", "判断依据", "text", 55),
+        ("confidence", "置信度(%)", "number", 10),
     ],
-    "usage_pattern": [
-        ("vmName", "虚拟机名称", "text", 30),
+    # 与前端"潮汐检测"Tab 完全对齐
+    "tidal": [
+        ("vmName", "虚拟机", "text", 30),
         ("cluster", "集群", "text", 18),
-        ("usagePattern", "使用模式", "text", 12),
-        ("volatilityLevel", "波动级别", "text", 12),
+        ("hostIp", "主机IP", "text", 15),
+        ("tidalGranularity", "潮汐粒度", "text", 12),
+        ("recommendedOffHours_description", "推荐关机时段", "text", 28),
         ("coefficientOfVariation", "变异系数", "number", 12),
         ("peakValleyRatio", "峰谷比", "number", 10),
-        ("recommendation", "建议", "text", 40),
-    ],
-    "mismatch": [
-        ("vmName", "虚拟机名称", "text", 30),
-        ("cluster", "集群", "text", 18),
-        ("mismatchType", "错配类型", "text", 18),
-        ("cpuUtilization", "CPU使用率(%)", "number", 14),
-        ("memoryUtilization", "内存使用率(%)", "number", 14),
-        ("currentCpu", "当前CPU", "number", 10),
-        ("currentMemory", "当前内存(GB)", "number", 14),
-        ("recommendation", "建议", "text", 40),
+        ("reason", "判断依据", "text", 55),
     ],
 }
 
@@ -250,6 +246,7 @@ MISMATCH_TYPE_MAP = {
     "cpu_poor_memory_rich": "CPU不足/内存富足",
     "both_underutilized": "均利用不足",
     "both_overutilized": "均利用过高",
+    "balanced": "配比合理",
 }
 
 
@@ -285,8 +282,7 @@ class ExcelReportGenerator:
         self._create_vms_sheet(wb, data)
         self._create_idle_sheet(wb, data)
         self._create_rightsize_sheet(wb, data)
-        self._create_usage_pattern_sheet(wb, data)
-        self._create_mismatch_sheet(wb, data)
+        self._create_tidal_sheet(wb, data)
         self._create_health_sheet(wb, data)
 
         # Set active sheet to summary
@@ -495,7 +491,7 @@ class ExcelReportGenerator:
                            ColorScheme.WARNING)
 
         # 第二行：可优化配置
-        rightsize = resource.get("rightSize", [])
+        rightsize = resource.get("resourceOptimization", [])
         downsize_count = sum(1 for r in rightsize if (r.get("adjustmentType") or "").startswith("down"))
 
         self._write_opt_card(ws, start_row, 3, "📉", "可优化配置",
@@ -616,18 +612,20 @@ class ExcelReportGenerator:
             self._write_no_data(ws)
             return
 
-        # 标准化数据，确保所有字段都存在
+        # 标准化数据，确保所有字段都存在（与前端"闲置检测"Tab 列顺序对齐）
         normalized_data = []
         for item in idle_results:
+            is_idle = item.get("isIdle", False)
             normalized_item = {
                 "vmName": item.get("vmName", ""),
+                "isIdle": "闲置" if is_idle else "正常",
                 "cluster": item.get("cluster", ""),
                 "hostIp": item.get("hostIp", ""),
-                "cpuCores": item.get("cpuCores", 0),
-                "memoryGb": item.get("memoryGb", 0),
                 "idleType": IDLE_TYPE_MAP.get(item.get("idleType", ""), item.get("idleType", "")),
-                "confidence": item.get("confidence", 0),
                 "riskLevel": RISK_LEVEL_MAP.get(item.get("riskLevel", ""), item.get("riskLevel", "")),
+                "daysInactive": item.get("daysInactive"),
+                "lastActivityTime": item.get("lastActivityTime"),
+                "confidence": item.get("confidence", 0),
                 "recommendation": item.get("recommendation", ""),
             }
             normalized_data.append(normalized_item)
@@ -643,32 +641,35 @@ class ExcelReportGenerator:
         )
 
     def _create_rightsize_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
-        """Create right size analysis sheet."""
-        ws = wb.create_sheet("Right Size优化")
+        """Create resource optimization sheet."""
+        ws = wb.create_sheet("资源优化")
         analysis = data.get("analysis", {})
         resource = analysis.get("resource", {})
-        rightsize = resource.get("rightSize", [])
+        rightsize = resource.get("resourceOptimization", [])
 
         if not rightsize:
             self._write_no_data(ws)
             return
 
-        # 标准化数据（直接使用扁平字段）
         normalized_data = []
         for item in rightsize:
             normalized_item = {
                 "vmName": item.get("vmName", ""),
                 "cluster": item.get("cluster", ""),
+                "hostIp": item.get("hostIp", ""),
                 "currentCpu": item.get("currentCpu", 0),
-                "recommendedCpu": item.get("recommendedCpu", 0),
                 "currentMemoryGb": item.get("currentMemoryGb", 0),
+                "recommendedCpu": item.get("recommendedCpu", 0),
                 "recommendedMemoryGb": item.get("recommendedMemoryGb", 0),
                 "cpuP95": item.get("cpuP95", 0),
+                "cpuAvg": item.get("cpuAvg", 0),
                 "memoryP95": item.get("memoryP95", 0),
+                "memoryAvg": item.get("memoryAvg", 0),
+                "mismatchType": MISMATCH_TYPE_MAP.get(item.get("mismatchType", ""), item.get("mismatchType", "")),
                 "wasteRatio": item.get("wasteRatio", 0),
                 "adjustmentType": self._format_adjustment_type(item.get("adjustmentType") or ""),
-                "recommendation": item.get("recommendation", ""),
-                "evidence": item.get("evidence", ""),
+                "reason": item.get("reason", ""),
+                "confidence": item.get("confidence", 0),
             }
             normalized_data.append(normalized_item)
 
@@ -679,60 +680,35 @@ class ExcelReportGenerator:
             add_row_colors=True,
         )
 
-    def _create_usage_pattern_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
-        """Create usage pattern analysis sheet."""
-        ws = wb.create_sheet("使用模式分析")
+    def _create_tidal_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
+        """Create tidal detection sheet."""
+        ws = wb.create_sheet("潮汐检测")
         analysis = data.get("analysis", {})
         resource = analysis.get("resource", {})
-        usage_patterns = resource.get("usagePattern", [])
+        tidal_items = resource.get("tidal", [])
 
-        if not usage_patterns:
+        if not tidal_items:
             self._write_no_data(ws)
             return
 
-        # 标准化数据
+        granularity_map = {"daily": "日粒度", "weekly": "周粒度", "monthly": "月粒度"}
+
         normalized_data = []
-        for item in usage_patterns:
+        for item in tidal_items:
+            off_hours = item.get("recommendedOffHours") or {}
             normalized_item = {
                 "vmName": item.get("vmName", ""),
                 "cluster": item.get("cluster", ""),
-                "usagePattern": USAGE_PATTERN_MAP.get(item.get("usagePattern", ""), item.get("usagePattern", "")),
-                "volatilityLevel": self._format_volatility_level(item.get("volatilityLevel", "")),
+                "hostIp": item.get("hostIp", ""),
+                "tidalGranularity": granularity_map.get(item.get("tidalGranularity", ""), item.get("tidalGranularity", "")),
+                "recommendedOffHours_description": off_hours.get("description", ""),
                 "coefficientOfVariation": item.get("coefficientOfVariation", 0),
                 "peakValleyRatio": item.get("peakValleyRatio", 0),
-                "recommendation": item.get("recommendation", ""),
+                "reason": item.get("reason", ""),
             }
             normalized_data.append(normalized_item)
 
-        self._write_table(ws, normalized_data, COLUMNS["usage_pattern"], add_row_colors=True)
-
-    def _create_mismatch_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
-        """Create resource mismatch analysis sheet."""
-        ws = wb.create_sheet("配置错配分析")
-        analysis = data.get("analysis", {})
-        resource = analysis.get("resource", {})
-        mismatches = resource.get("mismatch", [])
-
-        if not mismatches:
-            self._write_no_data(ws)
-            return
-
-        # 标准化数据
-        normalized_data = []
-        for item in mismatches:
-            normalized_item = {
-                "vmName": item.get("vmName", ""),
-                "cluster": item.get("cluster", ""),
-                "mismatchType": MISMATCH_TYPE_MAP.get(item.get("mismatchType", ""), item.get("mismatchType", "")),
-                "cpuUtilization": item.get("cpuUtilization", 0),
-                "memoryUtilization": item.get("memoryUtilization", 0),
-                "currentCpu": item.get("currentCpu", 0),
-                "currentMemory": item.get("currentMemory", 0),
-                "recommendation": item.get("recommendation", ""),
-            }
-            normalized_data.append(normalized_item)
-
-        self._write_table(ws, normalized_data, COLUMNS["mismatch"], add_row_colors=True)
+        self._write_table(ws, normalized_data, COLUMNS["tidal"], add_row_colors=True)
 
     def _create_health_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
         """Create health score sheet with enhanced formatting."""

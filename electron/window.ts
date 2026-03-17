@@ -23,10 +23,10 @@ export function createMainWindow(): BrowserWindow {
     }
 
     mainWindow = new BrowserWindow({
-        width: 1400,
-        height: 900,
-        minWidth: 1200,
-        minHeight: 700,
+        width: 1280,
+        height: 768,
+        resizable: false,
+        maximizable: false,
         backgroundColor: "#f5f5f5",
         show: false, // Show when ready
         autoHideMenuBar: true,

@@ -510,7 +510,7 @@ class TaskService:
                 "id": log.id,
                 "level": log.level,
                 "message": log.message,
-                "createdAt": log.created_at.isoformat() if log.created_at else None,
+                "createdAt": (log.created_at.isoformat() + "Z") if log.created_at else None,
             }
             for log in logs
         ]

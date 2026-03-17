@@ -70,7 +70,7 @@ const connectionStore = useConnectionStore()
 const appStore = useAppStore()
 
 // 版本信息
-const appVersion = ref('0.0.3')
+const appVersion = ref('0.0.4')
 const isDevVersion = ref(false)
 
 const currentRouteTitle = computed(() => route.meta?.title || '首页')

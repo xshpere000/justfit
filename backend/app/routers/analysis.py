@@ -284,7 +284,7 @@ async def run_resource_analysis(
     request: Optional[AnalysisRequest] = None,
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Run resource analysis (Right Size + Usage Pattern + Mismatch) on a task.
+    """Run resource analysis (Resource Optimization + Tidal Detection) on a task.
 
     Args:
         task_id: Task ID
@@ -292,7 +292,7 @@ async def run_resource_analysis(
         db: Database session
 
     Returns:
-        Resource analysis results with rightSize, usagePattern, and mismatch
+        Resource analysis results with resourceOptimization and tidal
     """
     mode = request.mode if request else None
     logger.info(
@@ -325,9 +325,8 @@ async def run_resource_analysis(
                 mode_config = service.merge_mode_config(base_mode, custom_config)
                 resource_config = mode_config.get("resource", {})
                 config = {
-                    "right_size": resource_config.get("rightsize", {}),
+                    "rightsize": resource_config.get("rightsize", {}),
                     "usage_pattern": resource_config.get("usage_pattern", {}),
-                    "mismatch": resource_config.get("mismatch", {}),
                 }
                 logger.info(
                     "using_custom_resource_config",
@@ -340,9 +339,8 @@ async def run_resource_analysis(
                 mode_config = await service.get_mode(request_mode)
                 resource_config = mode_config.get("resource", {})
                 config = {
-                    "right_size": resource_config.get("rightsize", {}),
+                    "rightsize": resource_config.get("rightsize", {}),
                     "usage_pattern": resource_config.get("usage_pattern", {}),
-                    "mismatch": resource_config.get("mismatch", {}),
                 }
                 logger.info(
                     "using_preset_resource_config",
@@ -368,9 +366,8 @@ async def run_resource_analysis(
     logger.info(
         "resource_analysis_success",
         task_id=task_id,
-        right_size_count=summary.get("rightSizeCount", 0),
-        usage_pattern_count=summary.get("usagePatternCount", 0),
-        mismatch_count=summary.get("mismatchCount", 0),
+        resource_optimization_count=summary.get("resourceOptimizationCount", 0),
+        tidal_count=summary.get("tidalCount", 0),
     )
 
     return {
@@ -395,5 +392,32 @@ async def get_resource_results(
     """
     service = AnalysisService(db)
     result = await service.get_analysis_results(task_id, "resource")
+
+    return result
+
+
+@router.get("/tasks/{task_id}/summary")
+async def get_analysis_summary(
+    task_id: int,
+    optimizations: str = "resource,idle",
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """计算优化后可释放的资源和物理主机。
+
+    Args:
+        task_id: Task ID
+        optimizations: 逗号分隔的优化项，可选值: resource, idle
+        db: Database session
+
+    Returns:
+        当前资源总量、节省量、可释放主机列表
+    """
+    enabled = [o.strip() for o in optimizations.split(",") if o.strip() in ("resource", "idle")]
+    service = AnalysisService(db)
+    result = await service.calculate_host_freeability(task_id, enabled)
+
+    if not result.get("success"):
+        error_msg = str(result.get("error", "Failed to calculate summary"))
+        raise HTTPException(status_code=400, detail={"code": "SUMMARY_ERROR", "message": error_msg})
 
     return result

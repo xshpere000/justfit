@@ -26,75 +26,13 @@ export interface IdleResult {
 }
 
 /**
- * 资源配置优化分析结果
- * API: GET /api/analysis/tasks/{task_id}/resource -> rightSize
- */
-export interface RightSizeResult {
-    vmName: string;
-    cluster: string;
-    hostIp: string;
-    currentCpu: number;
-    suggestedCpu: number;
-    currentMemory: number;
-    suggestedMemory: number;
-    cpuP95: number;
-    memoryP95: number;
-    adjustmentType: string;
-    confidence: number;
-}
-
-/**
- * 使用模式分析结果
- * API: GET /api/analysis/tasks/{task_id}/resource -> usagePattern
- */
-export interface UsagePatternResult {
-    vmName: string;
-    datacenter: string;
-    cluster: string;
-    hostIp: string;
-    optimizationType: string;
-    usagePattern: string;
-    volatilityLevel: string;
-    coefficientOfVariation: number;
-    peakHour: number | null;
-    peakDay: string | null;
-    recommendation: string;
-}
-
-/**
- * 资源错配分析结果
- * API: GET /api/analysis/tasks/{task_id}/resource -> mismatch
- */
-export interface MismatchResult {
-    vmName: string;
-    cluster: string;
-    hostIp: string;
-    mismatchType: string;
-    currentConfig: {
-        cpu: number;
-        memoryGb: number;
-    };
-    suggestedConfig: {
-        cpu: number;
-        memoryGb: number;
-    };
-    recommendation: string;
-}
-
-/**
  * 资源分析完整响应
  * API: GET /api/analysis/tasks/{task_id}/resource
  */
 export interface ResourceAnalysisResponse {
-    rightSize: RightSizeResult[];
-    usagePattern: UsagePatternResult[];
-    mismatch: MismatchResult[];
-    summary: {
-        rightSizeCount: number;
-        usagePatternCount: number;
-        mismatchCount: number;
-        totalVmsAnalyzed: number;
-    };
+    resourceOptimization: any[];
+    tidal: any[];
+    summary: Record<string, unknown>;
 }
 
 /**
@@ -146,20 +84,6 @@ export interface HealthScoreResult {
     recommendations: string[];
 }
 
-export interface AnalysisResult<T> {
-    taskId: number;
-    jobType: string;
-    status: string;
-    results: T[];
-    summary: {
-        total: number;
-        critical: number;
-        high: number;
-        medium: number;
-        low: number;
-    };
-}
-
 // ============ 评估模式配置类型定义 ============
 
 /**
@@ -179,8 +103,6 @@ export interface RightSizeConfig {
     days: number;
     cpuBufferPercent: number;
     memoryBufferPercent: number;
-    highUsageThreshold: number;
-    lowUsageThreshold: number;
     minConfidence: number;
 }
 
@@ -193,22 +115,11 @@ export interface UsagePatternConfig {
 }
 
 /**
- * 配置错配分析配置
- */
-export interface MismatchConfig {
-    cpuLowThreshold: number;
-    cpuHighThreshold: number;
-    memoryLowThreshold: number;
-    memoryHighThreshold: number;
-}
-
-/**
- * 资源分析配置（包含三个子分析）
+ * 资源分析配置
  */
 export interface ResourceConfig {
     rightsize: RightSizeConfig;
     usagePattern: UsagePatternConfig;
-    mismatch: MismatchConfig;
 }
 
 /**
@@ -340,4 +251,15 @@ export async function getAnalysisMode(mode: string): Promise<AnalysisModeConfig>
  */
 export async function updateTaskCustomConfig(taskId: number, analysisType: string, config: Record<string, unknown>): Promise<void> {
     await apiClient.put(`/api/tasks/${taskId}/custom-config`, { analysisType, config });
+}
+
+/**
+ * 获取分析汇总（可释放主机等）
+ * API: GET /api/analysis/tasks/{task_id}/summary?optimizations=resource,idle
+ */
+export async function getAnalysisSummary(taskId: number, optimizations: string): Promise<any> {
+    const response = await apiClient.get(`/api/analysis/tasks/${taskId}/summary`, {
+        params: { optimizations }
+    });
+    return response.data.data;
 }

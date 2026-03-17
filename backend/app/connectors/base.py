@@ -56,6 +56,7 @@ class HostInfo:
     Attributes:
         name: 主机名称
         datacenter: 所属数据中心
+        cluster_name: 所属集群名称
         ip_address: 管理 IP 地址
         cpu_cores: CPU 物理核心数
         cpu_mhz: 单核频率 (MHz)
@@ -67,6 +68,7 @@ class HostInfo:
 
     name: str
     datacenter: str
+    cluster_name: str
     ip_address: str
     cpu_cores: int
     cpu_mhz: int  # Single core frequency in MHz

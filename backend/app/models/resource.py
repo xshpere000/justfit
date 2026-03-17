@@ -45,6 +45,7 @@ class Host(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255))
     datacenter: Mapped[str] = mapped_column(String(255), default="")
+    cluster_name: Mapped[str] = mapped_column(String(255), default="")
     ip_address: Mapped[str] = mapped_column(String(50), default="")
     cpu_cores: Mapped[int] = mapped_column(Integer, default=0)
     cpu_mhz: Mapped[int] = mapped_column(Integer, default=0)  # Single core frequency

@@ -13,11 +13,11 @@ JustFit 是一个**桌面端云平台资源评估与优化工具**，基于 **El
 - **评估模式**: 安全/节省/激进/自定义四种预设模式
 
 ### 技术栈
-- **桌面框架**: Electron (Node.js)
+- **桌面框架**: Electron 34 (Node.js)
 - **前端**: Vue 3 + TypeScript + Element Plus + ECharts + Vite
-- **后端**: Python 3.14 + FastAPI + SQLAlchemy + Alembic
-- **数据库**: SQLite (aiosqlite)
-- **通信**: HTTP REST API
+- **后端**: Python 3.14 + FastAPI + SQLAlchemy (aiosqlite，无 Alembic)
+- **数据库**: SQLite
+- **通信**: HTTP REST API（camelCase JSON）
 
 ---
 
@@ -28,13 +28,12 @@ JustFit 是一个**桌面端云平台资源评估与优化工具**，基于 **El
 ```bash
 # Linux/macOS - 使用 Makefile
 make dev              # 同时启动前后端 (端口: 后端22631, 前端22632)
-make build            # 生产构建
-make package          # Electron 打包（不含 Python exe）
-make package-backend  # 仅打包 Python 后端为 exe
-make package-all      # 完整打包（Python exe + Electron）
-make setup            # 一键设置打包环境
-make test             # 运行所有测试
-make test-backend     # 仅后端测试
+make build-all        # 完整打包（前端 + 后端 exe + Electron）
+make build-frontend   # 仅打包前端
+make build-backend    # 仅打包后端（Python → exe）
+make package-electron # 基于已打包前后端生成 Electron 安装包
+make test             # 运行所有后端测试
+make test-frontend    # 运行前端测试
 make clean            # 清理构建产物
 
 # 或直接运行脚本
@@ -175,15 +174,21 @@ electron/
 
 ### 分析器架构
 
-后端 `analyzers/` 目录包含核心分析器：
+后端 `analyzers/` 目录包含四个核心分析器：
 
 | 分析器 | 文件 | 功能 |
 |--------|------|------|
-| `IdleDetector` | `idle_detector.py` | 检测长期闲置VM，返回闲置列表 + 置信度 |
-| `RightSizeAnalyzer` | `rightsize.py` | 资源配置优化建议，返回推荐配置 + 节省估算 |
-| `ResourceAnalyzer` | `resource_analyzer.py` | 资源使用分析、使用模式识别、配置不匹配检测 |
-| `HealthAnalyzer` | `health.py` | 平台健康评分，返回健康分数 + 风险项 |
-| 评估模式配置 | `modes.py` | 四种预设分析模式的阈值配置 |
+| `IdleDetector` | `idle_detector.py` | 检测关机僵尸VM（按关机天数分级）和开机闲置VM（活跃度评分算法）|
+| `RightSizeAnalyzer` | `rightsize.py` | 基于 P95/P90 + 缓冲系数推荐规格，对齐标准 CPU/内存配置；内置错配检测（`_determine_mismatch_type`）|
+| `TidalDetector` | `resource_analyzer.py` | 识别潮汐型 VM（日/周/月粒度），仅输出具有潮汐特征的 VM |
+| `ResourceAnalyzer` | `resource_analyzer.py` | 组合 `RightSizeAnalyzer` + `TidalDetector` 并行执行，返回 `{resourceOptimization, tidal, summary}` |
+| `HealthAnalyzer` | `health.py` | 超配（40%）+ 均衡（30%）+ 热点（30%）综合评分 |
+| 评估模式配置 | `modes.py` | 四种预设分析模式的阈值配置（safe/saving/aggressive/custom）|
+
+**指标存储格式（重要）**：
+- CPU 指标存储为绝对值（`percentage / 100 × cpu_count × host_cpu_mhz`，单位 MHz）
+- 内存指标存储为绝对值（实际使用字节数）
+- 分析时统一换算回百分比再进行阈值比较
 
 ---
 
@@ -284,7 +289,7 @@ async def override_get_db():
 
 ### vCenter 连接器关键点
 
-1. **指标采集使用实时间隔 (20秒)**，不要用历史间隔 (5分钟)
+1. **指标采集固定使用天级间隔 (86400s)**，与 H3C UIS 对齐，确保两端置信度计算一致
 2. **实例名使用空字符串 `""`** 获取聚合数据
 3. **主机IP获取**: 从 `config.network.vnic[vmk0].spec.ip.ipAddress` 获取
 4. **VM Key 生成**: 优先 `uuid:<lowercase_uuid>` → `<datacenter>:<name>`
@@ -293,12 +298,14 @@ async def override_get_db():
 
 分析器支持四种预设模式，配置在 `analyzers/modes.py`：
 
-| 模式 | 描述 | 适用场景 |
-|------|------|----------|
-| `safe` | 安全模式 | 保守阈值，生产环境 |
-| `saving` | 节省模式 | 平衡阈值，默认推荐 |
-| `aggressive` | 激进模式 | 最大化优化机会 |
-| `custom` | 自定义模式 | 用户自定义配置 |
+| 模式 | 闲置阈值（CPU/内存）| Right Size 缓冲 | 健康超配阈值 | 适用场景 |
+|------|---------------------|-----------------|-------------|----------|
+| `safe` | 5% / 10%，置信度≥80 | 30% | 120% | 生产核心环境 |
+| `saving` | 10% / 20%，置信度≥60 | 20% | 150% | 通用，默认推荐 |
+| `aggressive` | 15% / 25%，置信度≥50 | 10% | 200% | 测试/开发环境 |
+| `custom` | 用户自定义 | 用户自定义 | 用户自定义 | 特殊场景 |
+
+自定义模式基于某个预设（`baseMode`）扩展，任务 `config` 字段存储 `mode`、`baseMode`、`customConfig`。
 
 ### ⚠️ 代码质量与兼容性准则
 
@@ -384,9 +391,9 @@ const displayName = task.connectionHost  // 假设字段一定存在
 
 ### 问题: vCenter 指标返回空值
 
-**原因**: 使用了历史间隔而非实时间隔
+**原因**: 使用了非天级间隔（如历史 5 分钟间隔）
 
-**解决**: 设置 `intervalId=20` (实时间隔)
+**解决**: 固定使用 `intervalId=86400`（天级间隔）
 
 ### 问题: 测试中数据不可见
 
@@ -418,7 +425,7 @@ const displayName = task.connectionHost  // 假设字段一定存在
 
 ## 版本管理
 
-- **当前版本**: v0.0.3
+- **当前版本**: v0.0.4
 - **版本定义**: `backend/app/__init__.py` 中的 `__version__`
 - **版本格式**: MAJOR.MINOR.PATCH
   - **MAJOR**: 重大架构变更，数据库不兼容升级
@@ -429,11 +436,11 @@ const displayName = task.connectionHost  // 假设字段一定存在
 
 ## 数据存储位置
 
-- **数据目录**: `~/.local/share/justfit/`
-- **数据库**: `~/.local/share/justfit/justfit.db`
-- **日志**: `~/.local/share/justfit/logs/justfit.log`
-- **加密密钥**: `~/.local/share/justfit/.key`
-- **加密凭证**: `~/.local/share/justfit/credentials.enc`
+- **数据目录**: Windows: `%LOCALAPPDATA%\justfit`，Linux/macOS: `~/.local/share/justfit`
+- **数据库**: `justfit.db`
+- **日志**: `logs/justfit.log`
+- **加密密钥**: `.key`
+- **加密凭证**: `credentials.enc`
 
 ---
 
@@ -444,8 +451,9 @@ const displayName = task.connectionHost  // 假设字段一定存在
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `JUSTFIT_API_PORT` | API 监听端口 | `22631` |
-| `JUSTFIT_DEBUG` | 调试模式 | `True` |
-| `JUSTFIT_DATA_DIR` | 数据目录路径 | `~/.local/share/justfit` |
+| `JUSTFIT_API_HOST` | API 监听地址 | `127.0.0.1` |
+| `JUSTFIT_DEBUG` | 调试模式 | `True`（开发），`False`（打包后）|
+| `JUSTFIT_DATA_DIR` | 数据目录路径 | Windows: `%LOCALAPPDATA%\justfit`，Linux/macOS: `~/.local/share/justfit` |
 | `JUSTFIT_DB_NAME` | 数据库文件名 | `justfit.db` |
 | `JUSTFIT_DEFAULT_METRIC_DAYS` | 默认采集天数 | `30` |
 | `JUSTFIT_METRIC_INTERVAL_SECONDS` | 指标采集间隔 | `20` |

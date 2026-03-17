@@ -16,13 +16,6 @@ class ConnectionRepository(BaseRepository[Connection]):
         """Initialize connection repository."""
         super().__init__(Connection, session)
 
-    async def get_by_name(self, name: str) -> Optional[Connection]:
-        """Get connection by name."""
-        result = await self.session.execute(
-            select(Connection).where(Connection.name == name)
-        )
-        return result.scalar_one_or_none()
-
     async def list_by_status(self, status: str) -> List[Connection]:
         """List connections by status."""
         result = await self.session.execute(

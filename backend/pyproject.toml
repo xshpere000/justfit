@@ -1,6 +1,6 @@
 [project]
 name = "justfit-backend"
-version = "0.0.3"
+version = "0.0.4"
 requires-python = ">=3.14"
 description = "JustFit Backend - Cloud Platform Resource Assessment Tool"
 authors = [

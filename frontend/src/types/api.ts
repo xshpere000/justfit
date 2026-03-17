@@ -1,6 +1,6 @@
 /**
  * JustFit Backend API 类型定义
- * Version: 0.0.3
+ * Version: 0.0.4
  * 更新日期: 2026-02-25
  * 命名规范: 统一使用驼峰命名
  */

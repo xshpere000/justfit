@@ -199,17 +199,16 @@ class AnalysisService:
         task_id: int,
         config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Run resource analysis (Right Size + Usage Pattern + Mismatch).
+        """Run resource analysis (Resource Optimization + Tidal Detection).
 
         Args:
             task_id: Task ID
             config: Optional configuration override with keys:
-                    - right_size: dict for right size config
-                    - usage_pattern: dict for usage pattern config
-                    - mismatch: dict for mismatch config
+                    - rightsize: dict for right size config
+                    - usage_pattern: dict for tidal detection config
 
         Returns:
-            Resource analysis results with rightSize, usagePattern, and mismatch
+            Resource analysis results with resourceOptimization and tidal
         """
         logger.info("resource_analysis_starting", task_id=task_id)
         await self._add_log(task_id, "info", "开始执行资源分析...")
@@ -224,12 +223,9 @@ class AnalysisService:
         # Get or create analysis job
         job = await self._get_or_create_job(task_id, "resource")
         if not job.get("is_new", False):
-            # 有已运行的 job，强制重置并创建新 job
-            # 这样可以避免因之前的分析失败而无法重新分析
             logger.warning("resource_analysis_resetting_stale_job", task_id=task_id, job_id=job.get("id"))
             await self._add_log(task_id, "warn", "检测到未完成的资源分析，将重新开始...")
 
-            # 强制标记旧 job 为失败
             from sqlalchemy import select, update
             stmt = (
                 update(TaskAnalysisJob)
@@ -239,10 +235,8 @@ class AnalysisService:
             await self.db.execute(stmt)
             await self.db.commit()
 
-            # 创建新 job
             job = await self._get_or_create_job(task_id, "resource")
             if not job.get("is_new", False):
-                # 如果仍然失败，返回错误
                 logger.error("resource_analysis_failed_to_create_job", task_id=task_id)
                 return {"success": False, "error": {"code": "JOB_CREATE_FAILED", "message": "Failed to create analysis job"}}
 
@@ -251,33 +245,24 @@ class AnalysisService:
         if config is None:
             mode_config = AnalysisModes.get_mode(mode)
             config = {
-                "rightsize": mode_config.get("rightsize", {}),
-                "usage_pattern": {
+                "rightsize": mode_config.get("resource", {}).get("rightsize", {}),
+                "usage_pattern": mode_config.get("resource", {}).get("usage_pattern", {
                     "cv_threshold": 0.4,
                     "peak_valley_ratio": 2.5,
-                },
-                "mismatch": {
-                    "cpu_low_threshold": 30.0,
-                    "cpu_high_threshold": 70.0,
-                    "memory_low_threshold": 30.0,
-                    "memory_high_threshold": 70.0,
-                },
+                }),
             }
 
-        # 支持 right_size (旧) 和 rightsize (新) 两种键名
-        rightsize_config = config.get("rightsize") or config.get("right_size", {})
+        rightsize_config = config.get("rightsize", {})
         usage_pattern_config = config.get("usage_pattern", {})
-        mismatch_config = config.get("mismatch", {})
 
         logger.debug("resource_analysis_config", task_id=task_id, config=config)
-        await self._add_log(task_id, "info", "分析配置：Right Size、使用模式、配置错配综合分析")
+        await self._add_log(task_id, "info", "分析配置：资源优化（含错配检测）、潮汐检测")
 
         # Initialize analyzer
         analyzer = ResourceAnalyzer(
             mode=mode,
             right_size_config=rightsize_config,
             usage_pattern_config=usage_pattern_config,
-            mismatch_config=mismatch_config,
         )
 
         # Get VM metrics and data
@@ -289,42 +274,37 @@ class AnalysisService:
             return {
                 "success": True,
                 "data": {
-                    "rightSize": [],
-                    "usagePattern": [],
-                    "mismatch": [],
+                    "resourceOptimization": [],
+                    "tidal": [],
                     "summary": {
-                        "rightSizeCount": 0,
-                        "usagePatternCount": 0,
-                        "mismatchCount": 0,
+                        "resourceOptimizationCount": 0,
+                        "tidalCount": 0,
                         "totalVmsAnalyzed": 0,
                     },
                 },
             }
 
         logger.info("resource_analysis_analyzing", task_id=task_id, vm_count=len(vm_metrics))
-        await self._add_log(task_id, "info", f"正在分析 {len(vm_metrics)} 台虚拟机的资源配置和使用模式...")
+        await self._add_log(task_id, "info", f"正在分析 {len(vm_metrics)} 台虚拟机的资源配置和潮汐模式...")
 
         # Run analysis
         result = await analyzer.analyze(task_id, vm_metrics, vm_data)
 
-        # Save findings for each analysis type
-        await self._save_findings(task_id, job["id"], "rightsize", result.get("rightSize", []))
-        await self._save_findings(task_id, job["id"], "usage_pattern", result.get("usagePattern", []))
-        await self._save_findings(task_id, job["id"], "mismatch", result.get("mismatch", []))
+        # Save findings
+        await self._save_findings(task_id, job["id"], "rightsize", result.get("resourceOptimization", []))
+        await self._save_findings(task_id, job["id"], "tidal", result.get("tidal", []))
 
         summary = result.get("summary", {})
         logger.info(
             "resource_analysis_completed",
             task_id=task_id,
-            right_size_count=summary.get("rightSizeCount", 0),
-            usage_pattern_count=summary.get("usagePatternCount", 0),
-            mismatch_count=summary.get("mismatchCount", 0),
+            resource_optimization_count=summary.get("resourceOptimizationCount", 0),
+            tidal_count=summary.get("tidalCount", 0),
         )
         await self._add_log(
             task_id, "info",
-            f"资源分析完成：Right Size {summary.get('rightSizeCount', 0)} 台，"
-            f"使用模式分析 {summary.get('usagePatternCount', 0)} 台，"
-            f"配置错配 {summary.get('mismatchCount', 0)} 台"
+            f"资源分析完成：资源优化 {summary.get('resourceOptimizationCount', 0)} 台，"
+            f"潮汐检测 {summary.get('tidalCount', 0)} 台"
         )
 
         return {"success": True, "data": result}
@@ -385,11 +365,10 @@ class AnalysisService:
             logger.warning("health_score_no_details", task_id=task_id)
             return {"success": False, "error": {"code": "NO_DATA", "message": "Health score data not found"}}
 
-        # Resource analysis returns structured data with three sub-types
+        # Resource analysis returns structured data with two sub-types
         if analysis_type == "resource":
-            # Query all three sub-types
-            sub_types = ["rightsize", "usage_pattern", "mismatch"]
-            resource_data = {"rightSize": [], "usagePattern": [], "mismatch": []}
+            sub_types = ["rightsize", "tidal"]
+            resource_data: Dict[str, Any] = {"resourceOptimization": [], "tidal": []}
 
             for sub_type in sub_types:
                 query = (
@@ -412,22 +391,19 @@ class AnalysisService:
                         "severity": finding.severity,
                         "title": finding.title,
                         "description": finding.description,
-                        "recommendation": finding.recommendation,
+                        "reason": finding.recommendation,
                     }
                     if finding.details:
                         try:
                             item.update(json.loads(finding.details))
-                        except:
+                        except Exception:
                             pass
                     data.append(item)
 
-                # Map sub_type to response key
                 if sub_type == "rightsize":
-                    resource_data["rightSize"] = data
-                elif sub_type == "usage_pattern":
-                    resource_data["usagePattern"] = data
-                elif sub_type == "mismatch":
-                    resource_data["mismatch"] = data
+                    resource_data["resourceOptimization"] = data
+                elif sub_type == "tidal":
+                    resource_data["tidal"] = data
 
             return {"success": True, "data": resource_data}
 
@@ -457,7 +433,7 @@ class AnalysisService:
             if finding.details:
                 try:
                     item.update(json.loads(finding.details))
-                except:
+                except Exception:
                     pass
             data.append(item)
 
@@ -591,6 +567,8 @@ class AnalysisService:
         # vCenter 存储 host_name，UIS 可能存储 host_ip
         host_cpu_by_ip = {host.ip_address: host.cpu_mhz for host in hosts if host.ip_address}
         host_cpu_by_name = {host.name: host.cpu_mhz for host in hosts if host.name}
+        host_cluster_by_ip = {host.ip_address: host.cluster_name for host in hosts if host.ip_address}
+        host_cluster_by_name = {host.name: host.cluster_name for host in hosts if host.name}
 
         # Build vm_data dict
         vm_data = {}
@@ -600,9 +578,13 @@ class AnalysisService:
             if host_cpu_mhz == 0:
                 host_cpu_mhz = host_cpu_by_ip.get(vm.host_ip, 0)
 
+            cluster_name = host_cluster_by_name.get(vm.host_name, "")
+            if not cluster_name:
+                cluster_name = host_cluster_by_ip.get(vm.host_ip, "")
+
             vm_data[vm.id] = {
                 "name": vm.name,
-                "cluster": "",
+                "cluster": cluster_name,
                 "cpu_count": vm.cpu_count,
                 "memory_bytes": vm.memory_bytes,
                 "host_ip": vm.host_ip,
@@ -701,30 +683,19 @@ class AnalysisService:
                         idle_text = idle_type_map.get(idle_type, idle_type)
                         title = f"闲置VM: {vm_name} ({idle_text})"
                     elif job_type == "rightsize":
-                        title = f"资源配置优化: {vm_name}"
-                    elif job_type == "usage_pattern":
-                        pattern = finding.get("usagePattern", "unknown")
-                        pattern_map = {"stable": "稳定", "burst": "突发", "tidal": "潮汐", "unknown": "未知"}
-                        pattern_text = pattern_map.get(pattern, pattern)
-                        title = f"使用模式: {vm_name} ({pattern_text})"
-                    elif job_type == "mismatch":
-                        mismatch_type = finding.get("mismatchType", "")
-                        mismatch_map = {
-                            "cpu_rich_memory_poor": "CPU富裕内存紧张",
-                            "cpu_poor_memory_rich": "CPU紧张内存富裕",
-                            "both_underutilized": "双重过剩",
-                            "both_overutilized": "双重紧张",
-                        }
-                        mismatch_text = mismatch_map.get(mismatch_type, "配置错配")
-                        title = f"资源配置错配: {vm_name} ({mismatch_text})"
+                        title = f"资源优化: {vm_name}"
+                    elif job_type == "tidal":
+                        granularity = finding.get("tidalGranularity", "daily")
+                        granularity_map = {"daily": "日粒度", "weekly": "周粒度", "monthly": "月粒度"}
+                        title = f"潮汐检测: {vm_name} ({granularity_map.get(granularity, granularity)})"
 
                 description = finding.get("description", "")
-                recommendation = finding.get("recommendation", "")
+                recommendation = finding.get("reason", finding.get("recommendation", ""))
 
-                # Build details JSON
+                # Build details JSON（保留 cluster 和 hostIp 等字段以便读取时恢复）
                 details = {k: v for k, v in finding.items()
-                          if k not in ["vmName", "cluster", "confidence", "severity",
-                                      "title", "description", "recommendation"]}
+                          if k not in ["vmName", "confidence", "severity",
+                                      "title", "description", "recommendation", "reason"]}
 
                 db_finding = AnalysisFinding(
                     task_id=task_id,
@@ -951,3 +922,177 @@ class AnalysisService:
         await self._add_log(task_id, "info", f"闲置检测完成，发现 {len(findings)} 台闲置VM")
 
         return {"success": True, "data": findings}
+
+    async def calculate_host_freeability(
+        self,
+        task_id: int,
+        enabled_optimizations: List[str],
+    ) -> Dict[str, Any]:
+        """计算启用指定优化后可释放的物理主机。
+
+        Args:
+            task_id: Task ID
+            enabled_optimizations: 启用的优化项列表，如 ["resource", "idle"]
+
+        Returns:
+            包含当前资源总量、节省量、可释放主机列表的 dict
+        """
+        import json
+
+        task = await self._get_task(task_id)
+        if not task:
+            return {"success": False, "error": {"code": "TASK_NOT_FOUND", "message": "Task not found"}}
+
+        connection_id = task.connection_id
+
+        # 查询所有主机
+        host_query = select(Host).where(Host.connection_id == connection_id)
+        host_result = await self.db.execute(host_query)
+        hosts = host_result.scalars().all()
+
+        # 查询所有 VM（用于统计总量）
+        vm_query = select(VM).where(VM.connection_id == connection_id)
+        vm_result = await self.db.execute(vm_query)
+        vms = vm_result.scalars().all()
+
+        # 当前平台总量
+        total_cpu_cores = sum(h.cpu_cores for h in hosts)
+        total_memory_gb = round(sum(h.memory_bytes for h in hosts) / (1024 ** 3), 2)
+        total_hosts = len(hosts)
+        total_vms = len(vms)
+
+        # 各优化项的节省量
+        freed_cpu_from_resource = 0
+        freed_memory_from_resource = 0.0
+        freed_cpu_from_idle = 0
+        freed_memory_from_idle = 0.0
+
+        if "resource" in enabled_optimizations:
+            # 从 rightsize findings 计算节省
+            rs_query = (
+                select(AnalysisFinding)
+                .where(
+                    AnalysisFinding.task_id == task_id,
+                    AnalysisFinding.job_type == "rightsize",
+                )
+            )
+            rs_result = await self.db.execute(rs_query)
+            rs_findings = rs_result.scalars().all()
+
+            for finding in rs_findings:
+                if finding.details:
+                    try:
+                        d = json.loads(finding.details)
+                        current_cpu = d.get("currentCpu", 0)
+                        recommended_cpu = d.get("recommendedCpu", 0)
+                        current_mem = d.get("currentMemoryGb", 0.0)
+                        recommended_mem = d.get("recommendedMemoryGb", 0.0)
+                        freed_cpu_from_resource += max(0, current_cpu - recommended_cpu)
+                        freed_memory_from_resource += max(0.0, current_mem - recommended_mem)
+                    except Exception:
+                        pass
+
+        if "idle" in enabled_optimizations:
+            # 从 idle findings 计算节省（闲置 VM 的完整资源）
+            idle_query = (
+                select(AnalysisFinding)
+                .where(
+                    AnalysisFinding.task_id == task_id,
+                    AnalysisFinding.job_type == "idle",
+                )
+            )
+            idle_result = await self.db.execute(idle_query)
+            idle_findings = idle_result.scalars().all()
+
+            for finding in idle_findings:
+                if finding.details:
+                    try:
+                        d = json.loads(finding.details)
+                        freed_cpu_from_idle += d.get("cpuCores", 0)
+                        freed_memory_from_idle += d.get("memoryGb", 0.0)
+                    except Exception:
+                        pass
+
+        total_freed_cpu = freed_cpu_from_resource + freed_cpu_from_idle
+        total_freed_memory = round(freed_memory_from_resource + freed_memory_from_idle, 2)
+
+        # 计算可释放主机（按配置从低到高排序，贪心匹配）
+        # 主机排序：按 cpu_cores * cpu_mhz + memory_bytes 综合算力从低到高
+        sorted_hosts = sorted(
+            hosts,
+            key=lambda h: (h.cpu_cores, h.memory_bytes)
+        )
+
+        # 建立主机→VM 映射（按主机 IP 和 name 关联）
+        host_vm_count: Dict[str, int] = {}
+        host_vm_cpu: Dict[str, int] = {}
+        host_vm_mem: Dict[str, float] = {}
+
+        for vm in vms:
+            key = vm.host_name or vm.host_ip or ""
+            if not key:
+                continue
+            host_vm_count[key] = host_vm_count.get(key, 0) + 1
+            host_vm_cpu[key] = host_vm_cpu.get(key, 0) + vm.cpu_count
+            host_vm_mem[key] = host_vm_mem.get(key, 0.0) + vm.memory_bytes / (1024 ** 3)
+
+        remaining_cpu = total_freed_cpu
+        remaining_mem = total_freed_memory
+        freeable_hosts = []
+
+        for host in sorted_hosts:
+            host_key = host.name or host.ip_address or ""
+            vm_count = host_vm_count.get(host_key, 0)
+            if vm_count == 0:
+                continue  # 无 VM 的主机跳过
+
+            vm_cpu_needed = host_vm_cpu.get(host_key, 0)
+            vm_mem_needed = host_vm_mem.get(host_key, 0.0)
+
+            if remaining_cpu >= vm_cpu_needed and remaining_mem >= vm_mem_needed:
+                freeable_hosts.append({
+                    "hostName": host.name,
+                    "hostIp": host.ip_address,
+                    "cpuCores": host.cpu_cores,
+                    "memoryGb": round(host.memory_bytes / (1024 ** 3), 2),
+                    "currentVmCount": vm_count,
+                    "reason": (
+                        f"该主机上 {vm_count} 台 VM 共需 {vm_cpu_needed} 核 CPU / "
+                        f"{vm_mem_needed:.1f} GB 内存，"
+                        f"优化后可节省资源足以迁移这些 VM，主机可下线"
+                    ),
+                })
+                remaining_cpu -= vm_cpu_needed
+                remaining_mem -= vm_mem_needed
+
+        freed_cpu_pct = round(total_freed_cpu / total_cpu_cores * 100, 1) if total_cpu_cores > 0 else 0.0
+        freed_mem_pct = round(total_freed_memory / total_memory_gb * 100, 1) if total_memory_gb > 0 else 0.0
+
+        return {
+            "success": True,
+            "data": {
+                "current": {
+                    "totalCpuCores": total_cpu_cores,
+                    "totalMemoryGb": total_memory_gb,
+                    "totalHosts": total_hosts,
+                    "totalVms": total_vms,
+                },
+                "optimized": {
+                    "freedCpuCores": total_freed_cpu,
+                    "freedMemoryGb": total_freed_memory,
+                    "freedCpuPercent": freed_cpu_pct,
+                    "freedMemoryPercent": freed_mem_pct,
+                },
+                "freeableHosts": freeable_hosts,
+                "breakdown": {
+                    "resourceOptimization": {
+                        "cpuCores": freed_cpu_from_resource,
+                        "memoryGb": round(freed_memory_from_resource, 2),
+                    },
+                    "idleDetection": {
+                        "cpuCores": freed_cpu_from_idle,
+                        "memoryGb": round(freed_memory_from_idle, 2),
+                    },
+                },
+            },
+        }

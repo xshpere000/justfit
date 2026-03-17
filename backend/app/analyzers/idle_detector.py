@@ -585,8 +585,17 @@ class IdleDetector:
         """
         total_samples = sum(len(v) for v in metrics_by_type.values())
 
-        # 期望样本数：假设20秒间隔，分析天数 * 24小时 * 180样本/小时
-        expected_samples = self.days_threshold * 24 * 180
+        # 根据实际点数推断粒度：若总点数 ≤ days_threshold * 类型数 * 2，认为是天级数据
+        metric_type_count = len([v for v in metrics_by_type.values() if v])
+        if metric_type_count == 0:
+            return "low"
+        avg_samples_per_type = total_samples / metric_type_count
+        if avg_samples_per_type <= self.days_threshold * 2:
+            # 天级粒度：每天1个点
+            expected_samples = self.days_threshold * metric_type_count
+        else:
+            # 20秒粒度：每小时180个点
+            expected_samples = self.days_threshold * 24 * 180
 
         if expected_samples <= 0:
             return "low"

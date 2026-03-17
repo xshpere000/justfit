@@ -24,8 +24,6 @@ class RightSizeAnalyzer:
         days_threshold: int = 14,
         cpu_buffer_percent: float = 20.0,
         memory_buffer_percent: float = 20.0,
-        high_usage_threshold: float = 85.0,
-        low_usage_threshold: float = 30.0,
         min_confidence: float = 60.0,
     ) -> None:
         """Initialize right-size analyzer.
@@ -34,15 +32,11 @@ class RightSizeAnalyzer:
             days_threshold: Days to analyze (default 14)
             cpu_buffer_percent: CPU buffer percentage (default 20%)
             memory_buffer_percent: Memory buffer percentage (default 20%)
-            high_usage_threshold: High usage threshold % (default 85%)
-            low_usage_threshold: Low usage threshold % (default 30%)
             min_confidence: Minimum confidence (default 60)
         """
         self.days_threshold = days_threshold
         self.cpu_buffer = 1.0 + cpu_buffer_percent / 100
         self.memory_buffer = 1.0 + memory_buffer_percent / 100
-        self.high_threshold = high_usage_threshold
-        self.low_threshold = low_usage_threshold
         self.min_confidence = min_confidence
 
     async def analyze(
@@ -99,9 +93,6 @@ class RightSizeAnalyzer:
         effective_host_mhz = host_cpu_mhz if host_cpu_mhz > 0 else 2600
         effective_cpu_count = cpu_count if cpu_count > 0 else 1
 
-        if effective_host_mhz == 0:
-            return [m.value for m in cpu_metrics]
-
         result = []
         for metric in cpu_metrics:
             percentage = (metric.value / effective_cpu_count / effective_host_mhz) * 100
@@ -135,7 +126,7 @@ class RightSizeAnalyzer:
         metrics: List[VMMetric],
         vm_info: Dict,
     ) -> Dict[str, Any]:
-        """Analyze single VM for right-sizing.
+        """Analyze single VM for right-sizing with integrated mismatch detection.
 
         Args:
             vm_id: VM ID
@@ -143,7 +134,7 @@ class RightSizeAnalyzer:
             vm_info: VM info
 
         Returns:
-            Right-size analysis result
+            Right-size analysis result including mismatch type and reason
         """
         vm_name = vm_info.get("name", f"VM-{vm_id}")
         host_ip = vm_info.get("host_ip", "")
@@ -199,6 +190,9 @@ class RightSizeAnalyzer:
             current_cpu, recommended_cpu, current_memory_gb, recommended_memory_gb
         )
 
+        # 错配类型判断（基于 P95 使用率）
+        mismatch_type = self._determine_mismatch_type(cpu_p95, memory_p95)
+
         # wasteRatio：缩减为正（浪费比例），扩容为负（欠配比例）
         if current_cpu > 0 and current_memory_gb > 0:
             cpu_ratio = (current_cpu - recommended_cpu) / current_cpu
@@ -214,7 +208,14 @@ class RightSizeAnalyzer:
 
         # Calculate confidence（基于采样点数，同时考虑数据质量）
         total_samples = len(cpu_values_pct) + len(memory_values_pct)
-        expected_samples = self.days_threshold * 24 * 2  # CPU + 内存，每小时各1个
+        # 根据实际点数推断数据粒度：若 CPU 点数 ≤ days_threshold*2，认为是天级数据
+        cpu_sample_count = len(cpu_values_pct)
+        if cpu_sample_count > 0 and cpu_sample_count <= self.days_threshold * 2:
+            # 天级粒度：期望 = days_threshold × 2（CPU + 内存各1天1个）
+            expected_samples = self.days_threshold * 2
+        else:
+            # 小时级粒度：期望 = days_threshold × 24 × 2
+            expected_samples = self.days_threshold * 24 * 2
         base_confidence = min(100, (total_samples / expected_samples) * 100) if expected_samples > 0 else 0
 
         # 数据质量修正：方差过高降低置信度
@@ -225,17 +226,13 @@ class RightSizeAnalyzer:
         else:
             confidence = base_confidence
 
-        # 生成证据字符串（含具体数据）
-        evidence = self._build_evidence(
+        # 生成有说服力的判断依据（含具体数据）
+        reason = self._build_reason(
             current_cpu, recommended_cpu,
             current_memory_gb, recommended_memory_gb,
             cpu_p95, cpu_p90, cpu_max, cpu_avg,
             memory_p95, memory_max, memory_avg,
-        )
-
-        # Generate recommendation
-        recommendation = self._generate_recommendation(
-            adjustment_type, risk, recommended_cpu, recommended_memory_gb
+            adjustment_type, mismatch_type, risk,
         )
 
         return {
@@ -253,12 +250,12 @@ class RightSizeAnalyzer:
             "memoryP95": round(memory_p95, 2),
             "memoryMax": round(memory_max, 2),
             "memoryAvg": round(memory_avg, 2),
+            "mismatchType": mismatch_type,
             "adjustmentType": adjustment_type,
             "wasteRatio": waste_ratio,
             "riskLevel": risk,
             "confidence": round(confidence, 2),
-            "recommendation": recommendation,
-            "evidence": evidence,
+            "reason": reason,
         }
 
     def _determine_adjustment_type(
@@ -298,7 +295,28 @@ class RightSizeAnalyzer:
         else:
             return "none"
 
-    def _build_evidence(
+    def _determine_mismatch_type(self, cpu_p95: float, memory_p95: float) -> str:
+        """判断 CPU/内存配比错配类型。
+
+        基于 P95 使用率，阈值：低=30%，高=70%
+        """
+        cpu_low = cpu_p95 < 30.0
+        cpu_high = cpu_p95 > 70.0
+        mem_low = memory_p95 < 30.0
+        mem_high = memory_p95 > 70.0
+
+        if cpu_low and mem_high:
+            return "cpu_rich_memory_poor"
+        elif cpu_high and mem_low:
+            return "cpu_poor_memory_rich"
+        elif cpu_low and mem_low:
+            return "both_underutilized"
+        elif cpu_high and mem_high:
+            return "both_overutilized"
+        else:
+            return "balanced"
+
+    def _build_reason(
         self,
         current_cpu: int,
         recommended_cpu: int,
@@ -311,21 +329,51 @@ class RightSizeAnalyzer:
         memory_p95: float,
         memory_max: float,
         memory_avg: float,
+        adjustment_type: str,
+        mismatch_type: str,
+        risk: str,
     ) -> str:
-        """生成决策依据字符串，包含具体数据证据。"""
+        """生成有说服力的判断依据，包含具体数据和结论。"""
         parts = []
+
+        # CPU 数据描述
         parts.append(
-            f"CPU: P95={cpu_p95:.1f}% P90={cpu_p90:.1f}% 峰值={cpu_max:.1f}% 均值={cpu_avg:.1f}%"
-            f"，当前{current_cpu}核→建议{recommended_cpu}核"
+            f"CPU：P95={cpu_p95:.1f}%、P90={cpu_p90:.1f}%、峰值={cpu_max:.1f}%、均值={cpu_avg:.1f}%"
+            f"（当前 {current_cpu} 核 → 推荐 {recommended_cpu} 核）"
         )
+
+        # 内存数据描述
         parts.append(
-            f"内存: P95={memory_p95:.1f}% 峰值={memory_max:.1f}% 均值={memory_avg:.1f}%"
-            f"，当前{current_memory_gb:.1f}GB→建议{recommended_memory_gb:.1f}GB"
+            f"内存：P95={memory_p95:.1f}%、峰值={memory_max:.1f}%、均值={memory_avg:.1f}%"
+            f"（当前 {current_memory_gb:.1f} GB → 推荐 {recommended_memory_gb:.1f} GB）"
         )
-        return "；".join(parts)
+
+        # 错配类型结论
+        mismatch_desc = {
+            "cpu_rich_memory_poor": f"CPU 长期低使用率（P95={cpu_p95:.1f}%）但内存已接近瓶颈（P95={memory_p95:.1f}%），典型 CPU 富余/内存紧张错配",
+            "cpu_poor_memory_rich": f"CPU 持续高负载（P95={cpu_p95:.1f}%）但内存利用率低（P95={memory_p95:.1f}%），典型 CPU 不足/内存浪费错配",
+            "both_underutilized": f"CPU（P95={cpu_p95:.1f}%）和内存（P95={memory_p95:.1f}%）利用率均偏低，整体配置过剩",
+            "both_overutilized": f"CPU（P95={cpu_p95:.1f}%）和内存（P95={memory_p95:.1f}%）利用率均偏高，存在性能瓶颈风险",
+            "balanced": f"CPU（P95={cpu_p95:.1f}%）和内存（P95={memory_p95:.1f}%）配比基本合理",
+        }
+        parts.append(mismatch_desc.get(mismatch_type, ""))
+
+        # 调整方向结论
+        adj_desc = {
+            "down_significant": f"建议大幅缩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
+            "down": f"建议缩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
+            "up_significant": f"建议大幅扩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
+            "up": f"建议扩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
+            "none": "当前配置合理，无需调整",
+        }
+        conclusion = adj_desc.get(adjustment_type, "")
+        if risk == "high" and adjustment_type not in ("none",):
+            conclusion += "（注意：负载波动较大，建议谨慎操作）"
+        parts.append(conclusion)
+
+        return "；".join(p for p in parts if p)
 
     def _percentile(self, values: List[float], percentile: int) -> float:
-        """Calculate percentile using linear interpolation."""
         if not values:
             return 0.0
         sorted_values = sorted(values)
@@ -377,25 +425,4 @@ class RightSizeAnalyzer:
         else:
             return "low"
 
-    def _generate_recommendation(
-        self,
-        adjustment_type: str,
-        risk: str,
-        recommended_cpu: int,
-        recommended_memory_gb: float,
-    ) -> str:
-        """Generate right-sizing recommendation with evidence."""
-        if adjustment_type == "down_significant":
-            base = f"建议大幅缩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
-        elif adjustment_type == "down":
-            base = f"建议缩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
-        elif adjustment_type == "up_significant":
-            base = f"需要大幅扩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
-        elif adjustment_type == "up":
-            base = f"建议扩容至 {recommended_cpu} vCPU / {recommended_memory_gb}GB RAM"
-        else:
-            return "当前配置合理，无需调整"
 
-        if risk == "high":
-            base += "（注意：负载波动较大，建议谨慎调整）"
-        return base

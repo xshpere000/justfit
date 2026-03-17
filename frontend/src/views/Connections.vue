@@ -286,7 +286,7 @@ function getStatusText(status: string): string {
     error: '连接失败',
     connecting: '连接中'
   }
-  return textMap[status] || status
+  return textMap[status] || '未知'
 }
 </script>
 

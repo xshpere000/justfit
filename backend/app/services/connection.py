@@ -65,11 +65,6 @@ class ConnectionService:
                 f"Invalid platform: {platform}. Must be 'vcenter' or 'h3c-uis'"
             )
 
-        # Check for duplicate name
-        existing = await self.repo.get_by_name(name)
-        if existing:
-            raise ValidationError(f"Connection with name '{name}' already exists")
-
         # Create connection record (password not stored in DB)
         connection = await self.repo.create(
             name=name,
@@ -149,10 +144,6 @@ class ConnectionService:
 
         updates = {}
         if name is not None:
-            # Check for duplicate name
-            existing = await self.repo.get_by_name(name)
-            if existing and existing.id != id:
-                raise ValidationError(f"Connection with name '{name}' already exists")
             updates["name"] = name
         if host is not None:
             updates["host"] = host
