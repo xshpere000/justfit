@@ -122,11 +122,11 @@ async def test_rightsize_analyzer_low_usage_vm(sample_vm_metrics, sample_vm_data
     result = results[0]
     assert result["vmName"] == "low-usage-vm"
     assert result["currentCpu"] == 4
-    assert result["currentMemory"] == 16.0
+    assert result["currentMemoryGb"] == 16.0
 
     # 低使用率应该建议缩容
-    assert result["adjustmentType"] in ("down", "down_significant"), \
-        f"低使用率VM应该建议缩容，实际: {result['adjustmentType']}"
+    assert result["cpuAdjustmentType"] in ("down", "down_significant"), \
+        f"低使用率VM应该建议缩容，实际: {result['cpuAdjustmentType']}"
 
     # 推荐配置应该小于当前配置
     assert result["recommendedCpu"] < result["currentCpu"], \
@@ -154,8 +154,8 @@ async def test_rightsize_analyzer_high_usage_vm(sample_vm_metrics, sample_vm_dat
     assert result["vmName"] == "high-usage-vm"
 
     # 高使用率应该建议扩容或保持
-    assert result["adjustmentType"] in ("up", "up_significant", "none"), \
-        f"高使用率VM应该建议扩容: {result['adjustmentType']}"
+    assert result["cpuAdjustmentType"] in ("up", "up_significant", "none"), \
+        f"高使用率VM应该建议扩容: {result['cpuAdjustmentType']}"
 
 
 @pytest.mark.asyncio
@@ -172,14 +172,12 @@ async def test_rightsize_analyzer_confidence_calculation(sample_vm_metrics, samp
     result = results[0]
 
     # 3天 = 72小时，每小时2个数据点(cpu + memory) = 144个数据点
-    # expected_samples = 3 * 24 = 48 (应该是按小时计算，每种指标24个点)
-    # total_samples = 72(cpu) + 72(memory) = 144
-    # confidence = min(100, 144 / 48 * 100) = 100%
-    expected_samples = 3 * 24  # 每小时1个数据点
-    actual_samples = result["details"]["cpuSamples"] + result["details"]["memorySamples"]
-
+    # 72 个 CPU 点 ≤ days_threshold*2=6 → 天级粒度判定
+    # expected_samples = days_threshold * 2 = 6
+    # total_samples = 72 + 72 = 144
+    # base_confidence = min(100, 144 / 6 * 100) = 100%
     assert result["confidence"] == 100.0, \
-        f"3天完整数据应该有100%%置信度，实际: {result['confidence']}, 样本数: {actual_samples}/{expected_samples}"
+        f"3天完整数据应该有100%置信度，实际: {result['confidence']}"
 
 
 @pytest.mark.asyncio
@@ -218,8 +216,9 @@ def test_normalize_memory():
 
     assert analyzer._normalize_memory(0.3) == 0.5
     assert analyzer._normalize_memory(1.5) == 2
-    assert analyzer._normalize_memory(3) == 4
-    assert analyzer._normalize_memory(10) == 16
+    assert analyzer._normalize_memory(3) == 3
+    assert analyzer._normalize_memory(5) == 6
+    assert analyzer._normalize_memory(10) == 12
     assert analyzer._normalize_memory(100) == 128  # 100GB -> 128GB
     assert analyzer._normalize_memory(300) == 256  # 最大标准
 
@@ -230,7 +229,7 @@ def test_percentile():
 
     values = [10, 20, 30, 40, 50]
     assert analyzer._percentile(values, 50) == 30  # 中位数
-    assert analyzer._percentile(values, 95) == 50  # 接近最大值
+    assert analyzer._percentile(values, 95) == 48.0  # 线性插值：接近最大值
 
 
 def test_calculate_risk():

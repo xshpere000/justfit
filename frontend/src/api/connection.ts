@@ -290,10 +290,9 @@ export async function getVMList(connectionId: number): Promise<VMListItem[]> {
 // Version API (compatibility)
 export const VersionApi = {
     checkVersion: async (): Promise<VersionCheckResult> => {
-        // Always return no rebuild needed for v0.0.4
         return {
-            currentVersion: '0.0.4',
-            latestVersion: '0.0.4',
+            currentVersion: '0.0.5',
+            latestVersion: '0.0.5',
             needsRebuild: false,
             databaseSize: 0,
             hasData: false,
@@ -301,7 +300,7 @@ export const VersionApi = {
     },
     getAppVersion: async (): Promise<AppVersionInfo> => {
         return {
-            version: '0.0.4',
+            version: '0.0.5',
             isDevelopment: true,
         };
     },

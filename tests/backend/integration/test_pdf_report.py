@@ -249,23 +249,23 @@ def get_mock_report_data() -> Dict[str, Any]:
                 },
             ],
             "resource": {
-                "rightSize": [
+                "resourceOptimization": [
                     {
                         "vmId": 201,
                         "vmName": "web-server-overprovisioned",
                         "cluster": "Cluster-Production",
                         "hostIp": "10.0.1.101",
                         "currentCpu": 8,
-                        "suggestedCpu": 4,
-                        "currentMemory": 32.0,
-                        "suggestedMemory": 16.0,
+                        "recommendedCpu": 4,
+                        "currentMemoryGb": 32.0,
+                        "recommendedMemoryGb": 16.0,
                         "cpuP95": 22.5,
                         "cpuMax": 45.0,
                         "cpuAvg": 18.2,
                         "memoryP95": 35.8,
                         "memoryMax": 52.0,
                         "memoryAvg": 28.5,
-                        "adjustmentType": "down_significant",
+                        "cpuAdjustmentType": "down_significant",
                         "riskLevel": "low",
                         "confidence": 85.0,
                         "recommendation": "建议大幅缩容至 4 vCPU / 16GB RAM，可节省50%资源",
@@ -276,16 +276,16 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "cluster": "Cluster-Production",
                         "hostIp": "10.0.1.102",
                         "currentCpu": 2,
-                        "suggestedCpu": 4,
-                        "currentMemory": 4.0,
-                        "suggestedMemory": 8.0,
+                        "recommendedCpu": 4,
+                        "currentMemoryGb": 4.0,
+                        "recommendedMemoryGb": 8.0,
                         "cpuP95": 88.5,
                         "cpuMax": 95.0,
                         "cpuAvg": 75.2,
                         "memoryP95": 92.3,
                         "memoryMax": 98.0,
                         "memoryAvg": 85.5,
-                        "adjustmentType": "up",
+                        "cpuAdjustmentType": "up",
                         "riskLevel": "high",
                         "confidence": 92.0,
                         "recommendation": "CPU和内存使用率持续偏高，建议扩容至 4 vCPU / 8GB RAM",
@@ -296,22 +296,22 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "cluster": "Cluster-Development",
                         "hostIp": "10.0.1.104",
                         "currentCpu": 16,
-                        "suggestedCpu": 8,
-                        "currentMemory": 64.0,
-                        "suggestedMemory": 32.0,
+                        "recommendedCpu": 8,
+                        "currentMemoryGb": 64.0,
+                        "recommendedMemoryGb": 32.0,
                         "cpuP95": 28.3,
                         "cpuMax": 55.0,
                         "cpuAvg": 22.1,
                         "memoryP95": 32.5,
                         "memoryMax": 58.0,
                         "memoryAvg": 25.8,
-                        "adjustmentType": "down",
+                        "cpuAdjustmentType": "down",
                         "riskLevel": "low",
                         "confidence": 78.0,
                         "recommendation": "建议缩容至 8 vCPU / 32GB RAM",
                     },
                 ],
-                "usagePattern": [
+                "tidal": [
                     {
                         "vmId": 301,
                         "vmName": "report-server-tidal",
@@ -367,60 +367,9 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "details": {},
                     },
                 ],
-                "mismatch": [
-                    {
-                        "vmId": 401,
-                        "vmName": "server-cpu-rich-memory-poor",
-                        "datacenter": "DC1",
-                        "cluster": "Cluster-Production",
-                        "hostIp": "10.0.1.101",
-                        "optimizationType": "resource_mismatch",
-                        "hasMismatch": True,
-                        "mismatchType": "cpu_rich_memory_poor",
-                        "cpuUtilization": 15.2,
-                        "memoryUtilization": 82.5,
-                        "currentCpu": 8,
-                        "currentMemory": 16.0,
-                        "recommendation": "CPU使用率低但内存使用率高，建议降低CPU配置或增加内存",
-                        "details": {},
-                    },
-                    {
-                        "vmId": 402,
-                        "vmName": "server-cpu-poor-memory-rich",
-                        "datacenter": "DC1",
-                        "cluster": "Cluster-Development",
-                        "hostIp": "10.0.1.104",
-                        "optimizationType": "resource_mismatch",
-                        "hasMismatch": True,
-                        "mismatchType": "cpu_poor_memory_rich",
-                        "cpuUtilization": 78.3,
-                        "memoryUtilization": 22.8,
-                        "currentCpu": 4,
-                        "currentMemory": 32.0,
-                        "recommendation": "CPU使用率高但内存使用率低，建议增加CPU配置或降低内存",
-                        "details": {},
-                    },
-                    {
-                        "vmId": 403,
-                        "vmName": "server-both-underutilized",
-                        "datacenter": "DC2",
-                        "cluster": "Cluster-Testing",
-                        "hostIp": "10.0.1.108",
-                        "optimizationType": "resource_mismatch",
-                        "hasMismatch": True,
-                        "mismatchType": "both_underutilized",
-                        "cpuUtilization": 18.5,
-                        "memoryUtilization": 25.3,
-                        "currentCpu": 8,
-                        "currentMemory": 32.0,
-                        "recommendation": "CPU和内存使用率都偏低，资源被过度分配",
-                        "details": {},
-                    },
-                ],
                 "summary": {
-                    "rightSizeCount": 3,
-                    "usagePatternCount": 3,
-                    "mismatchCount": 3,
+                    "resourceOptimizationCount": 3,
+                    "tidalCount": 3,
                     "totalVmsAnalyzed": 156,
                 },
             },
@@ -593,9 +542,8 @@ async def test_pdf_report_generation_minimal(tmp_path):
             "health": None,
             "idle": [],
             "resource": {
-                "rightSize": [],
-                "usagePattern": [],
-                "mismatch": [],
+                "resourceOptimization": [],
+                "tidal": [],
             },
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -655,18 +603,20 @@ async def test_report_builder_summaries(tmp_path):
     assert idle_summary["by_type"]["powered_off"] == 1
     assert idle_summary["by_type"]["idle_powered_on"] == 1
     assert idle_summary["by_type"]["low_activity"] == 1
-    assert idle_summary["potential_savings"]["cpu_cores"] == 10
-    assert idle_summary["potential_savings"]["memory_gb"] == 40.0
+    # 关机 VM(cpuCores=4, memoryGb=16) 不计入 CPU/内存，只有开机闲置 VM 计入
+    # idle_powered_on(2核, 8GB) + low_activity(4核, 16GB) = 6核, 24GB
+    assert idle_summary["potential_savings"]["cpu_cores"] == 6
+    assert idle_summary["potential_savings"]["memory_gb"] == 24.0
 
     # Test resource summary
     resource_data = get_mock_report_data()["analysis"]["resource"]
     resource_summary = builder.build_resource_summary(resource_data)
 
-    assert resource_summary["right_size"]["total"] == 3
-    assert resource_summary["right_size"]["downsize_candidates"] == 2
-    assert resource_summary["right_size"]["upsize_candidates"] == 1
-    assert resource_summary["usage_pattern"]["total"] == 3
-    assert resource_summary["mismatch"]["total"] == 3
+    # mock 数据有 3 条 resourceOptimization（2缩容+1扩容）、3 条 tidal
+    assert resource_summary["resource_optimization"]["total"] == 3
+    assert resource_summary["resource_optimization"]["downsize_candidates"] == 2
+    assert resource_summary["resource_optimization"]["upsize_candidates"] == 1
+    assert resource_summary["tidal"]["total"] == 3
 
     # Test health summary
     health_data = get_mock_report_data()["analysis"]["health"]
@@ -679,24 +629,19 @@ async def test_report_builder_summaries(tmp_path):
     # Test savings estimate
     savings = builder.build_savings_estimate(idle_data, resource_data)
 
-    # Calculate expected values from mock data
-    # Idle: 4 + 2 + 4 = 10 CPU cores, 16 + 8 + 16 = 40 GB memory
-    expected_idle_cpu = sum(item.get("cpuCores", 0) for item in idle_data)
-    expected_idle_mem = sum(item.get("memoryGb", 0) for item in idle_data)
+    # 关机 VM 不计入 CPU/内存，只计开机闲置的
+    # idle_powered_on(2核, 8GB) + low_activity(4核, 16GB) = 6核, 24GB
+    expected_idle_cpu = 6
+    expected_idle_mem = 24.0
 
-    # Right Size: total_current - total_suggested (may be reduced by upsizing VMs)
-    # current: 8 + 2 + 16 = 26, suggested: 4 + 4 + 8 = 16, diff = 10
-    # current_mem: 32 + 4 + 64 = 100, suggested_mem: 16 + 8 + 32 = 56, diff = 44
-    right_size = resource_data.get("rightSize", [])
-    current_cpu = sum(r.get("currentCpu", 0) for r in right_size)
-    suggested_cpu = sum(r.get("suggestedCpu", 0) for r in right_size)
-    current_memory = sum(r.get("currentMemory", 0) for r in right_size)
-    suggested_memory = sum(r.get("suggestedMemory", 0) for r in right_size)
-    expected_rightsize_cpu = max(0, current_cpu - suggested_cpu)
-    expected_rightsize_mem = max(0, current_memory - suggested_memory)
+    # rightsize（先求总和再取差，扩容VM的增量会抵消部分缩容量）:
+    # current_cpu: 8+2+16=26, recommended_cpu: 4+4+8=16, diff=10
+    # current_mem: 32+4+64=100, recommended_mem: 16+8+32=56, diff=44
+    expected_rs_cpu = 10
+    expected_rs_mem = 44.0
 
-    assert savings["total_cpu_savings"] == expected_idle_cpu + expected_rightsize_cpu
-    assert savings["total_memory_savings_gb"] == expected_idle_mem + expected_rightsize_mem
+    assert savings["total_cpu_savings"] == expected_idle_cpu + expected_rs_cpu
+    assert savings["total_memory_savings_gb"] == expected_idle_mem + expected_rs_mem
 
 
 @pytest.mark.asyncio

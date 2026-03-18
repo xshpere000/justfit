@@ -133,7 +133,7 @@ class IdleDetector:
                             vm_id=vm_id,
                             vm_name=vm_name,
                             downtime_duration=downtime_duration,
-                            reason="Below detection threshold (14 days)",
+                            reason=f"Below detection threshold ({min(self.MEDIUM_ZOMBIE_DAYS, self.days_threshold)} days)",
                         )
                     else:
                         logger.debug(
@@ -223,19 +223,20 @@ class IdleDetector:
         if days_inactive is None:
             return None
 
-        # 判断僵尸级别
+        # 判断僵尸级别（最低门槛取 days_threshold 和 MEDIUM_ZOMBIE_DAYS 的较小值）
+        effective_medium_days = min(self.MEDIUM_ZOMBIE_DAYS, self.days_threshold)
         if days_inactive >= self.CRITICAL_ZOMBIE_DAYS:
             confidence = 95
             risk_level = "critical"
-            recommendation = f"VM已关机{days_inactive:.0f}天，建议归档或删除"
+            recommendation = f"VM已关机≥{days_inactive:.0f}天，建议归档或删除"
         elif days_inactive >= self.HIGH_ZOMBIE_DAYS:
             confidence = 85
             risk_level = "high"
-            recommendation = f"VM已关机{days_inactive:.0f}天，建议联系负责人确认后处理"
-        elif days_inactive >= self.MEDIUM_ZOMBIE_DAYS:
+            recommendation = f"VM已关机≥{days_inactive:.0f}天，建议联系负责人确认后处理"
+        elif days_inactive >= effective_medium_days:
             confidence = 70
             risk_level = "medium"
-            recommendation = f"VM已关机{days_inactive:.0f}天，建议确认是否仍需要"
+            recommendation = f"VM已关机≥{days_inactive:.0f}天，建议确认是否仍需要"
         else:
             return None  # 关机时间较短
 
@@ -249,6 +250,9 @@ class IdleDetector:
             "vmId": vm_id,
             "cluster": vm_info.get("cluster", ""),
             "hostIp": vm_info.get("host_ip", ""),
+            "cpuCores": vm_info.get("cpu_count", 0),
+            "memoryGb": round(vm_info.get("memory_bytes", 0) / (1024**3), 2),
+            "diskUsageGb": round(vm_info.get("disk_usage_bytes", 0) / (1024**3), 2),
             "isIdle": True,
             "idleType": IdleSubType.POWERED_OFF.value,
             "confidence": confidence,
@@ -344,6 +348,9 @@ class IdleDetector:
             idle_type, cpu_stats["p95"], memory_stats["p95"], activity_score
         )
 
+        uptime_duration = vm_info.get("uptime_duration")
+        days_inactive = self.days_threshold  # 分析窗口内持续低活跃
+
         return {
             "vmName": vm_name,
             "vmId": vm_id,
@@ -351,7 +358,10 @@ class IdleDetector:
             "hostIp": vm_info.get("host_ip", ""),
             "cpuCores": vm_info.get("cpu_count", 0),
             "memoryGb": round(vm_info.get("memory_bytes", 0) / (1024**3), 2),
-            "uptimeDuration": vm_info.get("uptime_duration"),
+            "diskUsageGb": round(vm_info.get("disk_usage_bytes", 0) / (1024**3), 2),
+            "uptimeDuration": uptime_duration,
+            "daysInactive": days_inactive,
+            "lastActivityTime": None,
             "isIdle": True,
             "idleType": idle_type,
             "confidence": confidence,

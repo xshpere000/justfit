@@ -1,6 +1,6 @@
 {
   "name": "justfit-electron",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "JustFit Electron Main Process",
   "type": "module",
   "main": "dist/main.js",

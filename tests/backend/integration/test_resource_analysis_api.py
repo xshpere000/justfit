@@ -30,29 +30,29 @@ async def test_resource_analysis_with_mock_data():
         mock_result = {
             "success": True,
             "data": {
-                "rightSize": [
+                "resourceOptimization": [
                     {
                         "vmName": "test-vm-1",
                         "datacenter": "dc1",
                         "cluster": "cluster1",
                         "hostIp": "192.168.1.10",
                         "currentCpu": 8,
-                        "suggestedCpu": 2,
-                        "currentMemory": 16,
-                        "suggestedMemory": 4,
+                        "recommendedCpu": 2,
+                        "currentMemoryGb": 16,
+                        "recommendedMemoryGb": 4,
                         "cpuP95": 20.0,
                         "cpuMax": 25.0,
                         "cpuAvg": 18.0,
                         "memoryP95": 15.0,
                         "memoryMax": 20.0,
                         "memoryAvg": 14.0,
-                        "adjustmentType": "down",
+                        "cpuAdjustmentType": "down",
                         "riskLevel": "low",
                         "confidence": 80.0,
                         "recommendation": "建议缩容至 2 vCPU / 4GB RAM",
                     }
                 ],
-                "usagePattern": [
+                "tidal": [
                     {
                         "vmName": "test-vm-2",
                         "datacenter": "dc1",
@@ -82,14 +82,14 @@ async def test_resource_analysis_with_mock_data():
                         "cpuUtilization": 15.2,
                         "memoryUtilization": 78.5,
                         "currentCpu": 8,
-                        "currentMemory": 16,
+                        "currentMemoryGb": 16,
                         "recommendation": "内存使用率较高但CPU使用率低，可能存在内存瓶颈，建议增加内存或降低CPU",
                     }
                 ],
                 "summary": {
-                    "rightSizeCount": 1,
-                    "usagePatternCount": 1,
-                    "mismatchCount": 1,
+                    "resourceOptimizationCount": 1,
+                    "tidalCount": 1,
+                    "totalVmsAnalyzed": 1,
                     "totalVmsAnalyzed": 3,
                 },
             },
@@ -107,16 +107,16 @@ async def test_resource_analysis_with_mock_data():
 
             # Verify response structure
             resource_data = data["data"]
-            assert "rightSize" in resource_data
-            assert "usagePattern" in resource_data
+            assert "resourceOptimization" in resource_data
+            assert "tidal" in resource_data
             assert "mismatch" in resource_data
             assert "summary" in resource_data
 
             # Verify summary
             summary = resource_data["summary"]
-            assert summary["rightSizeCount"] == 1
-            assert summary["usagePatternCount"] == 1
-            assert summary["mismatchCount"] == 1
+            assert summary["resourceOptimizationCount"] == 1
+            assert summary["tidalCount"] == 1
+            assert summary["totalVmsAnalyzed"] == 1
             assert summary["totalVmsAnalyzed"] == 3
 
 
@@ -152,13 +152,13 @@ async def test_resource_analysis_with_mode():
         mock_result = {
             "success": True,
             "data": {
-                "rightSize": [],
-                "usagePattern": [],
+                "resourceOptimization": [],
+                "tidal": [],
                 "mismatch": [],
                 "summary": {
-                    "rightSizeCount": 0,
-                    "usagePatternCount": 0,
-                    "mismatchCount": 0,
+                    "resourceOptimizationCount": 0,
+                    "tidalCount": 0,
+                    "totalVmsAnalyzed": 0,
                     "totalVmsAnalyzed": 0,
                 },
             },
@@ -188,13 +188,13 @@ async def test_resource_analysis_no_metrics():
         mock_result = {
             "success": True,
             "data": {
-                "rightSize": [],
-                "usagePattern": [],
+                "resourceOptimization": [],
+                "tidal": [],
                 "mismatch": [],
                 "summary": {
-                    "rightSizeCount": 0,
-                    "usagePatternCount": 0,
-                    "mismatchCount": 0,
+                    "resourceOptimizationCount": 0,
+                    "tidalCount": 0,
+                    "totalVmsAnalyzed": 0,
                     "totalVmsAnalyzed": 0,
                 },
             },
@@ -210,8 +210,8 @@ async def test_resource_analysis_no_metrics():
             assert data["success"] is True
 
             resource_data = data["data"]
-            assert resource_data["rightSize"] == []
-            assert resource_data["usagePattern"] == []
+            assert resource_data["resourceOptimization"] == []
+            assert resource_data["tidal"] == []
             assert resource_data["mismatch"] == []
 
 
@@ -222,19 +222,19 @@ async def test_get_resource_results():
         mock_result = {
             "success": True,
             "data": {
-                "rightSize": [
+                "resourceOptimization": [
                     {
                         "vmName": "test-vm",
                         "currentCpu": 4,
-                        "suggestedCpu": 2,
+                        "recommendedCpu": 2,
                     }
                 ],
-                "usagePattern": [],
+                "tidal": [],
                 "mismatch": [],
                 "summary": {
-                    "rightSizeCount": 1,
-                    "usagePatternCount": 0,
-                    "mismatchCount": 0,
+                    "resourceOptimizationCount": 1,
+                    "tidalCount": 0,
+                    "totalVmsAnalyzed": 0,
                     "totalVmsAnalyzed": 1,
                 },
             },
@@ -260,13 +260,13 @@ async def test_resource_analysis_response_schema_validation():
         mock_result = {
             "success": True,
             "data": {
-                "rightSize": [],
-                "usagePattern": [],
+                "resourceOptimization": [],
+                "tidal": [],
                 "mismatch": [],
                 "summary": {
-                    "rightSizeCount": 0,
-                    "usagePatternCount": 0,
-                    "mismatchCount": 0,
+                    "resourceOptimizationCount": 0,
+                    "tidalCount": 0,
+                    "totalVmsAnalyzed": 0,
                     "totalVmsAnalyzed": 0,
                 },
             },
@@ -308,15 +308,15 @@ async def test_resource_analysis_usage_pattern_types():
             mock_result = {
                 "success": True,
                 "data": {
-                    "rightSize": [],
-                    "usagePattern": [
+                    "resourceOptimization": [],
+                    "tidal": [
                         {
                             "vmName": f"test-vm-{pattern}",
                             "datacenter": "dc1",
                             "cluster": "cluster1",
                             "hostIp": "192.168.1.10",
                             "optimizationType": "usage_pattern",
-                            "usagePattern": pattern,
+                            "tidal": pattern,
                             "volatilityLevel": volatility,
                             "coefficientOfVariation": cv,
                             "peakValleyRatio": peak_valley,
@@ -325,9 +325,9 @@ async def test_resource_analysis_usage_pattern_types():
                     ],
                     "mismatch": [],
                     "summary": {
-                        "rightSizeCount": 0,
-                        "usagePatternCount": 1,
-                        "mismatchCount": 0,
+                        "resourceOptimizationCount": 0,
+                        "tidalCount": 1,
+                        "totalVmsAnalyzed": 0,
                         "totalVmsAnalyzed": 1,
                     },
                 },
@@ -340,8 +340,8 @@ async def test_resource_analysis_usage_pattern_types():
 
                 assert response.status_code == 200
                 data = response.json()
-                usage_pattern_data = data["data"]["usagePattern"][0]
-                assert usage_pattern_data["usagePattern"] == pattern
+                usage_pattern_data = data["data"]["tidal"][0]
+                assert usage_pattern_data["tidal"] == pattern
 
                 # Verify schema parsing
                 pattern_result = UsagePatternResult(**usage_pattern_data)
@@ -365,8 +365,8 @@ async def test_resource_analysis_mismatch_types():
             mock_result = {
                 "success": True,
                 "data": {
-                    "rightSize": [],
-                    "usagePattern": [],
+                    "resourceOptimization": [],
+                    "tidal": [],
                     "mismatch": [
                         {
                             "vmName": f"test-vm-{mismatch_type}",
@@ -378,14 +378,14 @@ async def test_resource_analysis_mismatch_types():
                             "cpuUtilization": cpu_util,
                             "memoryUtilization": mem_util,
                             "currentCpu": 4,
-                            "currentMemory": 8,
+                            "currentMemoryGb": 8,
                             "recommendation": f"配置错配: {mismatch_type}",
                         }
                     ],
                     "summary": {
-                        "rightSizeCount": 0,
-                        "usagePatternCount": 0,
-                        "mismatchCount": 1,
+                        "resourceOptimizationCount": 0,
+                        "tidalCount": 0,
+                        "totalVmsAnalyzed": 1,
                         "totalVmsAnalyzed": 1,
                     },
                 },

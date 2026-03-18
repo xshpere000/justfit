@@ -194,6 +194,21 @@ electron/
 
 ## 关键开发规则
 
+### 时间戳规范（⚠️ 重要）
+
+**统一使用 `datetime.now()`（本地时间），禁止使用 `datetime.utcnow()`。**
+
+项目部署在 UTC+8 中国时区，若混用会导致用户可见的时间戳偏快 8 小时。
+
+| 场景 | 正确 | 错误 |
+|------|------|------|
+| 写入数据库时间字段 | `datetime.now()` | `datetime.utcnow()` |
+| 报告 `generated_at` | `datetime.now()` | `datetime.utcnow()` |
+| 文件名时间戳 | `datetime.now()` | `datetime.utcnow()` |
+| 查询时间范围（`end_time`）| `datetime.now()` | `datetime.utcnow()` |
+
+**例外**：纯内部比较（如两个用同一方式写入的字段做差值）可以保持内部一致，但新代码应统一用 `datetime.now()`。
+
 ### 命名规范
 
 | 层级 | 规范 | 示例 |
@@ -425,7 +440,7 @@ const displayName = task.connectionHost  // 假设字段一定存在
 
 ## 版本管理
 
-- **当前版本**: v0.0.4
+- **当前版本**: v0.0.5
 - **版本定义**: `backend/app/__init__.py` 中的 `__version__`
 - **版本格式**: MAJOR.MINOR.PATCH
   - **MAJOR**: 重大架构变更，数据库不兼容升级

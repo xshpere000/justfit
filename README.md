@@ -2,7 +2,7 @@
 
 JustFit 是面向多云/虚拟化平台的**桌面端资源评估与优化工具**，基于 **Electron** + **Python FastAPI** + **Vue 3** 构建，帮助运维团队快速发现资源浪费、生成专业评估报告。
 
-当前版本：**v0.0.4**
+当前版本：**v0.0.5**
 
 ---
 
@@ -29,20 +29,20 @@ JustFit 是面向多云/虚拟化平台的**桌面端资源评估与优化工具
 
 #### 闲置 VM 检测（IdleDetector）
 
-- **关机型僵尸**：检测已关机 14/30/90 天以上的 VM，按严重程度分级（medium/high/critical）
-- **开机闲置**：对开机 VM 计算活跃度评分（CPU 40%权重 + 内存 30% + 磁盘 15% + 网络 15%），活跃度 < 30 判定为闲置
-- **低活跃**：活跃度在 15~30 之间的 VM
+- **关机型僵尸**：检测已关机 14/30/90 天以上的 VM，按严重程度分级（medium/high/critical）。关机VM已不占用CPU和内存，删除后仅释放磁盘空间
+- **开机闲置**：对开机 VM 计算活跃度评分（CPU 40%权重 + 内存 30% + 磁盘 15% + 网络 15%），活跃度 < 30 判定为闲置。关闭后释放CPU、内存和磁盘
+- **低活跃**：活跃度在 15~30 之间的 VM。关闭后释放CPU、内存和磁盘
 - 指标采用 P95 统计，CPU/内存数值从存储绝对值反算为使用率百分比
 - 自动排除模板 VM（`-template`、`-tmpl` 等关键词），测试 VM 降低置信度
 
 #### 资源配置优化（RightSizeAnalyzer）
 
-- 推荐公式：`max(P95, P90) × buffer_ratio`，同时设置峰值保护下限 `= max × 0.8`
+- 仅针对开机 VM（需要历史性能数据），推荐公式：`max(P95, P90) × buffer_ratio`，同时设置峰值保护下限 `= max × 0.8`
 - CPU 推荐结果对齐标准规格（1/2/4/8/12/16/24/32/48/64 核）
-- 内存推荐结果对齐标准规格（0.5/1/2/4/8/16/32/64/128/256 GB）
-- 调整类型：显著缩容（≥50%）/ 缩容（≥25%）/ 扩容 / 显著扩容 / 合理
+- 内存推荐结果对齐标准规格（0.5/1/2/3/4/6/8/12/16/24/32/48/64/96/128/192/256 GB）
+- CPU 和内存分别独立判断调整方向：显著缩容（≥50%）/ 缩容（≥25%）/ 扩容 / 显著扩容 / 合理
 - 内置**配置错配检测**：CPU/内存 P95 组合判断 5 种类型（`cpu_rich_memory_poor` / `cpu_poor_memory_rich` / `both_underutilized` / `both_overutilized` / `balanced`）
-- 输出字段：`wasteRatio`（浪费比例）、`mismatchType`（错配类型）、`riskLevel`、`confidence`、`reason`（含具体数值的决策依据）
+- 输出字段：`cpuWasteRatio` / `memWasteRatio`（各维度浪费比例）、`mismatchType`（错配类型）、`riskLevel`、`confidence`、`reason`（含具体数值的决策依据）
 
 #### 潮汐检测（TidalDetector）
 
@@ -200,8 +200,8 @@ make clean            # 清理构建产物
 
 打包完成后，安装包位于 `dist/electron/`：
 
-- `JustFit-0.0.4-x64.exe` — NSIS 安装程序
-- `JustFit-0.0.4-x64-portable.exe` — 免安装便携版
+- `JustFit-0.0.5-x64.exe` — NSIS 安装程序
+- `JustFit-0.0.5-x64-portable.exe` — 免安装便携版
 
 ---
 

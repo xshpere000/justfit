@@ -45,7 +45,7 @@ class AnalysisService:
                 task_id=task_id,
                 level=level,
                 message=message,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(),
             )
             self.db.add(log)
             await self.db.flush()
@@ -92,7 +92,7 @@ class AnalysisService:
         Returns:
             Merged configuration dict
         """
-        base = AnalysisModes.get_mode(base_mode).copy()
+        base = AnalysisModes.get_mode(base_mode)
 
         def deep_merge(base_dict: Dict, custom_dict: Dict) -> Dict:
             """Recursively merge custom dict into base dict."""
@@ -326,6 +326,19 @@ class AnalysisService:
         from sqlalchemy import select
         import json
 
+        def _latest_job_subquery(job_type: str):
+            """获取指定类型最新完成的 job_id 子查询"""
+            return (
+                select(TaskAnalysisJob.id)
+                .where(
+                    TaskAnalysisJob.task_id == task_id,
+                    TaskAnalysisJob.job_type == job_type,
+                    TaskAnalysisJob.status == "completed",
+                )
+                .order_by(TaskAnalysisJob.id.desc())
+                .limit(1)
+            )
+
         # Health score is special - it's a single platform-level result
         if analysis_type == "health":
             query = (
@@ -333,6 +346,7 @@ class AnalysisService:
                 .where(
                     AnalysisFinding.task_id == task_id,
                     AnalysisFinding.job_type == "health",
+                    AnalysisFinding.job_id.in_(_latest_job_subquery("health")),
                 )
                 .order_by(AnalysisFinding.confidence.desc())
             )
@@ -371,11 +385,13 @@ class AnalysisService:
             resource_data: Dict[str, Any] = {"resourceOptimization": [], "tidal": []}
 
             for sub_type in sub_types:
+                # rightsize 和 tidal 的 findings 都存在 resource job 下
                 query = (
                     select(AnalysisFinding)
                     .where(
                         AnalysisFinding.task_id == task_id,
                         AnalysisFinding.job_type == sub_type,
+                        AnalysisFinding.job_id.in_(_latest_job_subquery("resource")),
                     )
                     .order_by(AnalysisFinding.confidence.desc())
                 )
@@ -413,6 +429,7 @@ class AnalysisService:
             .where(
                 AnalysisFinding.task_id == task_id,
                 AnalysisFinding.job_type == analysis_type,
+                AnalysisFinding.job_id.in_(_latest_job_subquery(analysis_type)),
             )
             .order_by(AnalysisFinding.confidence.desc())
         )
@@ -587,6 +604,7 @@ class AnalysisService:
                 "cluster": cluster_name,
                 "cpu_count": vm.cpu_count,
                 "memory_bytes": vm.memory_bytes,
+                "disk_usage_bytes": vm.disk_usage_bytes,
                 "host_ip": vm.host_ip,
                 "host_name": vm.host_name,
                 "host_cpu_mhz": host_cpu_mhz,
@@ -945,6 +963,11 @@ class AnalysisService:
 
         connection_id = task.connection_id
 
+        # 查询所有集群（获取存储信息）
+        cluster_query = select(Cluster).where(Cluster.connection_id == connection_id)
+        cluster_result = await self.db.execute(cluster_query)
+        clusters = cluster_result.scalars().all()
+
         # 查询所有主机
         host_query = select(Host).where(Host.connection_id == connection_id)
         host_result = await self.db.execute(host_query)
@@ -961,19 +984,80 @@ class AnalysisService:
         total_hosts = len(hosts)
         total_vms = len(vms)
 
+        # 存储总量
+        total_storage_bytes = sum(c.total_storage for c in clusters)
+        total_used_storage_bytes = sum(c.used_storage for c in clusters)
+        total_storage_gb = round(total_storage_bytes / (1024 ** 3), 2)
+        used_storage_gb = round(total_used_storage_bytes / (1024 ** 3), 2)
+
         # 各优化项的节省量
         freed_cpu_from_resource = 0
         freed_memory_from_resource = 0.0
         freed_cpu_from_idle = 0
         freed_memory_from_idle = 0.0
+        freed_disk_from_idle = 0.0
+        freed_disk_powered_on = 0.0
+        freed_disk_powered_off = 0.0
+        idle_powered_on_count = 0
+        idle_powered_off_count = 0
+
+        rs_findings = []
+        rs_effective_count = 0
+        idle_findings = []
+
+        # 先查 idle findings，用于去重（idle 优先，下线比缩配释放更多）
+        # 用 vmId（存在 details JSON 中）作为唯一标识，避免跨集群同名 VM 误判
+        idle_vm_ids: set = set()
+        if "idle" in enabled_optimizations:
+            # 取最新一次 idle 分析的 job_id，避免多次运行导致重复计算
+            latest_idle_job = (
+                select(TaskAnalysisJob.id)
+                .where(
+                    TaskAnalysisJob.task_id == task_id,
+                    TaskAnalysisJob.job_type == "idle",
+                    TaskAnalysisJob.status == "completed",
+                )
+                .order_by(TaskAnalysisJob.id.desc())
+                .limit(1)
+            )
+            idle_query = (
+                select(AnalysisFinding)
+                .where(
+                    AnalysisFinding.task_id == task_id,
+                    AnalysisFinding.job_type == "idle",
+                    AnalysisFinding.job_id.in_(latest_idle_job),
+                )
+            )
+            idle_result = await self.db.execute(idle_query)
+            idle_findings = idle_result.scalars().all()
+            for f in idle_findings:
+                if f.details:
+                    try:
+                        d = json.loads(f.details)
+                        vm_id = d.get("vmId")
+                        if vm_id is not None:
+                            idle_vm_ids.add(vm_id)
+                    except Exception:
+                        pass
 
         if "resource" in enabled_optimizations:
-            # 从 rightsize findings 计算节省
+            # 取最新一次 resource 分析的 job_id
+            latest_rs_job = (
+                select(TaskAnalysisJob.id)
+                .where(
+                    TaskAnalysisJob.task_id == task_id,
+                    TaskAnalysisJob.job_type == "resource",
+                    TaskAnalysisJob.status == "completed",
+                )
+                .order_by(TaskAnalysisJob.id.desc())
+                .limit(1)
+            )
             rs_query = (
                 select(AnalysisFinding)
                 .where(
                     AnalysisFinding.task_id == task_id,
                     AnalysisFinding.job_type == "rightsize",
+                    AnalysisFinding.job_id.in_(latest_rs_job),
                 )
             )
             rs_result = await self.db.execute(rs_query)
@@ -983,35 +1067,39 @@ class AnalysisService:
                 if finding.details:
                     try:
                         d = json.loads(finding.details)
+                        if d.get("vmId") in idle_vm_ids:
+                            continue  # idle VM 已计入下线，跳过避免重复
                         current_cpu = d.get("currentCpu", 0)
                         recommended_cpu = d.get("recommendedCpu", 0)
                         current_mem = d.get("currentMemoryGb", 0.0)
                         recommended_mem = d.get("recommendedMemoryGb", 0.0)
                         freed_cpu_from_resource += max(0, current_cpu - recommended_cpu)
                         freed_memory_from_resource += max(0.0, current_mem - recommended_mem)
+                        rs_effective_count += 1
                     except Exception:
                         pass
 
-        if "idle" in enabled_optimizations:
-            # 从 idle findings 计算节省（闲置 VM 的完整资源）
-            idle_query = (
-                select(AnalysisFinding)
-                .where(
-                    AnalysisFinding.task_id == task_id,
-                    AnalysisFinding.job_type == "idle",
-                )
-            )
-            idle_result = await self.db.execute(idle_query)
-            idle_findings = idle_result.scalars().all()
-
-            for finding in idle_findings:
-                if finding.details:
-                    try:
-                        d = json.loads(finding.details)
+        for finding in idle_findings:
+            if finding.details:
+                try:
+                    d = json.loads(finding.details)
+                    idle_type = d.get("idleType", "")
+                    if idle_type == "powered_off":
+                        # 关机 VM 已不占用 CPU 和内存，只占磁盘
+                        disk_gb = d.get("diskUsageGb", 0.0)
+                        freed_disk_from_idle += disk_gb
+                        freed_disk_powered_off += disk_gb
+                        idle_powered_off_count += 1
+                    else:
+                        # 开机闲置 VM：释放 CPU + 内存 + 磁盘
                         freed_cpu_from_idle += d.get("cpuCores", 0)
                         freed_memory_from_idle += d.get("memoryGb", 0.0)
-                    except Exception:
-                        pass
+                        disk_gb = d.get("diskUsageGb", 0.0)
+                        freed_disk_from_idle += disk_gb
+                        freed_disk_powered_on += disk_gb
+                        idle_powered_on_count += 1
+                except Exception:
+                    pass
 
         total_freed_cpu = freed_cpu_from_resource + freed_cpu_from_idle
         total_freed_memory = round(freed_memory_from_resource + freed_memory_from_idle, 2)
@@ -1027,6 +1115,7 @@ class AnalysisService:
         host_vm_count: Dict[str, int] = {}
         host_vm_cpu: Dict[str, int] = {}
         host_vm_mem: Dict[str, float] = {}
+        host_vm_disk: Dict[str, float] = {}
 
         for vm in vms:
             key = vm.host_name or vm.host_ip or ""
@@ -1035,10 +1124,15 @@ class AnalysisService:
             host_vm_count[key] = host_vm_count.get(key, 0) + 1
             host_vm_cpu[key] = host_vm_cpu.get(key, 0) + vm.cpu_count
             host_vm_mem[key] = host_vm_mem.get(key, 0.0) + vm.memory_bytes / (1024 ** 3)
+            host_vm_disk[key] = host_vm_disk.get(key, 0.0) + vm.disk_usage_bytes / (1024 ** 3)
 
         remaining_cpu = total_freed_cpu
         remaining_mem = total_freed_memory
         freeable_hosts = []
+        freed_host_count = 0
+
+        # 存储约束：虚拟存储平均分配，隔离一台主机则可用存储减少 1/N
+        storage_per_host_bytes = total_storage_bytes / total_hosts if total_hosts > 0 else 0
 
         for host in sorted_hosts:
             host_key = host.name or host.ip_address or ""
@@ -1049,24 +1143,79 @@ class AnalysisService:
             vm_cpu_needed = host_vm_cpu.get(host_key, 0)
             vm_mem_needed = host_vm_mem.get(host_key, 0.0)
 
-            if remaining_cpu >= vm_cpu_needed and remaining_mem >= vm_mem_needed:
+            # 存储约束检查：隔离后可用存储 = 总存储 × (N - freed - 1) / N - 已用存储 + 闲置VM释放的磁盘
+            if total_hosts > 0 and total_storage_bytes > 0:
+                remaining_storage_after_free = (
+                    total_storage_bytes * (total_hosts - freed_host_count - 1) / total_hosts
+                    - total_used_storage_bytes
+                    + freed_disk_from_idle * (1024 ** 3)
+                )
+                storage_ok = remaining_storage_after_free >= 0
+            else:
+                storage_ok = True  # 无存储数据时不做存储约束
+
+            if remaining_cpu >= vm_cpu_needed and remaining_mem >= vm_mem_needed and storage_ok:
+                host_storage_gb = round(storage_per_host_bytes / (1024 ** 3), 2)
+                vm_disk_gb = host_vm_disk.get(host_key, 0.0)
                 freeable_hosts.append({
                     "hostName": host.name,
                     "hostIp": host.ip_address,
                     "cpuCores": host.cpu_cores,
                     "memoryGb": round(host.memory_bytes / (1024 ** 3), 2),
+                    "storageGb": host_storage_gb,
                     "currentVmCount": vm_count,
                     "reason": (
                         f"该主机上 {vm_count} 台 VM 共需 {vm_cpu_needed} 核 CPU / "
-                        f"{vm_mem_needed:.1f} GB 内存，"
-                        f"优化后可节省资源足以迁移这些 VM，主机可下线"
+                        f"{vm_mem_needed:.1f} GB 内存 / {vm_disk_gb:.1f} GB 磁盘，"
+                        f"优化后可节省资源足以迁移这些 VM，存储约束满足，主机可下线"
                     ),
                 })
                 remaining_cpu -= vm_cpu_needed
                 remaining_mem -= vm_mem_needed
+                freed_host_count += 1
 
-        freed_cpu_pct = round(total_freed_cpu / total_cpu_cores * 100, 1) if total_cpu_cores > 0 else 0.0
-        freed_mem_pct = round(total_freed_memory / total_memory_gb * 100, 1) if total_memory_gb > 0 else 0.0
+        # VM 配置总量
+        # 全部 VM（用于释放百分比计算）
+        vm_total_cpu = sum(v.cpu_count for v in vms)
+        vm_total_mem_gb = round(sum(v.memory_bytes for v in vms) / (1024 ** 3), 2)
+        # 仅开机 VM（用于优化后负载计算，关机 VM 不消耗运行资源）
+        vm_running_cpu = sum(v.cpu_count for v in vms if v.power_state and "on" in v.power_state.lower())
+        vm_running_mem_gb = round(sum(v.memory_bytes for v in vms if v.power_state and "on" in v.power_state.lower()) / (1024 ** 3), 2)
+
+        freed_cpu_pct = round(total_freed_cpu / vm_total_cpu * 100, 1) if vm_total_cpu > 0 else 0.0
+        freed_mem_pct = round(total_freed_memory / vm_total_mem_gb * 100, 1) if vm_total_mem_gb > 0 else 0.0
+
+        # 构建优化建议
+        recommendation = self._build_optimization_recommendation(
+            enabled_optimizations=enabled_optimizations,
+            # resource optimization
+            rs_vm_count=rs_effective_count if "resource" in enabled_optimizations else 0,
+            freed_cpu_from_resource=freed_cpu_from_resource,
+            freed_memory_from_resource=freed_memory_from_resource,
+            # idle detection
+            idle_vm_count=len(idle_findings) if "idle" in enabled_optimizations else 0,
+            idle_powered_on_count=idle_powered_on_count,
+            idle_powered_off_count=idle_powered_off_count,
+            freed_cpu_from_idle=freed_cpu_from_idle,
+            freed_memory_from_idle=freed_memory_from_idle,
+            freed_disk_from_idle=freed_disk_from_idle,
+            freed_disk_powered_on=freed_disk_powered_on,
+            freed_disk_powered_off=freed_disk_powered_off,
+            # totals
+            vm_total_cpu=vm_total_cpu,
+            vm_total_mem_gb=vm_total_mem_gb,
+            vm_running_cpu=vm_running_cpu,
+            vm_running_mem_gb=vm_running_mem_gb,
+            total_cpu_cores=total_cpu_cores,
+            total_memory_gb=total_memory_gb,
+            total_storage_gb=total_storage_gb,
+            used_storage_gb=used_storage_gb,
+            total_hosts=total_hosts,
+            total_vms=total_vms,
+            # freeable hosts
+            freeable_hosts=freeable_hosts,
+            hosts=hosts,
+        )
 
         return {
             "success": True,
@@ -1074,6 +1223,8 @@ class AnalysisService:
                 "current": {
                     "totalCpuCores": total_cpu_cores,
                     "totalMemoryGb": total_memory_gb,
+                    "totalStorageGb": total_storage_gb,
+                    "usedStorageGb": used_storage_gb,
                     "totalHosts": total_hosts,
                     "totalVms": total_vms,
                 },
@@ -1082,8 +1233,10 @@ class AnalysisService:
                     "freedMemoryGb": total_freed_memory,
                     "freedCpuPercent": freed_cpu_pct,
                     "freedMemoryPercent": freed_mem_pct,
+                    "freedDiskGb": round(freed_disk_from_idle, 2),
                 },
                 "freeableHosts": freeable_hosts,
+                "recommendation": recommendation,
                 "breakdown": {
                     "resourceOptimization": {
                         "cpuCores": freed_cpu_from_resource,
@@ -1092,7 +1245,133 @@ class AnalysisService:
                     "idleDetection": {
                         "cpuCores": freed_cpu_from_idle,
                         "memoryGb": round(freed_memory_from_idle, 2),
+                        "diskGb": round(freed_disk_from_idle, 2),
+                        "poweredOnCount": idle_powered_on_count,
+                        "poweredOffCount": idle_powered_off_count,
                     },
                 },
             },
+        }
+
+    def _build_optimization_recommendation(
+        self,
+        enabled_optimizations: List[str],
+        rs_vm_count: int,
+        freed_cpu_from_resource: int,
+        freed_memory_from_resource: float,
+        idle_vm_count: int,
+        idle_powered_on_count: int,
+        idle_powered_off_count: int,
+        freed_cpu_from_idle: int,
+        freed_memory_from_idle: float,
+        freed_disk_from_idle: float,
+        freed_disk_powered_on: float,
+        freed_disk_powered_off: float,
+        vm_total_cpu: int,
+        vm_total_mem_gb: float,
+        vm_running_cpu: int,
+        vm_running_mem_gb: float,
+        total_cpu_cores: int,
+        total_memory_gb: float,
+        total_storage_gb: float,
+        used_storage_gb: float,
+        total_hosts: int,
+        total_vms: int,
+        freeable_hosts: List[Dict[str, Any]],
+        hosts: list,
+    ) -> Dict[str, Any]:
+        """构建综合优化建议，说明为什么可以下线主机。"""
+
+        freed_host_count = len(freeable_hosts)
+
+        # 计算可释放主机的总资源
+        freed_host_cpu = sum(h["cpuCores"] for h in freeable_hosts)
+        freed_host_mem = sum(h["memoryGb"] for h in freeable_hosts)
+        freed_host_storage = sum(h.get("storageGb", 0) for h in freeable_hosts)
+
+        # 保留的主机（用 hostIp 兜底匹配，避免 hostName 为 None 时误判）
+        freed_host_keys = {h["hostName"] or h["hostIp"] for h in freeable_hosts}
+        retained_hosts = []
+        for h in hosts:
+            name = h.name or h.ip_address or ""
+            if name not in freed_host_keys:
+                retained_hosts.append({
+                    "hostName": h.name,
+                    "hostIp": h.ip_address,
+                    "cpuCores": h.cpu_cores,
+                    "memoryGb": round(h.memory_bytes / (1024 ** 3), 2),
+                })
+
+        # 优化后集群保留资源
+        retained_cpu = total_cpu_cores - freed_host_cpu
+        retained_mem = round(total_memory_gb - freed_host_mem, 2)
+        retained_storage = round(total_storage_gb - freed_host_storage, 2)
+
+        # 优化后集群实际需求
+        # 基准 = 开机 VM 配置总量（关机 VM 不消耗运行资源）
+        # 释放 = rightsize 缩容量 + 开机闲置 VM 释放量
+        total_freed_cpu = freed_cpu_from_resource + freed_cpu_from_idle
+        total_freed_mem = round(freed_memory_from_resource + freed_memory_from_idle, 2)
+        needed_cpu = vm_running_cpu - total_freed_cpu
+        needed_mem = round(vm_running_mem_gb - total_freed_mem, 2)
+        needed_storage = round(used_storage_gb - freed_disk_from_idle, 2)
+        if needed_cpu < 0:
+            needed_cpu = 0
+        if needed_mem < 0:
+            needed_mem = 0
+        if needed_storage < 0:
+            needed_storage = 0
+
+        # 优化后负载率
+        cpu_load_pct = round(needed_cpu / retained_cpu * 100, 1) if retained_cpu > 0 else 0
+        mem_load_pct = round(needed_mem / retained_mem * 100, 1) if retained_mem > 0 else 0
+        storage_load_pct = round(needed_storage / retained_storage * 100, 1) if retained_storage > 0 else 0
+
+        # 健康状态判定
+        max_load = max(cpu_load_pct, mem_load_pct)
+        if max_load <= 60:
+            health_status = "healthy"
+            health_label = "健康"
+        elif max_load <= 80:
+            health_status = "warning"
+            health_label = "一般"
+        else:
+            health_status = "critical"
+            health_label = "需关注"
+
+        return {
+            "resourceOptimization": {
+                "enabled": "resource" in enabled_optimizations,
+                "vmCount": rs_vm_count,
+                "freedCpuCores": freed_cpu_from_resource,
+                "freedMemoryGb": round(freed_memory_from_resource, 2),
+            },
+            "idleDetection": {
+                "enabled": "idle" in enabled_optimizations,
+                "vmCount": idle_vm_count,
+                "poweredOnCount": idle_powered_on_count,
+                "poweredOffCount": idle_powered_off_count,
+                "freedCpuCores": freed_cpu_from_idle,
+                "freedMemoryGb": round(freed_memory_from_idle, 2),
+                "freedDiskGb": round(freed_disk_from_idle, 2),
+                "freedDiskPoweredOn": round(freed_disk_powered_on, 2),
+                "freedDiskPoweredOff": round(freed_disk_powered_off, 2),
+            },
+            "postOptimization": {
+                "neededCpuCores": needed_cpu,
+                "neededMemoryGb": needed_mem,
+                "neededStorageGb": needed_storage,
+                "retainedCpuCores": retained_cpu,
+                "retainedMemoryGb": retained_mem,
+                "retainedStorageGb": retained_storage,
+                "cpuLoadPercent": cpu_load_pct,
+                "memoryLoadPercent": mem_load_pct,
+                "storageLoadPercent": storage_load_pct,
+                "healthStatus": health_status,
+                "healthLabel": health_label,
+            },
+            "retainedHosts": retained_hosts,
+            "freeableHostCount": freed_host_count,
+            "retainedHostCount": total_hosts - freed_host_count,
+            "totalHosts": total_hosts,
         }

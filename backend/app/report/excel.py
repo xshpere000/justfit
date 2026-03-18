@@ -145,25 +145,28 @@ COLUMNS = {
         ("datacenter", "数据中心", "text", 20),
         ("total_cpu", "CPU (MHz)", "number", 14),
         ("total_memory_gb", "内存 (GB)", "number", 14),
-        ("num_hosts", "主机数", "number", 10),
-        ("num_vms", "虚拟机数", "number", 12),
+        ("total_storage_gb", "存储总量 (GB)", "number", 14),
+        ("used_storage_gb", "已用存储 (GB)", "number", 14),
+        ("num_hosts", "主机数", "integer", 10),
+        ("num_vms", "虚拟机数", "integer", 12),
     ],
     "hosts": [
         ("name", "名称", "text", 25),
         ("datacenter", "数据中心", "text", 18),
         ("ip_address", "IP地址", "text", 15),
-        ("cpu_cores", "CPU核数", "number", 10),
+        ("cpu_cores", "CPU核数", "integer", 10),
         ("cpu_mhz", "频率 (MHz)", "number", 12),
         ("memory_gb", "内存 (GB)", "number", 12),
-        ("num_vms", "虚拟机数", "number", 10),
+        ("num_vms", "虚拟机数", "integer", 10),
         ("power_state", "电源状态", "text", 12),
         ("overall_status", "状态", "text", 10),
     ],
-    # 与前端"虚拟机列表"Tab 完全对齐：虚拟机名称、CPU、内存、状态、数据中心、主机IP
+    # 与前端"虚拟机列表"Tab 完全对齐：虚拟机名称、CPU、内存、磁盘使用、状态、数据中心、主机IP
     "vms": [
         ("name", "虚拟机名称", "text", 30),
-        ("cpu_count", "CPU (核)", "number", 10),
+        ("cpu_count", "CPU (核)", "integer", 10),
         ("memory_gb", "内存 (GB)", "number", 12),
+        ("disk_usage_gb", "磁盘使用 (GB)", "number", 14),
         ("power_state", "状态", "text", 12),
         ("datacenter", "数据中心", "text", 18),
         ("host_ip", "主机IP", "text", 15),
@@ -176,7 +179,7 @@ COLUMNS = {
         ("hostIp", "主机IP", "text", 15),
         ("idleType", "闲置类型", "text", 12),
         ("riskLevel", "风险等级", "text", 12),
-        ("daysInactive", "闲置天数", "number", 10),
+        ("daysInactive", "闲置天数", "integer", 10),
         ("lastActivityTime", "最后活动", "date", 18),
         ("confidence", "置信度(%)", "number", 10),
         ("recommendation", "优化建议", "text", 45),
@@ -186,19 +189,22 @@ COLUMNS = {
         ("vmName", "虚拟机", "text", 30),
         ("cluster", "集群", "text", 18),
         ("hostIp", "主机IP", "text", 15),
-        ("currentCpu", "当前CPU(核)", "number", 12),
+        ("currentCpu", "当前CPU(核)", "integer", 12),
         ("currentMemoryGb", "当前内存(GB)", "number", 14),
-        ("recommendedCpu", "推荐CPU(核)", "number", 12),
+        ("recommendedCpu", "推荐CPU(核)", "integer", 12),
         ("recommendedMemoryGb", "推荐内存(GB)", "number", 14),
         ("cpuP95", "CPU P95(%)", "number", 12),
+        ("cpuP90", "CPU P90(%)", "number", 12),
         ("cpuAvg", "CPU均值(%)", "number", 12),
         ("memoryP95", "内存P95(%)", "number", 12),
         ("memoryAvg", "内存均值(%)", "number", 12),
         ("mismatchType", "错配类型", "text", 20),
-        ("wasteRatio", "浪费比例(%)", "number", 12),
-        ("adjustmentType", "调整方向", "text", 15),
-        ("reason", "判断依据", "text", 55),
+        ("cpuWasteRatio", "CPU浪费比例(%)", "number", 14),
+        ("memWasteRatio", "内存浪费比例(%)", "number", 14),
+        ("cpuAdjustmentType", "CPU调整方向", "text", 15),
+        ("memAdjustmentType", "内存调整方向", "text", 15),
         ("confidence", "置信度(%)", "number", 10),
+        ("reason", "判断依据", "text", 55),
     ],
     # 与前端"潮汐检测"Tab 完全对齐
     "tidal": [
@@ -206,10 +212,21 @@ COLUMNS = {
         ("cluster", "集群", "text", 18),
         ("hostIp", "主机IP", "text", 15),
         ("tidalGranularity", "潮汐粒度", "text", 12),
-        ("recommendedOffHours_description", "推荐关机时段", "text", 28),
-        ("coefficientOfVariation", "变异系数", "number", 12),
+        ("volatilityLevel", "波动程度", "text", 12),
+        ("coefficientOfVariation", "CV变异系数", "number", 12),
         ("peakValleyRatio", "峰谷比", "number", 10),
-        ("reason", "判断依据", "text", 55),
+        ("recommendedOffHours_description", "建议关机时段", "text", 28),
+        ("reason", "分析依据", "text", 55),
+    ],
+    # 分析结果 - 可释放主机列表（与前端"分析结果"Tab 对齐）
+    "freeable_hosts": [
+        ("hostName", "主机名", "text", 30),
+        ("hostIp", "主机IP", "text", 15),
+        ("cpuCores", "CPU核数", "integer", 12),
+        ("memoryGb", "内存 (GB)", "number", 14),
+        ("storageGb", "存储 (GB)", "number", 14),
+        ("currentVmCount", "当前VM数", "integer", 12),
+        ("reason", "原因", "text", 60),
     ],
 }
 
@@ -277,6 +294,7 @@ class ExcelReportGenerator:
 
         # Create sheets in specific order
         self._create_summary_sheet(wb, data)
+        self._create_analysis_result_sheet(wb, data)
         self._create_clusters_sheet(wb, data)
         self._create_hosts_sheet(wb, data)
         self._create_vms_sheet(wb, data)
@@ -330,7 +348,7 @@ class ExcelReportGenerator:
         metrics_row_1 = [
             ("集群总数", summary.get("total_clusters", 0), "个"),
             ("主机总数", summary.get("total_hosts", 0), "台"),
-            ("虚拟机总数", summary.get("total_vms", 0), "个"),
+            ("选择VM", summary.get("total_vms", 0), "个"),
             ("开机VM", summary.get("powered_on_vms", 0), "个"),
         ]
 
@@ -341,9 +359,9 @@ class ExcelReportGenerator:
 
         current_row += 3
 
-        # 第二行：关机VM卡片（单独一行）
+        # 第二行：关机VM卡片（与开机VM同列对齐，放D列）
         powered_off = summary.get("powered_off_vms", 0)
-        self._write_metric_card(ws, current_row, 2, "关机VM", powered_off, "个", 1, accent=True)
+        self._write_metric_card(ws, current_row, 4, "关机VM", powered_off, "个", 1, accent=True)
         current_row += 3
 
         # ==================== 资源总量区域 ====================
@@ -353,11 +371,19 @@ class ExcelReportGenerator:
         # 使用表格样式显示资源（去掉进度条）
         total_cpu = summary.get("total_cpu_mhz") or 0
         total_memory = summary.get("total_memory_gb") or 0
+        total_storage = summary.get("total_storage_gb") or 0
+        used_storage = summary.get("used_storage_gb") or 0
 
         self._write_resource_item(ws, current_row, "总CPU频率", f"{total_cpu:,} MHz", ColorScheme.PRIMARY_MEDIUM)
         current_row += 2
 
         self._write_resource_item(ws, current_row, "总内存容量", f"{total_memory:,.2f} GB", ColorScheme.PRIMARY_MEDIUM)
+        current_row += 2
+
+        self._write_resource_item(ws, current_row, "存储总量", f"{total_storage:,.2f} GB", ColorScheme.PRIMARY_MEDIUM)
+        current_row += 2
+
+        self._write_resource_item(ws, current_row, "已用存储", f"{used_storage:,.2f} GB", ColorScheme.PRIMARY_MEDIUM)
         current_row += 3
 
         # ==================== 优化建议区域 ====================
@@ -365,7 +391,7 @@ class ExcelReportGenerator:
         current_row += 1
 
         self._write_optimization_cards(ws, current_row, data)
-        current_row += 4
+        current_row += 8
 
         # ==================== 底部信息 ====================
         task = data.get("task", {})
@@ -485,29 +511,31 @@ class ExcelReportGenerator:
         idle_count = len(idle)
         critical_idle = sum(1 for i in idle if i.get("riskLevel") == "critical")
 
-        # 第一行：闲置VM
+        # 第一行：闲置VM + 可优化配置（并排）
         self._write_opt_card(ws, start_row, 1, "⚠️", "闲置虚拟机",
                            f"{idle_count} 个", f"其中 {critical_idle} 个需要紧急处理",
                            ColorScheme.WARNING)
 
-        # 第二行：可优化配置
         rightsize = resource.get("resourceOptimization", [])
-        downsize_count = sum(1 for r in rightsize if (r.get("adjustmentType") or "").startswith("down"))
+        downsize_count = sum(1 for r in rightsize if (r.get("cpuAdjustmentType") or "").startswith("down") or (r.get("memAdjustmentType") or "").startswith("down"))
 
         self._write_opt_card(ws, start_row, 3, "📉", "可优化配置",
                            f"{len(rightsize)} 个", f"建议降配 {downsize_count} 个",
                            ColorScheme.INFO)
 
-        # 第三行：健康评分
-        start_row += 3
+        start_row += 4
+
+        # 第二行：健康评分（带蓝底标题）
+        self._write_section_header(ws, start_row, "💚 平台健康评分", 1, 5)
+        start_row += 1
         if health:
             overall_score = health.get("overallScore", 0)
             health_grade = health.get("grade", "unknown")
             grade_text = self._format_grade(health_grade)
 
             score_color = HealthColors.get_color(overall_score)
-            self._write_opt_card(ws, start_row, 1, "💚", "平台健康评分",
-                               f"{overall_score} 分", f"评级: {grade_text}",
+            self._write_opt_card(ws, start_row, 1, "💯", f"{overall_score} 分",
+                               f"评级: {grade_text}", "",
                                score_color, is_color_code=True)
 
     def _write_opt_card(
@@ -565,6 +593,123 @@ class ExcelReportGenerator:
         sub_cell.value = sub_value
         sub_cell.font = Font(size=10, color="666666")
         ws.merge_cells(f"{get_column_letter(start_col)}{row + 2}:{get_column_letter(end_col)}{row + 2}")
+
+    def _create_analysis_result_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
+        """Create analysis result sheet - 综合优化建议 + 可释放主机（对应前端"分析结果"Tab）."""
+        ws = wb.create_sheet("分析结果")
+
+        ws.column_dimensions["A"].width = 22
+        ws.column_dimensions["B"].width = 35
+        ws.column_dimensions["C"].width = 22
+        ws.column_dimensions["D"].width = 35
+
+        analysis = data.get("analysis", {})
+        freeability = analysis.get("freeability") or {}
+        recommendation = freeability.get("recommendation") or {}
+        post_opt = recommendation.get("postOptimization") or {}
+        resource_opt = recommendation.get("resourceOptimization") or {}
+        idle_det = recommendation.get("idleDetection") or {}
+
+        current_row = 1
+
+        # ==================== 优化措施 ====================
+        self._write_section_header(ws, current_row, "优化措施", 1, 4)
+        current_row += 1
+
+        measures = []
+        if resource_opt.get("enabled") and resource_opt.get("vmCount", 0) > 0:
+            measures.append(
+                f"资源优化：对 {resource_opt['vmCount']} 台VM进行Right Size，"
+                f"释放 {resource_opt.get('freedCpuCores', 0)} 核CPU / {resource_opt.get('freedMemoryGb', 0):.1f} GB内存"
+            )
+        if idle_det.get("enabled") and idle_det.get("vmCount", 0) > 0:
+            powered_on = idle_det.get("poweredOnCount", 0)
+            powered_off = idle_det.get("poweredOffCount", 0)
+            type_detail = ""
+            if powered_on > 0 and powered_off > 0:
+                type_detail = f"（开机闲置 {powered_on} 台、关机 {powered_off} 台）"
+            elif powered_on > 0:
+                type_detail = f"（开机闲置 {powered_on} 台）"
+            elif powered_off > 0:
+                type_detail = f"（关机 {powered_off} 台）"
+            if powered_on > 0:
+                savings_text = (
+                    f"开机闲置VM关闭后释放 {idle_det.get('freedCpuCores', 0)} 核CPU / "
+                    f"{idle_det.get('freedMemoryGb', 0):.1f} GB内存"
+                )
+                disk_on = idle_det.get('freedDiskPoweredOn', 0)
+                if disk_on > 0:
+                    savings_text += f" / {disk_on:.1f} GB磁盘"
+                savings_text += "。"
+            else:
+                savings_text = ""
+            if powered_off > 0:
+                disk_off = idle_det.get('freedDiskPoweredOff', 0)
+                if disk_off > 0:
+                    savings_text += f"关机VM清除后释放 {disk_off:.1f} GB磁盘。"
+            measures.append(
+                f"闲置检测：检测到 {idle_det['vmCount']} 台闲置VM{type_detail}，{savings_text}"
+            )
+
+        if measures:
+            for measure in measures:
+                ws.cell(row=current_row, column=1, value=f"• {measure}").alignment = ExcelStyles.ALIGN_LEFT
+                ws.merge_cells(f"A{current_row}:D{current_row}")
+                current_row += 1
+        else:
+            ws.cell(row=current_row, column=1, value="暂无优化措施").font = Font(italic=True, color="999999")
+            current_row += 1
+
+        current_row += 1
+
+        # ==================== 集群资源需求 ====================
+        self._write_section_header(ws, current_row, "集群资源需求（优化后）", 1, 4)
+        current_row += 1
+
+        req_items = [
+            ("所需CPU核数", post_opt.get("neededCpuCores", "-")),
+            ("所需内存(GB)", post_opt.get("neededMemoryGb", "-")),
+            ("所需存储(GB)", post_opt.get("neededStorageGb", "-")),
+            ("保留主机数", freeability.get("retainedHostCount", "-")),
+        ]
+        for i, (label, value) in enumerate(req_items):
+            col = 1 + (i % 2) * 2
+            row = current_row + i // 2
+            ws.cell(row=row, column=col, value=label).font = Font(bold=True)
+            ws.cell(row=row, column=col + 1, value=value)
+        current_row += (len(req_items) + 1) // 2 + 1
+
+        # ==================== 可释放主机 ====================
+        self._write_section_header(ws, current_row, "可下线主机列表", 1, 4)
+        current_row += 1
+
+        freeable_hosts = freeability.get("freeableHosts") or []
+        if freeable_hosts:
+            self._write_table(ws, freeable_hosts, COLUMNS["freeable_hosts"],
+                              add_row_colors=True, start_row=current_row)
+            current_row += len(freeable_hosts) + 2
+        else:
+            ws.cell(row=current_row, column=1, value="当前优化方案下无可下线主机").font = Font(italic=True, color="999999")
+            current_row += 2
+
+        # ==================== 负载健康 ====================
+        self._write_section_header(ws, current_row, "优化后负载预估", 1, 4)
+        current_row += 1
+
+        load_items = [
+            ("CPU负载", post_opt.get("cpuLoadPercent")),
+            ("内存负载", post_opt.get("memoryLoadPercent")),
+            ("存储负载", post_opt.get("storageLoadPercent")),
+            ("健康状态", post_opt.get("healthLabel")),
+        ]
+        for label, val in load_items:
+            ws.cell(row=current_row, column=1, value=label).font = Font(bold=True)
+            if isinstance(val, (int, float)):
+                display = f"{val:.1f}%"
+            else:
+                display = str(val) if val is not None else "-"
+            ws.cell(row=current_row, column=2, value=display)
+            current_row += 1
 
     def _create_clusters_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
         """Create clusters sheet with enhanced formatting."""
@@ -653,7 +798,7 @@ class ExcelReportGenerator:
 
         normalized_data = []
         for item in rightsize:
-            normalized_item = {
+            normalized_data.append({
                 "vmName": item.get("vmName", ""),
                 "cluster": item.get("cluster", ""),
                 "hostIp": item.get("hostIp", ""),
@@ -662,23 +807,20 @@ class ExcelReportGenerator:
                 "recommendedCpu": item.get("recommendedCpu", 0),
                 "recommendedMemoryGb": item.get("recommendedMemoryGb", 0),
                 "cpuP95": item.get("cpuP95", 0),
+                "cpuP90": item.get("cpuP90", 0),
                 "cpuAvg": item.get("cpuAvg", 0),
                 "memoryP95": item.get("memoryP95", 0),
                 "memoryAvg": item.get("memoryAvg", 0),
                 "mismatchType": MISMATCH_TYPE_MAP.get(item.get("mismatchType", ""), item.get("mismatchType", "")),
-                "wasteRatio": item.get("wasteRatio", 0),
-                "adjustmentType": self._format_adjustment_type(item.get("adjustmentType") or ""),
-                "reason": item.get("reason", ""),
+                "cpuWasteRatio": item.get("cpuWasteRatio", 0),
+                "memWasteRatio": item.get("memWasteRatio", 0),
+                "cpuAdjustmentType": self._format_adjustment_type(item.get("cpuAdjustmentType") or ""),
+                "memAdjustmentType": self._format_adjustment_type(item.get("memAdjustmentType") or ""),
                 "confidence": item.get("confidence", 0),
-            }
-            normalized_data.append(normalized_item)
+                "reason": item.get("reason", ""),
+            })
 
-        self._write_table(
-            ws,
-            normalized_data,
-            COLUMNS["rightsize"],
-            add_row_colors=True,
-        )
+        self._write_table(ws, normalized_data, COLUMNS["rightsize"], add_row_colors=True)
 
     def _create_tidal_sheet(self, wb: Workbook, data: Dict[str, Any]) -> None:
         """Create tidal detection sheet."""
@@ -692,21 +834,22 @@ class ExcelReportGenerator:
             return
 
         granularity_map = {"daily": "日粒度", "weekly": "周粒度", "monthly": "月粒度"}
+        volatility_map = {"high": "高", "moderate": "中", "low": "低"}
 
         normalized_data = []
         for item in tidal_items:
             off_hours = item.get("recommendedOffHours") or {}
-            normalized_item = {
+            normalized_data.append({
                 "vmName": item.get("vmName", ""),
                 "cluster": item.get("cluster", ""),
                 "hostIp": item.get("hostIp", ""),
                 "tidalGranularity": granularity_map.get(item.get("tidalGranularity", ""), item.get("tidalGranularity", "")),
-                "recommendedOffHours_description": off_hours.get("description", ""),
+                "volatilityLevel": volatility_map.get(item.get("volatilityLevel", ""), item.get("volatilityLevel", "")),
                 "coefficientOfVariation": item.get("coefficientOfVariation", 0),
                 "peakValleyRatio": item.get("peakValleyRatio", 0),
+                "recommendedOffHours_description": off_hours.get("description", ""),
                 "reason": item.get("reason", ""),
-            }
-            normalized_data.append(normalized_item)
+            })
 
         self._write_table(ws, normalized_data, COLUMNS["tidal"], add_row_colors=True)
 
@@ -817,19 +960,30 @@ class ExcelReportGenerator:
             self._write_section_header(ws, current_row, "发现的问题", 1, 3)
             current_row += 1
 
+            category_map = {
+                "overcommit": "超配风险",
+                "balance": "资源均衡",
+                "hotspot": "热点集中",
+            }
+            severity_map = {
+                "critical": "危急",
+                "high": "高",
+                "medium": "中",
+                "low": "低",
+            }
+
             for finding in findings:
-                # 兼容不同数据结构：title/category 都可以作为标题
-                title = finding.get("title") or finding.get("category") or finding.get("severity", "")
+                category = finding.get("category", "")
+                severity = finding.get("severity", "")
+                title = category_map.get(category, category) + (f"（{severity_map.get(severity, severity)}）" if severity else "")
                 description = finding.get("description", "")
 
-                # 标题
                 title_cell = ws.cell(row=current_row, column=1)
-                title_cell.value = "• " + title
+                title_cell.value = "> " + title
                 title_cell.font = Font(bold=True, color=ColorScheme.PRIMARY_MEDIUM)
                 ws.merge_cells(f"A{current_row}:C{current_row}")
                 current_row += 1
 
-                # 描述
                 desc_cell = ws.cell(row=current_row, column=1)
                 desc_cell.value = "  " + description
                 ws.merge_cells(f"A{current_row}:C{current_row}")
@@ -846,6 +1000,7 @@ class ExcelReportGenerator:
         color_column: Optional[str] = None,
         color_mapper: Optional[callable] = None,
         percent_columns: Optional[List[str]] = None,
+        start_row: int = 1,
     ) -> None:
         """Write data table to worksheet with enhanced formatting.
 
@@ -862,12 +1017,13 @@ class ExcelReportGenerator:
             percent_columns = []
 
         if not data:
-            self._write_no_data(ws)
+            self._write_no_data(ws, row=start_row)
             return
 
+        header_row = start_row
         # Write headers
         for col_idx, (_, header, data_type, width) in enumerate(columns, 1):
-            cell = ws.cell(row=1, column=col_idx)
+            cell = ws.cell(row=header_row, column=col_idx)
             cell.value = header
             cell.font = ExcelStyles.HEADER_FONT
             cell.fill = ExcelStyles.HEADER_FILL
@@ -875,14 +1031,13 @@ class ExcelReportGenerator:
             cell.alignment = ExcelStyles.HEADER_ALIGNMENT
             ws.column_dimensions[get_column_letter(col_idx)].width = width
 
-        # Freeze header row
-        ws.freeze_panes = "A2"
-
-        # Add auto filter
-        ws.auto_filter.ref = ws.dimensions
+        # Freeze header row only when table starts at row 1
+        if start_row == 1:
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
 
         # Write data
-        for row_idx, item in enumerate(data, 2):
+        for row_idx, item in enumerate(data, header_row + 1):
             # Determine row fill
             row_fill = None
             if add_row_colors:
@@ -898,7 +1053,11 @@ class ExcelReportGenerator:
                 cell = ws.cell(row=row_idx, column=col_idx)
 
                 # Apply cell formatting based on data type
-                if data_type == "number":
+                if data_type == "integer":
+                    cell.value = self._safe_int(value)
+                    cell.number_format = ExcelStyles.INTEGER_FORMAT
+                    cell.alignment = ExcelStyles.ALIGN_RIGHT
+                elif data_type == "number":
                     cell.value = self._safe_float(value)
                     cell.number_format = ExcelStyles.NUMBER_FORMAT
                     cell.alignment = ExcelStyles.ALIGN_RIGHT
@@ -1066,6 +1225,13 @@ class ExcelReportGenerator:
             return float(value) if value is not None else 0.0
         except (ValueError, TypeError):
             return 0.0
+
+    def _safe_int(self, value: Any) -> int:
+        """Safely convert value to int."""
+        try:
+            return int(value) if value is not None else 0
+        except (ValueError, TypeError):
+            return 0
 
     def _auto_fit_columns(self, ws) -> None:
         """Auto-fit column widths with improved algorithm."""

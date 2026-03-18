@@ -1,11 +1,8 @@
 <template>
   <div class="home-page">
-    <!-- 顶部 Banner 轮播 -->
     <HomeBanner @start-task="startNewTask" />
 
-    <!-- 任务管理区域 -->
     <div class="tasks-section">
-      <!-- 工具栏 -->
       <div class="task-toolbar">
         <div class="toolbar-left">
           <h2 class="section-title">任务管理</h2>
@@ -29,7 +26,6 @@
         </div>
       </div>
 
-      <!-- 任务网格 -->
       <div class="task-grid-container">
         <template v-if="filteredTasks.length > 0">
           <el-scrollbar class="task-scrollbar">
@@ -44,7 +40,6 @@
             </div>
           </el-scrollbar>
 
-          <!-- 分页 -->
           <div v-if="totalPages > 1" class="task-pagination">
             <el-pagination
               v-model:current-page="currentPage"
@@ -57,7 +52,6 @@
           </div>
         </template>
 
-        <!-- 空状态 -->
         <div v-else class="empty-state">
           <el-empty :description="emptyDescription" :image-size="120">
             <el-button v-if="taskStore.tasks.length === 0" type="primary" @click="startNewTask">
@@ -71,53 +65,57 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
 import { retryTask } from '@/api/task'
-import type { Task, TaskStatus } from '@/api/task'
+import type { Task } from '@/api/task'
 import HomeBanner from '@/components/HomeBanner.vue'
 import TaskCard from '@/components/TaskCard.vue'
 
 const router = useRouter()
 const taskStore = useTaskStore()
 
-// 状态筛选选项
 const statusOptions = [
   { label: '全部', value: 'all' },
   { label: '进行中', value: 'running' },
   { label: '已完成', value: 'completed' }
 ]
 
-// 查询和筛选状态
 const searchQuery = ref('')
 const filterStatus = ref<string>('all')
 const currentPage = ref(1)
 const pageSize = ref(8)
 
-// 计算总页数
 const totalPages = computed(() => Math.ceil(filteredTasks.value.length / pageSize.value))
 
-// 初始化
 onMounted(() => {
-  console.log('[Home.vue] 首页挂载，启动轮询')
+  console.log('[Home.vue] 首页挂载')
+})
+
+onActivated(() => {
+  // Home is cached and needs to resume polling when it becomes active again.
+  console.log('[Home.vue] onActivated: 启动轮询')
   taskStore.startPolling()
 })
 
-// 组件卸载前停止轮询（避免与 TaskDetail 的轮询冲突）
+onDeactivated(() => {
+  // Stop polling while another page owns task-related side effects.
+  console.log('[Home.vue] onDeactivated: 停止轮询')
+  taskStore.stopPolling()
+})
+
 onBeforeUnmount(() => {
   console.log('[Home.vue] onBeforeUnmount: 停止轮询')
   taskStore.stopPolling()
 })
 
-// 组件卸载时的额外清理
 onUnmounted(() => {
   console.log('[Home.vue] 首页卸载')
 })
 
-// 监听任务列表变化
 watch(
   () => taskStore.tasks,
   (newTasks) => {
@@ -126,18 +124,15 @@ watch(
   { deep: true }
 )
 
-// 筛选后的任务列表
 const filteredTasks = computed(() => {
   let result = taskStore.tasks
 
-  // 状态筛选
   if (filterStatus.value === 'running') {
     result = result.filter((t) => ['running', 'pending'].includes(t.status))
   } else if (filterStatus.value === 'completed') {
     result = result.filter((t) => t.status === 'completed')
   }
 
-  // 搜索筛选
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     result = result.filter((t) => {
@@ -148,20 +143,17 @@ const filteredTasks = computed(() => {
     })
   }
 
-  // 按创建时间排序（最新的在前）
   return [...result].sort(
     (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
   )
 })
 
-// 分页后的任务列表
 const pagedTasks = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   const end = start + pageSize.value
   return filteredTasks.value.slice(start, end)
 })
 
-// 空状态描述
 const emptyDescription = computed(() => {
   if (taskStore.tasks.length === 0) {
     return '暂无任务，创建一个新任务开始吧'
@@ -172,12 +164,10 @@ const emptyDescription = computed(() => {
   return '暂无任务'
 })
 
-// 搜索或筛选变化时重置页码
 watch([searchQuery, filterStatus], () => {
   currentPage.value = 1
 })
 
-// 确保页码不超过最大值
 watch(filteredTasks, (list) => {
   const maxPage = Math.max(1, Math.ceil(list.length / pageSize.value))
   if (currentPage.value > maxPage) {
@@ -185,7 +175,6 @@ watch(filteredTasks, (list) => {
   }
 })
 
-// 创建新任务
 function startNewTask() {
   if (taskStore.hasRunningTasks) {
     ElMessageBox.confirm(
@@ -200,29 +189,24 @@ function startNewTask() {
   }
 }
 
-// 打开任务详情
 function openTask(task: Task) {
   router.push('/task/' + task.id)
 }
 
-// 处理任务操作命令
 async function handleTaskCommand(command: string, task: Task) {
   switch (command) {
     case 'cancel':
       await handleCancelTask(task)
       break
-
     case 'retry':
       await handleRetryTask(task)
       break
-
     case 'delete':
       await handleDeleteTask(task)
       break
   }
 }
 
-// 取消任务
 async function handleCancelTask(task: Task) {
   try {
     await ElMessageBox.confirm('确定要取消该任务吗？取消后无法恢复。', '取消任务', {
@@ -237,7 +221,6 @@ async function handleCancelTask(task: Task) {
   }
 }
 
-// 重试任务
 async function handleRetryTask(task: Task) {
   try {
     await ElMessageBox.confirm(
@@ -251,7 +234,6 @@ async function handleRetryTask(task: Task) {
     )
     const newTaskId = await retryTask(task.id)
     ElMessage.success('已创建重试任务，即将跳转...')
-    // 等待一下后跳转到新任务详情
     setTimeout(() => {
       router.push('/task/' + newTaskId)
     }, 500)
@@ -262,7 +244,6 @@ async function handleRetryTask(task: Task) {
   }
 }
 
-// 删除任务
 async function handleDeleteTask(task: Task) {
   try {
     await ElMessageBox.confirm(
@@ -437,7 +418,6 @@ async function handleDeleteTask(task: Task) {
   }
 }
 
-// 响应式适配
 @media (max-width: 1023px) {
   .tasks-section {
     padding: 16px;

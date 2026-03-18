@@ -117,10 +117,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useConnectionStore } from '@/stores/connection'
-import * as ConnectionAPI from '@/api/connection'
 
 const connectionStore = useConnectionStore()
 
@@ -162,7 +161,10 @@ const filteredConnections = computed(() => {
   )
 })
 
-connectionStore.fetchConnections()
+// Keep data loading inside lifecycle hooks.
+onMounted(() => {
+  void connectionStore.fetchConnections()
+})
 
 function openCreateDialog() {
   isEdit.value = false
@@ -211,7 +213,7 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value && formData.id) {
-      await ConnectionAPI.updateConnection(formData.id, {
+      await connectionStore.updateConnection(formData.id, {
         name: formData.name,
         host: formData.host,
         port: formData.port,
@@ -221,7 +223,7 @@ async function handleSubmit() {
       })
       ElMessage.success('连接更新成功')
     } else {
-      await ConnectionAPI.createConnection({
+      await connectionStore.createConnection({
         name: formData.name,
         platform: formData.platform,
         host: formData.host,
@@ -233,7 +235,6 @@ async function handleSubmit() {
       ElMessage.success('连接创建成功')
     }
     dialogVisible.value = false
-    await connectionStore.fetchConnections()
   } catch (error: any) {
     ElMessage.error(error.message || '操作失败')
   } finally {
@@ -244,9 +245,8 @@ async function handleSubmit() {
 async function handleTest(id: number) {
   testingIds.value.add(id)
   try {
-    const result = await ConnectionAPI.testConnection(id)
+    const result = await connectionStore.testConnection(id)
     ElMessage.success('连接测试成功: ' + result)
-    await connectionStore.fetchConnections()
   } catch (error: any) {
     ElMessage.error(error.message || '连接测试失败')
   } finally {
@@ -259,9 +259,8 @@ async function handleDelete(id: number) {
     await ElMessageBox.confirm('确定要删除该连接吗？', '提示', {
       type: 'warning'
     })
-    await ConnectionAPI.deleteConnection(id)
+    await connectionStore.deleteConnection(id)
     ElMessage.success('删除成功')
-    await connectionStore.fetchConnections()
   } catch (error: any) {
     if (error !== 'cancel') {
       ElMessage.error(error.message || '删除失败')

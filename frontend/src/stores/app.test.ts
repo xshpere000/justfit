@@ -47,15 +47,12 @@ describe('useAppStore', () => {
     const store = useAppStore()
     expect(store.notifications).toHaveLength(0)
 
-    store.addNotification({
-      type: 'success',
-      message: 'Test notification',
-    })
+    store.addNotification('Test notification', 'success')
 
     expect(store.notifications).toHaveLength(1)
     expect(store.notifications[0].message).toBe('Test notification')
 
-    store.removeNotification(0)
+    store.removeNotification(store.notifications[0].id)
     expect(store.notifications).toHaveLength(0)
   })
 })

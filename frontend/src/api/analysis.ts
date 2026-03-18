@@ -254,6 +254,14 @@ export async function updateTaskCustomConfig(taskId: number, analysisType: strin
 }
 
 /**
+ * 更新任务的分析模式（非 custom 模式时使用）
+ * API: PUT /api/tasks/{task_id}/mode
+ */
+export async function updateTaskMode(taskId: number, mode: string): Promise<void> {
+    await apiClient.put(`/api/tasks/${taskId}/mode`, { mode });
+}
+
+/**
  * 获取分析汇总（可释放主机等）
  * API: GET /api/analysis/tasks/{task_id}/summary?optimizations=resource,idle
  */

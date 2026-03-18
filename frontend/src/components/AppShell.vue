@@ -18,9 +18,12 @@
 
       <!-- 内容区 -->
       <el-main class="app-content">
-        <router-view v-slot="{ Component }">
-          <keep-alive exclude="Wizard">
-            <component :is="Component" />
+        <router-view v-slot="{ Component, route: currentRoute }">
+          <keep-alive include="Home">
+            <component
+              :is="Component"
+              :key="currentRoute.name === 'Home' ? 'Home' : currentRoute.fullPath"
+            />
           </keep-alive>
         </router-view>
       </el-main>
@@ -70,10 +73,11 @@ const connectionStore = useConnectionStore()
 const appStore = useAppStore()
 
 // 版本信息
-const appVersion = ref('0.0.4')
+const appVersion = ref('0.0.5')
 const isDevVersion = ref(false)
 
-const currentRouteTitle = computed(() => route.meta?.title || '首页')
+// Guard route access for tests and non-router mounting.
+const currentRouteTitle = computed(() => route?.meta?.title || '首页')
 
 onMounted(async () => {
   // 加载连接列表

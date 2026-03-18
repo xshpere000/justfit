@@ -177,6 +177,12 @@ async def create_task(
     base_mode = data.get("baseMode")
     if base_mode:
         config["baseMode"] = base_mode
+    # custom 模式：转换 customConfig 中的 camelCase 键为 snake_case
+    if "customConfig" in config and isinstance(config["customConfig"], dict):
+        converted = {}
+        for analysis_type, type_config in config["customConfig"].items():
+            converted[analysis_type] = convert_config_keys_to_snake(type_config) if isinstance(type_config, dict) else type_config
+        config["customConfig"] = converted
     # 保存 selectedVMs 列表
     selected_vms = data.get("selectedVMs")
     logger.info(

@@ -28,6 +28,8 @@ class Cluster(Base, TimestampMixin):
     total_memory: Mapped[int] = mapped_column(BigInteger, default=0)  # bytes
     num_hosts: Mapped[int] = mapped_column(Integer, default=0)
     num_vms: Mapped[int] = mapped_column(Integer, default=0)
+    total_storage: Mapped[int] = mapped_column(BigInteger, default=0)  # bytes, 集群虚拟存储总容量
+    used_storage: Mapped[int] = mapped_column(BigInteger, default=0)  # bytes, 集群虚拟存储已使用量
     cluster_key: Mapped[str] = mapped_column(String(255), unique=True)  # Idempotent key
     collected_at: Mapped[datetime] = mapped_column(default=datetime.now)
 
@@ -88,6 +90,9 @@ class VM(Base, TimestampMixin):
     )
     downtime_duration: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, comment="关机时长（秒），仅关机VM有值"
+    )
+    disk_usage_bytes: Mapped[int] = mapped_column(
+        BigInteger, default=0, comment="磁盘使用量（bytes）"
     )
 
     collected_at: Mapped[datetime] = mapped_column(default=datetime.now)

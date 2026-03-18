@@ -141,6 +141,24 @@ class VCenterConnector(Connector):
             total_memory = sum(host.summary.hardware.memorySize
                             for host in cluster.host)
 
+            # Calculate storage totals (deduplicate shared datastores by URL/name)
+            total_storage = 0
+            used_storage = 0
+            seen_datastores = set()
+            if cluster.datastore:
+                for ds in cluster.datastore:
+                    try:
+                        ds_id = ds.info.url if ds.info and ds.info.url else ds.name
+                        if ds_id in seen_datastores:
+                            continue
+                        seen_datastores.add(ds_id)
+                        capacity = ds.summary.capacity or 0
+                        free_space = ds.summary.freeSpace or 0
+                        total_storage += capacity
+                        used_storage += capacity - free_space
+                    except Exception:
+                        pass
+
             # Generate cluster key
             cluster_key = f"{cluster.name}"
             if cluster.parent and hasattr(cluster.parent, 'name'):
@@ -151,8 +169,10 @@ class VCenterConnector(Connector):
                 datacenter=self._get_datacenter_name(cluster),
                 total_cpu=int(total_cpu),
                 total_memory=int(total_memory),
+                total_storage=int(total_storage),
+                used_storage=int(used_storage),
                 num_hosts=len(cluster.host) if cluster.host else 0,
-                num_vms=getattr(cluster.summary, 'numVMs', getattr(cluster.summary, 'numVm', 0)),
+                num_vms=sum(len(h.vm) for h in cluster.host if h.vm) if cluster.host else 0,
                 cluster_key=cluster_key,
             ))
 
@@ -308,6 +328,11 @@ class VCenterConnector(Connector):
                             duration = now - boot_time
                             downtime_duration = int(duration.total_seconds())
 
+                    # 采集磁盘使用量
+                    disk_usage_bytes = 0
+                    if vm.summary and vm.summary.storage:
+                        disk_usage_bytes = vm.summary.storage.committed or 0
+
                     # 从缓存获取 host IP
                     host_ip = ""
                     if vm.runtime and vm.runtime.host and hasattr(vm.runtime.host, 'name'):
@@ -327,19 +352,20 @@ class VCenterConnector(Connector):
                         host_ip=host_ip,
                         connection_state=vm.runtime.connectionState if vm.runtime else "",
                         overall_status=vm.summary.overallStatus,
+                        disk_usage_bytes=disk_usage_bytes,
                         vm_create_time=create_time,
                         uptime_duration=uptime_duration,
                         downtime_duration=downtime_duration,
                     )
                 except Exception as e:
-                    logger.warning("vcenter_vm_extract_failed", vm_name=getattr(vm, 'name', 'unknown'), error=str(e))
+                    logger.warning("vcenter_vm_extract_failed", vm_name="unknown", error=str(e))
                     return None
 
             async with semaphore:
                 try:
                     return await loop.run_in_executor(None, _extract)
                 except Exception as e:
-                    logger.warning("vcenter_vm_extract_coroutine_failed", vm_name=getattr(vm, 'name', 'unknown'), error=str(e))
+                    logger.warning("vcenter_vm_extract_coroutine_failed", vm_name="unknown", error=str(e))
                     return None
 
         # 并发提取所有 VM 信息
@@ -580,13 +606,17 @@ class VCenterConnector(Connector):
 
         vm_memory_mb = vm.summary.config.memorySizeMB if vm.summary and vm.summary.config else 0
 
-        # Calculate averages
+        # Calculate averages — filter out negative values (vCenter uses negatives for unavailable counters)
         cpu_avg = sum(cpu_values) / len(cpu_values) if cpu_values else 0
         memory_avg = sum(memory_values) / len(memory_values) if memory_values else 0
-        disk_read_avg = sum(disk_read_values) / len(disk_read_values) if disk_read_values else 0
-        disk_write_avg = sum(disk_write_values) / len(disk_write_values) if disk_write_values else 0
-        net_rx_avg = sum(net_rx_values) / len(net_rx_values) if net_rx_values else 0
-        net_tx_avg = sum(net_tx_values) / len(net_tx_values) if net_tx_values else 0
+        disk_read_valid = [v for v in disk_read_values if v >= 0]
+        disk_write_valid = [v for v in disk_write_values if v >= 0]
+        net_rx_valid = [v for v in net_rx_values if v >= 0]
+        net_tx_valid = [v for v in net_tx_values if v >= 0]
+        disk_read_avg = sum(disk_read_valid) / len(disk_read_valid) if disk_read_valid else 0
+        disk_write_avg = sum(disk_write_valid) / len(disk_write_valid) if disk_write_valid else 0
+        net_rx_avg = sum(net_rx_valid) / len(net_rx_valid) if net_rx_valid else 0
+        net_tx_avg = sum(net_tx_valid) / len(net_tx_valid) if net_tx_valid else 0
 
         # Build hourly series (using CPU/Memory historical data)
         hourly_series = self._build_hourly_series(

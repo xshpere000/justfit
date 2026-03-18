@@ -67,7 +67,7 @@ class ReportService:
             output_dir = Path(settings.DATA_DIR) / "reports"
             output_dir.mkdir(parents=True, exist_ok=True)
 
-            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             connection_name = report_data.get("connection", {}).get("name", "unknown")
             safe_name = self._sanitize_filename(connection_name)
 
@@ -100,7 +100,7 @@ class ReportService:
                 format=report_format,
                 file_path=str(file_path),
                 file_size=file_size,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(),
             )
             self.db.add(report)
             await self.db.commit()

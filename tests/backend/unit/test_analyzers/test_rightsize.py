@@ -14,9 +14,8 @@ def cpu_storage_value(percentage: float, cpu_count: int, host_cpu_mhz: int = 260
 
 
 def memory_storage_value(percentage: float, memory_bytes: int) -> float:
-    """计算内存存储值（MB）：percentage / 100 * memory_mb"""
-    memory_mb = memory_bytes / (1024 * 1024)
-    return percentage / 100 * memory_mb
+    """计算内存存储值（bytes）：percentage / 100 * memory_bytes"""
+    return percentage / 100 * memory_bytes
 
 
 @pytest.mark.asyncio
@@ -70,8 +69,8 @@ async def test_rightsize_downsize_recommendation():
 
     assert result["vmName"] == "test-vm"
     assert result["currentCpu"] == 8
-    assert result["suggestedCpu"] <= 4  # 应建议缩容
-    assert "down" in result["adjustmentType"]  # down 或 down_significant
+    assert result["recommendedCpu"] <= 4  # 应建议缩容
+    assert "down" in result["cpuAdjustmentType"]  # down 或 down_significant
 
 
 @pytest.mark.asyncio
@@ -96,15 +95,15 @@ async def test_rightsize_memory_standard_configs():
     """测试内存标准化配置"""
     analyzer = RightSizeAnalyzer()
 
-    # 内存标准配置: [0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256] GB
+    # 内存标准配置: [0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256] GB
     assert analyzer._normalize_memory(0.3) == 0.5
     assert analyzer._normalize_memory(0.5) == 0.5
     assert analyzer._normalize_memory(0.8) == 1
     assert analyzer._normalize_memory(1.5) == 2
-    assert analyzer._normalize_memory(3) == 4
-    assert analyzer._normalize_memory(6) == 8
-    assert analyzer._normalize_memory(12) == 16
-    assert analyzer._normalize_memory(40) == 64
+    assert analyzer._normalize_memory(3) == 3
+    assert analyzer._normalize_memory(5) == 6
+    assert analyzer._normalize_memory(10) == 12
+    assert analyzer._normalize_memory(40) == 48
     assert analyzer._normalize_memory(200) == 256  # 最大值
 
 
@@ -158,7 +157,7 @@ async def test_rightsize_upsize_recommendation():
     result = await analyzer._analyze_vm(1, metrics, vm_info)
 
     # CPU 或 内存任一需要扩容即为 up
-    assert "up" in result["adjustmentType"] or result["suggestedCpu"] > 2 or result["recommendedMemoryMb"] > 4 * 1024
+    assert "up" in result["cpuAdjustmentType"] or result["recommendedCpu"] > 2 or result["recommendedMemoryGb"] > 4
 
 
 @pytest.mark.asyncio
@@ -210,7 +209,7 @@ async def test_rightsize_no_change_needed():
 
     result = await analyzer._analyze_vm(1, metrics, vm_info)
 
-    assert result["adjustmentType"] == "none"
+    assert result["cpuAdjustmentType"] == "none"
 
 
 @pytest.mark.asyncio

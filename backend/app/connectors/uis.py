@@ -307,11 +307,32 @@ class UISConnector(Connector):
                     cluster_id = detail.get("id")
                     cluster_key = str(cluster_id) if cluster_id else f"cluster_{len(clusters)}"
 
+                    # 采集存储池信息
+                    total_storage = 0
+                    used_storage = 0
+                    try:
+                        sf_response = await client.get(
+                            "/uis/cluster/shareFile",
+                            params={"clusterId": cluster_id, "sfOnly": "true"}
+                        )
+                        if sf_response.status_code == 200:
+                            sf_data = sf_response.json()
+                            if sf_data.get("success"):
+                                for pool in sf_data.get("data", []):
+                                    max_size_mb = pool.get("maxSize", 0)
+                                    remain_size_mb = pool.get("remainSize", 0)
+                                    total_storage += int(max_size_mb) * 1024 * 1024  # MB → bytes
+                                    used_storage += int(max_size_mb - remain_size_mb) * 1024 * 1024
+                    except Exception as e:
+                        logger.warning("uis_get_cluster_storage_failed", cluster_id=cluster_id, error=str(e))
+
                     clusters.append(ClusterInfo(
                         name=detail.get("name", ""),
                         datacenter="",  # UIS 可能没有 datacenter 概念
                         total_cpu=cpu_mhz,
                         total_memory=memory_bytes,
+                        total_storage=total_storage,
+                        used_storage=used_storage,
                         num_hosts=detail.get("hostNum", 0),
                         num_vms=detail.get("vmTotal", 0),
                         cluster_key=cluster_key,
@@ -574,65 +595,75 @@ class UISConnector(Connector):
         except Exception as e:
             logger.debug("uis_vm_status_fetch_failed", error=str(e))
 
-        # Step 3: 获取所有VM的summary信息（包含时间字段）
+        # Step 3: 并发获取所有VM的summary信息（包含时间字段）
         now = datetime.now(timezone.utc)
         vm_time_info = {}
 
-        logger.info("uis_fetching_vm_summaries", vm_count=len(data.get("data", [])))
-        for vm_data in data.get("data", []):
+        vm_list = data.get("data", [])
+        logger.info("uis_fetching_vm_summaries", vm_count=len(vm_list))
+
+        # 使用 Semaphore 限制并发数，避免过载 UIS API
+        semaphore = asyncio.Semaphore(10)
+
+        async def fetch_vm_summary(vm_data: dict) -> None:
+            """并发获取单个 VM 的 summary 信息"""
             vm_id = vm_data.get("id")
+            if not vm_id:
+                return
 
-            try:
-                # 调用 VM summary API
-                resp = await client.get(f"/uis/vm/{vm_id}/summary")
-                if resp.status_code == 200:
-                    summary_data = resp.json()
-                    if summary_data.get("success") and summary_data.get("data"):
-                        summary = summary_data["data"]
+            async with semaphore:
+                try:
+                    resp = await client.get(f"/uis/vm/{vm_id}/summary")
+                    if resp.status_code == 200:
+                        summary_data = resp.json()
+                        if summary_data.get("success") and summary_data.get("data"):
+                            summary = summary_data["data"]
 
-                        # 初始化 vm_time_info
-                        if vm_id not in vm_time_info:
-                            vm_time_info[vm_id] = {}
+                            # 初始化 vm_time_info
+                            if vm_id not in vm_time_info:
+                                vm_time_info[vm_id] = {}
 
-                        # 提取创建时间
-                        create_time_str = summary.get("createTime")
-                        if create_time_str:
-                            create_time = self._parse_datetime(create_time_str)
-                            vm_time_info[vm_id]['vm_create_time'] = create_time
+                            # 提取磁盘使用量（storage 字段，如 "120.00GB"）
+                            storage_str = summary.get("storage")
+                            if storage_str and isinstance(storage_str, str):
+                                vm_time_info[vm_id]['disk_usage_bytes'] = self._parse_storage_string(storage_str)
 
-                        # 对于开机VM，使用 uptime（分钟）转换为秒
-                        # -1 表示未知
-                        uptime_minutes = summary.get("uptime")
-                        if uptime_minutes is not None and uptime_minutes > 0:
-                            # uptime 是分钟，转换为秒
-                            uptime_duration = uptime_minutes * 60
-                            vm_time_info[vm_id]['uptime_duration'] = uptime_duration
-                            logger.debug("uis_vm_uptime_retrieved",
-                                       vm_id=vm_id,
-                                       uptime_minutes=uptime_minutes,
-                                       uptime_seconds=uptime_duration)
+                            # 提取创建时间
+                            create_time_str = summary.get("createTime")
+                            if create_time_str:
+                                create_time = self._parse_datetime(create_time_str)
+                                vm_time_info[vm_id]['vm_create_time'] = create_time
 
-                        # 对于关机VM，使用 lastOffTime 计算关机时长
-                        # lastOffTime 是 Unix 时间戳（毫秒），表示最后关机时间（UTC+0）
-                        last_off_time_timestamp = summary.get("lastOffTime")
-                        if last_off_time_timestamp and last_off_time_timestamp > 0:
-                            # 解析时间戳（毫秒）
-                            last_off_time = self._parse_datetime(last_off_time_timestamp)
-                            if last_off_time:
-                                # 确保时区为 UTC
-                                if last_off_time.tzinfo is None:
-                                    last_off_time = last_off_time.replace(tzinfo=timezone.utc)
-
-                                # 计算关机时长：当前时间 - lastOffTime
-                                downtime = now - last_off_time
-                                downtime_duration = int(downtime.total_seconds())
-                                vm_time_info[vm_id]['downtime_duration'] = downtime_duration
-                                logger.debug("uis_vm_downtime_calculated",
+                            # 对于开机VM，使用 uptime（分钟）转换为秒
+                            uptime_minutes = summary.get("uptime")
+                            if uptime_minutes is not None and uptime_minutes > 0:
+                                uptime_duration = uptime_minutes * 60
+                                vm_time_info[vm_id]['uptime_duration'] = uptime_duration
+                                logger.debug("uis_vm_uptime_retrieved",
                                            vm_id=vm_id,
-                                           last_off_time=last_off_time.isoformat(),
-                                           downtime_seconds=downtime_duration)
-            except Exception as e:
-                logger.debug("uis_vm_summary_failed", vm_id=vm_id, error=str(e))
+                                           uptime_minutes=uptime_minutes,
+                                           uptime_seconds=uptime_duration)
+
+                            # 对于关机VM，使用 lastOffTime 计算关机时长
+                            last_off_time_timestamp = summary.get("lastOffTime")
+                            if last_off_time_timestamp and last_off_time_timestamp > 0:
+                                last_off_time = self._parse_datetime(last_off_time_timestamp)
+                                if last_off_time:
+                                    if last_off_time.tzinfo is None:
+                                        last_off_time = last_off_time.replace(tzinfo=timezone.utc)
+
+                                    downtime = now - last_off_time
+                                    downtime_duration = int(downtime.total_seconds())
+                                    vm_time_info[vm_id]['downtime_duration'] = downtime_duration
+                                    logger.debug("uis_vm_downtime_calculated",
+                                               vm_id=vm_id,
+                                               last_off_time=last_off_time.isoformat(),
+                                               downtime_seconds=downtime_duration)
+                except Exception as e:
+                    logger.debug("uis_vm_summary_failed", vm_id=vm_id, error=str(e))
+
+        # 并发执行所有 VM summary 请求
+        await asyncio.gather(*[fetch_vm_summary(vm_data) for vm_data in vm_list], return_exceptions=True)
 
         # Step 3: 构建VM信息列表
         vms = []
@@ -677,6 +708,9 @@ class UISConnector(Connector):
                 if cluster_info:
                     datacenter = cluster_info.get("name", "")
 
+            # 从 VM summary 获取磁盘使用量（storage 字段，如 "120.00GB"）
+            disk_usage_bytes = time_info.get('disk_usage_bytes', 0)
+
             vms.append(VMInfo(
                 name=vm_data.get("name", ""),
                 datacenter=datacenter,  # 从 cluster_id 关联的集群名称
@@ -690,6 +724,7 @@ class UISConnector(Connector):
                 host_ip=host_ip,  # 通过 host_id 从主机映射中获取
                 connection_state=connection_state,  # 从 vmStatus 映射：unknown→disconnected, 其他→connected
                 overall_status=overall_status,  # 从 vmStatus 映射：running→green, shutOff→gray, etc.
+                disk_usage_bytes=disk_usage_bytes,
                 vm_create_time=create_time,
                 uptime_duration=uptime_duration,
                 downtime_duration=downtime_duration,
@@ -864,7 +899,7 @@ class UISConnector(Connector):
                         time_str = data_point.get("name") or data_point.get("time", "")
                         rate = data_point.get("rate")
 
-                        if time_str and rate is not None:
+                        if time_str and rate is not None and rate >= 0:
                             time_series[time_str] = rate
 
                     # 找到平均值后就退出

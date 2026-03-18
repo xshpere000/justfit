@@ -13,6 +13,13 @@ const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
 
+// Injected by main.ts to avoid circular imports
+let onCloseRequest: (() => void) | null = null;
+
+export function setCloseRequestHandler(handler: () => void): void {
+    onCloseRequest = handler;
+}
+
 /**
  * Create the main browser window
  */
@@ -76,9 +83,13 @@ export function createMainWindow(): BrowserWindow {
         }
     });
 
-    // Handle window events
-    mainWindow.once("ready-to-show", () => {
-        mainWindow?.show();
+    // Window is shown externally (after backend is ready) via win.show()
+
+    mainWindow.on("close", (event) => {
+        if (onCloseRequest) {
+            event.preventDefault();
+            onCloseRequest();
+        }
     });
 
     mainWindow.on("closed", () => {

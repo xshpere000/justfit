@@ -1023,11 +1023,11 @@ Content-Type: application/json
 
 **闲置检测类型:**
 
-| idleType | 说明 |
-|----------|------|
-| powered_off | 关机型 - 虚拟机已关机且长期未活动 |
-| idle_powered_on | 开机闲置型 - 虚拟机开启但使用率极低 |
-| low_activity | 低活动型 - 虚拟机有活动但明显不足 |
+| idleType | 说明 | 释放资源 |
+|----------|------|---------|
+| powered_off | 关机型 - 虚拟机已关机且长期未活动 | 仅磁盘（已不占 CPU/内存）|
+| idle_powered_on | 开机闲置型 - 虚拟机开启但使用率极低 | CPU + 内存 + 磁盘 |
+| low_activity | 低活动型 - 虚拟机有活动但明显不足 | CPU + 内存 + 磁盘 |
 
 ## 获取闲置检测结果
 
@@ -1071,8 +1071,10 @@ Content-Type: application/json
         "memoryMax": 52.1,
         "memoryAvg": 38.5,
         "mismatchType": "both_underutilized",
-        "adjustmentType": "down_significant",
-        "wasteRatio": 0.55,
+        "cpuAdjustmentType": "down_significant",
+        "memAdjustmentType": "down_significant",
+        "cpuWasteRatio": 50.0,
+        "memWasteRatio": 50.0,
         "riskLevel": "low",
         "confidence": 85.0,
         "reason": "CPU P95=28.5%/P90=25.2%/Max=45.2%/Avg=22.1%，推荐缩减至4核；内存P95=45.2%/Max=52.1%/Avg=38.5%，推荐缩减至16GB"
@@ -1128,8 +1130,10 @@ Content-Type: application/json
 | `memoryMax` | float | 内存峰值百分比 |
 | `memoryAvg` | float | 内存均值百分比 |
 | `mismatchType` | string | 见下表 |
-| `adjustmentType` | string | 见下表 |
-| `wasteRatio` | float | 浪费比例（负数=欠配） |
+| `cpuAdjustmentType` | string | CPU 调整方向，见下表 |
+| `memAdjustmentType` | string | 内存调整方向，见下表 |
+| `cpuWasteRatio` | float | CPU 浪费比例 %（负数=欠配） |
+| `memWasteRatio` | float | 内存浪费比例 %（负数=欠配） |
 | `riskLevel` | string | `high` / `medium` / `low` |
 | `confidence` | float | 置信度 0~100 |
 | `reason` | string | 详细判断依据（含具体数值） |
@@ -1144,7 +1148,7 @@ Content-Type: application/json
 | `both_overutilized` | CPU 和内存双高（建议扩容）|
 | `balanced` | 配比合理（不会出现在错配报告中）|
 
-**adjustmentType 可选值:**
+**cpuAdjustmentType / memAdjustmentType 可选值:**
 
 | 类型 | 说明 |
 |------|------|
@@ -1184,6 +1188,11 @@ GET /api/analysis/tasks/{task_id}/summary?optimizations=resource,idle
 
 基于贪心算法，综合资源优化和闲置检测结果，计算可完全释放（下线）的物理主机。
 
+**释放量计算规则：**
+- **资源优化 (Right Size)**：仅针对开机 VM，释放缩减的 CPU 和内存（不涉及磁盘）
+- **闲置检测 - 开机闲置 VM**：关闭后释放 CPU、内存和磁盘
+- **闲置检测 - 关机 VM**：已不占 CPU / 内存，删除后仅释放磁盘空间
+
 **查询参数:**
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -1200,12 +1209,16 @@ GET /api/analysis/tasks/{task_id}/summary?optimizations=resource,idle
       "totalHosts": 5,
       "totalCpuCores": 320,
       "totalMemoryGb": 1280.0,
+      "totalStorageGb": 5120.0,
+      "usedStorageGb": 3200.0,
       "totalVms": 80
     },
-    "savings": {
-      "cpuCores": 64,
-      "memoryGb": 256.0,
-      "freeableHosts": 1
+    "optimized": {
+      "freedCpuCores": 64,
+      "freedMemoryGb": 256.0,
+      "freedCpuPercent": 12.5,
+      "freedMemoryPercent": 8.3,
+      "freedDiskGb": 120.0
     },
     "freeableHosts": [
       {
@@ -1213,10 +1226,60 @@ GET /api/analysis/tasks/{task_id}/summary?optimizations=resource,idle
         "hostIp": "192.168.1.105",
         "cpuCores": 64,
         "memoryGb": 256.0,
+        "storageGb": 1024.0,
         "currentVmCount": 8,
-        "reason": "该主机上8台VM共需48核CPU/180.0 GB内存，优化后可节省资源足以迁移这些VM，主机可下线"
+        "reason": "该主机上8台VM共需48核CPU/180.0 GB内存/50.0 GB磁盘，优化后可节省资源足以迁移这些VM，存储约束满足，主机可下线"
       }
-    ]
+    ],
+    "recommendation": {
+      "resourceOptimization": {
+        "enabled": true,
+        "vmCount": 12,
+        "freedCpuCores": 32,
+        "freedMemoryGb": 128.0
+      },
+      "idleDetection": {
+        "enabled": true,
+        "vmCount": 8,
+        "poweredOnCount": 3,
+        "poweredOffCount": 5,
+        "freedCpuCores": 32,
+        "freedMemoryGb": 128.0,
+        "freedDiskGb": 120.0
+      },
+      "postOptimization": {
+        "neededCpuCores": 256,
+        "neededMemoryGb": 1024.0,
+        "neededStorageGb": 3080.0,
+        "retainedCpuCores": 256,
+        "retainedMemoryGb": 1024.0,
+        "retainedStorageGb": 4096.0,
+        "cpuLoadPercent": 75.0,
+        "memoryLoadPercent": 68.5,
+        "storageLoadPercent": 75.2,
+        "healthStatus": "warning",
+        "healthLabel": "一般"
+      },
+      "retainedHosts": [
+        {"hostName": "esxi-01", "hostIp": "192.168.1.101", "cpuCores": 64, "memoryGb": 256.0}
+      ],
+      "freeableHostCount": 1,
+      "retainedHostCount": 4,
+      "totalHosts": 5
+    },
+    "breakdown": {
+      "resourceOptimization": {
+        "cpuCores": 32,
+        "memoryGb": 128.0
+      },
+      "idleDetection": {
+        "cpuCores": 32,
+        "memoryGb": 128.0,
+        "diskGb": 120.0,
+        "poweredOnCount": 3,
+        "poweredOffCount": 5
+      }
+    }
   }
 }
 ```

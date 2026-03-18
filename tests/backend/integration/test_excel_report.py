@@ -247,15 +247,15 @@ def get_mock_report_data() -> Dict[str, Any]:
                 },
             ],
             "resource": {
-                "rightSize": [
+                "resourceOptimization": [
                     {
                         "vmName": "web-server-overprovisioned",
                         "cluster": "Cluster-Production",
                         "hostIp": "10.0.1.101",
                         "currentConfig": {"cpu": 8, "memory": 32},
                         "recommendedConfig": {"cpu": 4, "memory": 16},
-                        "wasteRatio": 50.0,
-                        "adjustmentType": "downsize_both",
+                        "cpuWasteRatio": 50.0,
+                        "cpuAdjustmentType": "downsize_both",
                         "recommendation": "建议大幅缩容至 4 vCPU / 16GB RAM，可节省50%资源",
                     },
                     {
@@ -264,8 +264,8 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "hostIp": "10.0.1.102",
                         "currentConfig": {"cpu": 2, "memory": 4},
                         "recommendedConfig": {"cpu": 4, "memory": 8},
-                        "wasteRatio": 0,
-                        "adjustmentType": "upsize_both",
+                        "cpuWasteRatio": 0,
+                        "cpuAdjustmentType": "upsize_both",
                         "recommendation": "CPU和内存使用率持续偏高，建议扩容至 4 vCPU / 8GB RAM",
                     },
                     {
@@ -274,12 +274,12 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "hostIp": "10.0.1.104",
                         "currentConfig": {"cpu": 16, "memory": 64},
                         "recommendedConfig": {"cpu": 8, "memory": 32},
-                        "wasteRatio": 48.5,
-                        "adjustmentType": "downsize",
+                        "cpuWasteRatio": 48.5,
+                        "cpuAdjustmentType": "downsize",
                         "recommendation": "建议缩容至 8 vCPU / 32GB RAM",
                     },
                 ],
-                "usagePattern": [
+                "tidal": [
                     {
                         "vmName": "report-server-tidal",
                         "datacenter": "DC1",
@@ -334,7 +334,7 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "cpuUtilization": 15.2,
                         "memoryUtilization": 82.5,
                         "currentCpu": 8,
-                        "currentMemory": 16.0,
+                        "currentMemoryGb": 16.0,
                         "recommendation": "CPU使用率低但内存使用率高，建议降低CPU配置或增加内存",
                     },
                     {
@@ -348,7 +348,7 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "cpuUtilization": 78.3,
                         "memoryUtilization": 22.8,
                         "currentCpu": 4,
-                        "currentMemory": 32.0,
+                        "currentMemoryGb": 32.0,
                         "recommendation": "CPU使用率高但内存使用率低，建议增加CPU配置或降低内存",
                     },
                     {
@@ -362,14 +362,14 @@ def get_mock_report_data() -> Dict[str, Any]:
                         "cpuUtilization": 18.5,
                         "memoryUtilization": 25.3,
                         "currentCpu": 8,
-                        "currentMemory": 32.0,
+                        "currentMemoryGb": 32.0,
                         "recommendation": "CPU和内存使用率都偏低，资源被过度分配",
                     },
                 ],
                 "summary": {
-                    "rightSizeCount": 3,
-                    "usagePatternCount": 3,
-                    "mismatchCount": 3,
+                    "resourceOptimizationCount": 3,
+                    "tidalCount": 3,
+                    "totalVmsAnalyzed": 3,
                     "totalVmsAnalyzed": 156,
                 },
             },
@@ -499,8 +499,8 @@ async def test_excel_report_generation_minimal(tmp_path):
             "health": None,
             "idle": [],
             "resource": {
-                "rightSize": [],
-                "usagePattern": [],
+                "resourceOptimization": [],
+                "tidal": [],
                 "mismatch": [],
             },
         },
@@ -600,8 +600,8 @@ async def test_excel_idle_sheet_with_missing_fields(tmp_path):
                 },
             ],
             "resource": {
-                "rightSize": [],
-                "usagePattern": [],
+                "resourceOptimization": [],
+                "tidal": [],
                 "mismatch": [],
             },
             "health": None,
@@ -697,7 +697,7 @@ async def test_excel_risk_level_color_mapping(tmp_path):
                  "confidence": 80, "riskLevel": rl, "recommendation": "测试"}
                 for rl in ["critical", "high", "medium", "low"]
             ],
-            "resource": {"rightSize": [], "usagePattern": [], "mismatch": []},
+            "resource": {"resourceOptimization": [], "tidal": [], "mismatch": []},
             "health": None,
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -776,7 +776,7 @@ async def test_excel_health_score_colors(tmp_path):
         },
         "analysis": {
             "idle": [],
-            "resource": {"rightSize": [], "usagePattern": [], "mismatch": []},
+            "resource": {"resourceOptimization": [], "tidal": [], "mismatch": []},
             "health": {
                 "overallScore": 75,
                 "grade": "good",
@@ -850,19 +850,19 @@ async def test_excel_percentage_formatting(tmp_path):
         "analysis": {
             "idle": [],
             "resource": {
-                "rightSize": [
+                "resourceOptimization": [
                     {
                         "vmName": f"vm-{i}",
                         "cluster": "C1",
                         "currentConfig": {"cpu": 8, "memory": 32},
                         "recommendedConfig": {"cpu": 4, "memory": 16},
-                        "wasteRatio": 50.0 * i,  # 0%, 50%, 100%
-                        "adjustmentType": "downsize",
+                        "cpuWasteRatio": 50.0 * i,  # 0%, 50%, 100%
+                        "cpuAdjustmentType": "downsize",
                         "recommendation": f"测试{i}",
                     }
                     for i in range(1, 4)
                 ],
-                "usagePattern": [],
+                "tidal": [],
                 "mismatch": [],
             },
             "health": None,
@@ -942,23 +942,23 @@ async def test_excel_chinese_mappings(tmp_path):
                 for t in ["powered_off", "idle_powered_on", "low_activity"]
             ],
             "resource": {
-                "rightSize": [
+                "resourceOptimization": [
                     {
                         "vmName": f"vm-{t}",
                         "cluster": "C1",
                         "currentConfig": {"cpu": 4, "memory": 16},
                         "recommendedConfig": {"cpu": 2, "memory": 8},
-                        "wasteRatio": 50,
-                        "adjustmentType": t,
+                        "cpuWasteRatio": 50,
+                        "cpuAdjustmentType": t,
                         "recommendation": "测试",
                     }
                     for t in ["downsize_both", "upsize_both", "downsize_cpu"]
                 ],
-                "usagePattern": [
+                "tidal": [
                     {
                         "vmName": f"vm-{p}",
                         "cluster": "C1",
-                        "usagePattern": p,
+                        "tidal": p,
                         "volatilityLevel": "low",
                         "coefficientOfVariation": 0.2,
                         "peakValleyRatio": 1.5,
@@ -974,7 +974,7 @@ async def test_excel_chinese_mappings(tmp_path):
                         "cpuUtilization": 20,
                         "memoryUtilization": 80,
                         "currentCpu": 4,
-                        "currentMemory": 16,
+                        "currentMemoryGb": 16,
                         "recommendation": "测试",
                     }
                     for m in ["cpu_rich_memory_poor", "cpu_poor_memory_rich", "both_underutilized"]

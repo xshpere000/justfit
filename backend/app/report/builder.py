@@ -3,7 +3,7 @@
 import structlog
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -69,6 +69,16 @@ class ReportBuilder:
         health_response = await analysis_service.get_analysis_results(task_id, "health")
         health_results = health_response.get("data") if health_response.get("success") else None
 
+        # Get host freeability summary (综合优化建议 + 可释放主机)
+        # 根据已有分析结果决定启用哪些优化项
+        enabled_opts = []
+        if idle_results:
+            enabled_opts.append("idle")
+        if resource_results.get("resourceOptimization"):
+            enabled_opts.append("resource")
+        freeability_response = await analysis_service.calculate_host_freeability(task_id, enabled_opts)
+        freeability_data = freeability_response.get("data") if freeability_response.get("success") else None
+
         # Collect VM metrics for charts
         # Combine VMs from idle and resource optimization results
         vms_to_chart = []
@@ -126,10 +136,13 @@ class ReportBuilder:
                 "idle": idle_results,
                 "resource": resource_results,
                 "health": health_results,
+                # freeability_data 包含 current/optimized/freeableHosts/recommendation/breakdown
+                # 单位说明：cpuCores=核, memoryGb=GB, storageGb=GB, diskGb=GB, loadPercent=%
+                "freeability": freeability_data,
             },
             "vm_metrics": vm_metrics,  # Time-series data for charts (vm_id -> metrics)
             "vm_name_to_id": vm_name_to_id,  # Mapping for VMs only identified by name
-            "generated_at": datetime.utcnow().isoformat(),
+            "generated_at": datetime.now().isoformat(),
         }
 
     async def _get_task(self, task_id: int) -> Optional[AssessmentTask]:
@@ -163,6 +176,8 @@ class ReportBuilder:
                 "datacenter": c.datacenter,
                 "total_cpu": c.total_cpu,
                 "total_memory_gb": round(c.total_memory / (1024**3), 2),
+                "total_storage_gb": round(c.total_storage / (1024**3), 2),
+                "used_storage_gb": round(c.used_storage / (1024**3), 2),
                 "num_hosts": c.num_hosts,
                 "num_vms": c.num_vms,
             }
@@ -206,6 +221,7 @@ class ReportBuilder:
                 "datacenter": v.datacenter,
                 "cpu_count": v.cpu_count,
                 "memory_gb": round(v.memory_bytes / (1024**3), 2),
+                "disk_usage_gb": round(v.disk_usage_bytes / (1024**3), 2),
                 "power_state": v.power_state,
                 "guest_os": v.guest_os,
                 "ip_address": v.ip_address,
@@ -263,9 +279,11 @@ class ReportBuilder:
         """Build summary statistics."""
         total_cpu = sum(c.get("total_cpu", 0) for c in clusters)
         total_memory_gb = sum(c.get("total_memory_gb", 0) for c in clusters)
+        total_storage_gb = sum(c.get("total_storage_gb", 0) for c in clusters)
+        used_storage_gb = sum(c.get("used_storage_gb", 0) for c in clusters)
 
-        powered_on_vms = [v for v in vms if v.get("power_state") == "poweredon"]
-        powered_off_vms = [v for v in vms if v.get("power_state") == "poweredoff"]
+        powered_on_vms = [v for v in vms if (v.get("power_state") or "").lower().replace(" ", "").replace("_", "") in ("poweredon", "on", "running")]
+        powered_off_vms = [v for v in vms if (v.get("power_state") or "").lower().replace(" ", "").replace("_", "") in ("poweredoff", "off", "shutdown", "suspended")]
 
         return {
             "total_clusters": len(clusters),
@@ -275,6 +293,8 @@ class ReportBuilder:
             "powered_off_vms": len(powered_off_vms),
             "total_cpu_mhz": total_cpu,
             "total_memory_gb": round(total_memory_gb, 2),
+            "total_storage_gb": round(total_storage_gb, 2),
+            "used_storage_gb": round(used_storage_gb, 2),
         }
 
     def build_idle_summary(self, idle_results: List[Dict]) -> Dict[str, Any]:
@@ -291,7 +311,7 @@ class ReportBuilder:
                 "total": 0,
                 "by_type": {"powered_off": 0, "idle_powered_on": 0, "low_activity": 0},
                 "by_risk": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-                "potential_savings": {"cpu_cores": 0, "memory_gb": 0},
+                "potential_savings": {"cpu_cores": 0, "memory_gb": 0, "disk_gb": 0},
             }
 
         # Count by type
@@ -308,12 +328,20 @@ class ReportBuilder:
             if risk in risk_counts:
                 risk_counts[risk] += 1
 
-        # Calculate potential savings
+        # Calculate potential savings (关机 VM 已不占 CPU/内存，仅占磁盘)
         total_cpu = 0
         total_memory = 0
+        total_disk = 0
         for item in idle_results:
-            total_cpu += item.get("cpuCores", 0)
-            total_memory += item.get("memoryGb", 0)
+            idle_type = item.get("idleType", "")
+            if idle_type == "powered_off":
+                # 关机 VM 只释放磁盘
+                total_disk += item.get("diskUsageGb", 0)
+            else:
+                # 开机闲置 VM 释放 CPU + 内存 + 磁盘
+                total_cpu += item.get("cpuCores", 0)
+                total_memory += item.get("memoryGb", 0)
+                total_disk += item.get("diskUsageGb", 0)
 
         return {
             "total": len(idle_results),
@@ -322,6 +350,7 @@ class ReportBuilder:
             "potential_savings": {
                 "cpu_cores": total_cpu,
                 "memory_gb": round(total_memory, 2),
+                "disk_gb": round(total_disk, 2),
             },
         }
 
@@ -343,8 +372,8 @@ class ReportBuilder:
 
         resource_summary = {
             "total": len(resource_optimization),
-            "downsize_candidates": sum(1 for r in resource_optimization if r.get("adjustmentType", "").startswith("down")),
-            "upsize_candidates": sum(1 for r in resource_optimization if r.get("adjustmentType", "").startswith("up")),
+            "downsize_candidates": sum(1 for r in resource_optimization if (r.get("cpuAdjustmentType", "") or "").startswith("down") or (r.get("memAdjustmentType", "") or "").startswith("down")),
+            "upsize_candidates": sum(1 for r in resource_optimization if (r.get("cpuAdjustmentType", "") or "").startswith("up") or (r.get("memAdjustmentType", "") or "").startswith("up")),
             "mismatch_types": mismatch_type_counts,
             "potential_savings": {
                 "cpu_cores": max(0, current_cpu - suggested_cpu),
@@ -425,16 +454,27 @@ class ReportBuilder:
         Returns:
             Total potential savings summary
         """
-        # Idle VM savings
-        idle_cpu = sum(item.get("cpuCores", 0) for item in idle_results)
-        idle_memory = sum(item.get("memoryGb", 0) for item in idle_results)
+        # Idle VM savings (关机 VM 已不占 CPU/内存，仅占磁盘)
+        idle_vm_ids = {item.get("vmId") for item in idle_results if item.get("vmId") is not None}
+        idle_cpu = 0
+        idle_memory = 0.0
+        idle_disk = 0.0
+        for item in idle_results:
+            idle_type = item.get("idleType", "")
+            if idle_type == "powered_off":
+                idle_disk += item.get("diskUsageGb", 0)
+            else:
+                idle_cpu += item.get("cpuCores", 0)
+                idle_memory += item.get("memoryGb", 0)
+                idle_disk += item.get("diskUsageGb", 0)
 
-        # Right Size savings
+        # Right Size savings（排除已在 idle 列表中的 VM，避免重复计算）
         resource_optimization = resource_results.get("resourceOptimization", [])
-        current_cpu = sum(r.get("currentCpu", 0) for r in resource_optimization)
-        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in resource_optimization)
-        current_memory = sum(r.get("currentMemoryGb", 0) for r in resource_optimization)
-        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in resource_optimization)
+        rs_deduped = [r for r in resource_optimization if r.get("vmId") not in idle_vm_ids]
+        current_cpu = sum(r.get("currentCpu", 0) for r in rs_deduped)
+        suggested_cpu = sum(r.get("recommendedCpu", 0) for r in rs_deduped)
+        current_memory = sum(r.get("currentMemoryGb", 0) for r in rs_deduped)
+        suggested_memory = sum(r.get("recommendedMemoryGb", 0) for r in rs_deduped)
 
         rightsize_cpu_save = max(0, current_cpu - suggested_cpu)
         rightsize_memory_save = max(0, current_memory - suggested_memory)
@@ -442,13 +482,15 @@ class ReportBuilder:
         return {
             "total_cpu_savings": idle_cpu + rightsize_cpu_save,
             "total_memory_savings_gb": round(idle_memory + rightsize_memory_save, 2),
+            "total_disk_savings_gb": round(idle_disk, 2),
             "idle_vms": {
                 "count": len(idle_results),
                 "cpu_cores": idle_cpu,
                 "memory_gb": round(idle_memory, 2),
+                "disk_gb": round(idle_disk, 2),
             },
             "right_size": {
-                "count": len(resource_optimization),
+                "count": len(rs_deduped),
                 "cpu_cores": rightsize_cpu_save,
                 "memory_gb": round(rightsize_memory_save, 2),
             },
@@ -506,8 +548,67 @@ class ReportBuilder:
         if not vm_ids:
             return result, vm_name_to_id
 
+        # Query VM info to get cpu_count, memory_bytes, host_name, host_ip for unit conversion
+        vm_info_query = select(VM.id, VM.cpu_count, VM.memory_bytes, VM.host_name, VM.host_ip).where(
+            VM.id.in_(vm_ids)
+        )
+        vm_info_result = await self.db.execute(vm_info_query)
+        vm_info_map: Dict[int, Dict] = {}
+        host_names_to_lookup = set()
+        host_ips_to_lookup = set()
+        for row in vm_info_result.all():
+            vid, cpu_count, memory_bytes, host_name, host_ip = row
+            vm_info_map[vid] = {
+                "cpu_count": cpu_count or 0,
+                "memory_bytes": memory_bytes or 0,
+                "host_name": host_name or "",
+                "host_ip": host_ip or "",
+            }
+            if host_name:
+                host_names_to_lookup.add(host_name)
+            if host_ip:
+                host_ips_to_lookup.add(host_ip)
+
+        # Query Host cpu_mhz for percentage conversion (CPU stored as MHz)
+        host_cpu_by_name: Dict[str, int] = {}
+        host_cpu_by_ip: Dict[str, int] = {}
+        if host_names_to_lookup or host_ips_to_lookup:
+            host_query = select(Host.name, Host.ip_address, Host.cpu_mhz).where(
+                or_(
+                    Host.name.in_(host_names_to_lookup),
+                    Host.ip_address.in_(host_ips_to_lookup),
+                )
+            )
+            host_result = await self.db.execute(host_query)
+            for row in host_result.all():
+                hname, hip, cpu_mhz = row
+                if hname:
+                    host_cpu_by_name[hname] = cpu_mhz or 0
+                if hip:
+                    host_cpu_by_ip[hip] = cpu_mhz or 0
+
+        def _get_host_cpu_mhz(vm_id: int) -> int:
+            info = vm_info_map.get(vm_id, {})
+            mhz = host_cpu_by_name.get(info.get("host_name", ""), 0)
+            if mhz == 0:
+                mhz = host_cpu_by_ip.get(info.get("host_ip", ""), 0)
+            return mhz if mhz > 0 else 2600  # fallback to 2600 MHz
+
+        def _cpu_to_pct(vm_id: int, value_mhz: float) -> float:
+            info = vm_info_map.get(vm_id, {})
+            cpu_count = max(1, info.get("cpu_count", 1))
+            host_mhz = _get_host_cpu_mhz(vm_id)
+            pct = value_mhz / (cpu_count * host_mhz) * 100
+            return min(100.0, round(pct, 2))
+
+        def _mem_to_pct(vm_id: int, value_bytes: float) -> float:
+            info = vm_info_map.get(vm_id, {})
+            total = max(1, info.get("memory_bytes", 1))
+            pct = value_bytes / total * 100
+            return min(100.0, round(pct, 2))
+
         # Calculate time range
-        end_time = datetime.utcnow()
+        end_time = datetime.now()
         start_time = end_time - timedelta(days=metric_days)
 
         # Query metrics for all VMs
@@ -523,7 +624,7 @@ class ReportBuilder:
         metrics_result = await self.db.execute(metrics_query)
         metrics = metrics_result.scalars().all()
 
-        # Group metrics by vm_id and metric_type
+        # Group metrics by vm_id and metric_type, converting CPU/memory to percentages
         for metric in metrics:
             vm_id = metric.vm_id
             if vm_id not in result:
@@ -540,10 +641,16 @@ class ReportBuilder:
             timestamp = metric.timestamp.timestamp()
             value = float(metric.value)
 
-            # Store in appropriate list
             metric_type = metric.metric_type
-            if metric_type in result[vm_id]:
-                result[vm_id][metric_type].append((timestamp, value))
+            if metric_type == "cpu":
+                # Convert MHz → percentage
+                result[vm_id]["cpu"].append((timestamp, _cpu_to_pct(vm_id, value)))
+            elif metric_type == "memory":
+                # Convert bytes → percentage
+                result[vm_id]["memory"].append((timestamp, _mem_to_pct(vm_id, value)))
+            elif metric_type in result[vm_id]:
+                if value >= 0:  # vCenter 用 -1 表示无效采样，过滤掉
+                    result[vm_id][metric_type].append((timestamp, value))
 
         # Also add entries for VMs looked up by name
         for vm_name, vm_id in vm_name_to_id.items():

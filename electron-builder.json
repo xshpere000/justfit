@@ -1,6 +1,6 @@
 {
   "name": "justfit",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "JustFit - Cloud Platform Resource Assessment Tool",
   "main": "electron/dist/main.js",
   "author": "JustFit Team",

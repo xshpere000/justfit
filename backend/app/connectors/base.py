@@ -44,9 +44,11 @@ class ClusterInfo:
     datacenter: str
     total_cpu: int  # MHz
     total_memory: int  # bytes
-    num_hosts: int
-    num_vms: int
-    cluster_key: str
+    total_storage: int = 0  # bytes, 集群虚拟存储总容量
+    used_storage: int = 0  # bytes, 集群虚拟存储已使用量
+    num_hosts: int = 0
+    num_vms: int = 0
+    cluster_key: str = ""
 
 
 @dataclass
@@ -112,6 +114,7 @@ class VMInfo:
     host_ip: str
     connection_state: str
     overall_status: str
+    disk_usage_bytes: int = 0  # bytes, VM 磁盘使用量（committed storage）
     vm_create_time: Optional[datetime] = None
     uptime_duration: Optional[int] = None  # seconds
     downtime_duration: Optional[int] = None  # seconds

@@ -3,14 +3,7 @@
  * 提供统一的错误处理和加载状态管理
  */
 
-import { ref } from 'vue'
 import type { Ref } from 'vue'
-
-export interface ApiResult<T> {
-  data: T | null
-  error: string | null
-  loading: boolean
-}
 
 export function useApi() {
   /**
@@ -21,10 +14,9 @@ export function useApi() {
     options: {
       loading?: Ref<boolean>
       error?: Ref<string | null>
-      successMessage?: string
     } = {}
   ): Promise<T> {
-    const { loading, error, successMessage } = options
+    const { loading, error } = options
 
     try {
       if (loading) loading.value = true
@@ -61,66 +53,9 @@ export function useApi() {
     }
   }
 
-  /**
-   * 轮询 API
-   */
-  function pollApi<T>(
-    apiFn: () => Promise<T>,
-    condition: (data: T) => boolean,
-    options: {
-      interval?: number
-      maxAttempts?: number
-      loading?: Ref<boolean>
-    } = {}
-  ) {
-    const {
-      interval = 2000,
-      maxAttempts = 300,  // 10 minutes
-      loading
-    } = options
-
-    let attempts = 0
-    let timer: ReturnType<typeof setInterval> | null = null
-
-    const stop = () => {
-      if (timer) {
-        clearInterval(timer)
-        timer = null
-      }
-      if (loading) loading.value = false
-    }
-
-    const start = async () => {
-      if (loading) loading.value = true
-
-      try {
-        const result = await apiFn()
-
-        if (condition(result) || attempts >= maxAttempts) {
-          stop()
-          return result
-        }
-
-        attempts++
-      } catch (err) {
-        if (attempts >= maxAttempts) {
-          stop()
-          throw err
-        }
-        attempts++
-      }
-    }
-
-    timer = setInterval(start, interval)
-    start()
-
-    return { stop }
-  }
-
   return {
     callApi,
-    callMultiple,
-    pollApi
+    callMultiple
   }
 }
 

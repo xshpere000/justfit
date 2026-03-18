@@ -263,7 +263,7 @@ import {
   Check,
   RefreshLeft
 } from '@element-plus/icons-vue'
-import { getAnalysisMode, updateTaskCustomConfig } from '@/api/analysis'
+import { getAnalysisMode, updateTaskCustomConfig, updateTaskMode } from '@/api/analysis'
 import { getTaskDetail } from '@/api/task'
 import type { AnalysisModeResponse, AnalysisModeType, AnalysisModeConfig } from '@/api/analysis'
 import ParamSlider from './components/ParamSlider.vue'
@@ -560,10 +560,15 @@ async function handleSave() {
 
   saving.value = true
   try {
-    // 保存自定义配置到任务
-    await updateTaskCustomConfig(props.taskId, 'idle', modeConfig.value.idle)
-    await updateTaskCustomConfig(props.taskId, 'resource', modeConfig.value.resource)
-    await updateTaskCustomConfig(props.taskId, 'health', modeConfig.value.health)
+    if (selectedMode.value === 'custom') {
+      // 自定义模式：保存三组自定义配置（后端会自动将 mode 设为 custom）
+      await updateTaskCustomConfig(props.taskId, 'idle', modeConfig.value.idle)
+      await updateTaskCustomConfig(props.taskId, 'resource', modeConfig.value.resource)
+      await updateTaskCustomConfig(props.taskId, 'health', modeConfig.value.health)
+    } else {
+      // 预设模式：只更新 mode 字段，不写入 customConfig
+      await updateTaskMode(props.taskId, selectedMode.value)
+    }
 
     currentMode.mode = selectedMode.value
     const modeInfo = availableModes.value.find(m => m.mode === selectedMode.value)

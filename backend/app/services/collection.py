@@ -137,6 +137,8 @@ class CollectionService:
                 total_memory=info.total_memory,
                 num_hosts=info.num_hosts,
                 num_vms=info.num_vms,
+                total_storage=info.total_storage,
+                used_storage=info.used_storage,
                 cluster_key=unique_cluster_key,
                 collected_at=datetime.now(),
             )
@@ -240,6 +242,7 @@ class CollectionService:
                 vm_create_time=info.vm_create_time,
                 uptime_duration=info.uptime_duration,
                 downtime_duration=info.downtime_duration,
+                disk_usage_bytes=info.disk_usage_bytes,
                 collected_at=datetime.now(),
             )
             self.session.add(vm)

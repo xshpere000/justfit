@@ -297,13 +297,12 @@ class PDFReportGenerator:
                 subsections=["5.1 潮汐分布", "5.2 潮汐说明", "5.3 详细列表", "5.4 潮汐VM资源趋势"]
             ))
 
-        # Section 6: Mismatch Analysis (from resourceOptimization)
-        resource_opt = resource_data.get("resourceOptimization", []) if resource_data else []
-        mismatch = [r for r in resource_opt if r.get("mismatchType") and r.get("mismatchType") != "balanced"]
-        if mismatch:
+        # Section 6: Comprehensive Optimization Recommendation (综合优化建议)
+        freeability_data = data.get("analysis", {}).get("freeability")
+        if freeability_data:
             self.sections.append(ReportSection(
-                "6. 配置错配分析",
-                subsections=["6.1 错配类型分布", "6.2 错配说明", "6.3 错配详情", "6.4 错配VM资源趋势"]
+                "6. 综合优化建议",
+                subsections=["6.1 优化措施摘要", "6.2 优化后集群需求", "6.3 主机下线方案"]
             ))
 
         # Section 7: Resource Inventory
@@ -348,9 +347,9 @@ class PDFReportGenerator:
             story.extend(self._build_usage_pattern_section(data, styles))
             story.append(PageBreak())
 
-        # 9. Mismatch Analysis
-        if mismatch:
-            story.extend(self._build_mismatch_section(data, styles))
+        # 9. Comprehensive Optimization Recommendation (综合优化建议，替代已删除的配置错配章节)
+        if freeability_data:
+            story.extend(self._build_optimization_recommendation_section(data, styles))
             story.append(PageBreak())
 
         # 10. Resource Inventory
@@ -787,10 +786,13 @@ class PDFReportGenerator:
         story.append(Paragraph("<b>1.1 评估范围</b>", styles['SubsectionTitle']))
 
         summary = data.get("summary", {})
+        total_storage = summary.get("total_storage_gb", 0)
+        used_storage = summary.get("used_storage_gb", 0)
         scope_text = (
             f"本次评估对 <b>{summary.get('total_clusters', 0)} 个集群</b>、"
             f"<b>{summary.get('total_hosts', 0)} 台主机</b>、"
             f"<b>{summary.get('total_vms', 0)} 台虚拟机</b> 进行了全面的资源分析和健康状况评估。"
+            f"存储资源总量 <b>{total_storage:,.2f} GB</b>，已使用 <b>{used_storage:,.2f} GB</b>。"
         )
         story.append(Paragraph(scope_text, styles['BodyText']))
 
@@ -837,8 +839,21 @@ class PDFReportGenerator:
         resource = data.get("analysis", {}).get("resource", {})
         right_size = resource.get("resourceOptimization", [])
         if right_size:
-            downsize = sum(1 for r in right_size if r.get("adjustmentType", "").startswith("down"))
+            downsize = sum(1 for r in right_size if (r.get("cpuAdjustmentType", "") or r.get("memAdjustmentType", "")).startswith("down"))
             findings.append(f"> 有 <b>{downsize}</b> 台虚拟机存在资源配置过高的现象")
+
+        # Freeable hosts finding
+        fb = data.get("analysis", {}).get("freeability", {})
+        if fb:
+            freeable_count = len(fb.get("freeableHosts", []))
+            if freeable_count > 0:
+                # freedCpuCores 单位：核；freedMemoryGb 单位：GB
+                freed_cpu = fb.get("optimized", {}).get("freedCpuCores", 0)    # 单位：核
+                freed_mem = fb.get("optimized", {}).get("freedMemoryGb", 0.0)  # 单位：GB
+                findings.append(
+                    f"> 综合优化后可下线 <b>{freeable_count}</b> 台物理主机，"
+                    f"释放 <b>{freed_cpu}</b> 核 CPU、<b>{freed_mem:.1f}</b> GB 内存"
+                )
 
         if findings:
             for finding in findings:
@@ -988,10 +1003,18 @@ class PDFReportGenerator:
 
         # Savings estimate
         savings = summary['potential_savings']
-        savings_text = (
-            f"<b>潜在节省:</b> 如果处理这些闲置VM，可释放 "
-            f"<b>{savings['cpu_cores']}</b> 个CPU核心和 <b>{savings['memory_gb']:.1f} GB</b> 内存。"
-        )
+        savings_parts = []
+        if savings['cpu_cores'] > 0 or savings['memory_gb'] > 0:
+            savings_parts.append(
+                f"开机闲置VM关闭后可释放 <b>{savings['cpu_cores']}</b> 个CPU核心、"
+                f"<b>{savings['memory_gb']:.1f} GB</b> 内存"
+            )
+        if savings.get('disk_gb', 0) > 0:
+            savings_parts.append(f"清除闲置VM可释放 <b>{savings['disk_gb']:.1f} GB</b> 磁盘")
+        if savings_parts:
+            savings_text = f"<b>潜在节省:</b> {'；'.join(savings_parts)}。"
+        else:
+            savings_text = "<b>潜在节省:</b> 无可释放资源。"
         story.append(Paragraph(savings_text, styles['BodyText']))
 
         story.append(Spacer(0.5*cm, 0.5*cm))
@@ -999,9 +1022,9 @@ class PDFReportGenerator:
         # Detection method explanation
         story.append(Paragraph("<b>3.2 检测方法</b>", styles['SubsectionTitle']))
         story.extend(self._build_term_explanations([
-            ("关机型闲置", "虚拟机处于关机状态超过14天，且无开机迹象。"),
-            ("开机闲置型", "虚拟机处于开机状态，但CPU和内存使用率均低于阈值（CPU<10%，内存<20%）。"),
-            ("低活跃度型", "虚拟机有一定活动，但整体活跃度很低，活动分数低于30分。"),
+            ("关机型闲置", "虚拟机处于关机状态超过14天，且无开机迹象。关机VM已不占用CPU和内存，删除后仅释放磁盘空间。"),
+            ("开机闲置型", "虚拟机处于开机状态，但CPU和内存使用率均低于阈值（CPU<10%，内存<20%）。关闭后可释放CPU、内存和磁盘。"),
+            ("低活跃度型", "虚拟机有一定活动，但整体活跃度很低，活动分数低于30分。关闭后可释放CPU、内存和磁盘。"),
             ("置信度", "分析结果的可信程度，范围0-100，数值越高表示结果越可靠。"),
         ], styles))
 
@@ -1164,15 +1187,16 @@ class PDFReportGenerator:
         ]
 
         for item in right_size[:20]:
-            adj_type = item.get("adjustmentType", "none")
             type_map = {
                 "down_significant": "大幅缩容",
                 "down": "缩容",
                 "up_significant": "大幅扩容",
                 "up": "扩容",
-                "none": "无需调整",
+                "none": "合理",
             }
-            type_text = type_map.get(adj_type, adj_type)
+            cpu_adj = type_map.get(item.get("cpuAdjustmentType", "none"), "合理")
+            mem_adj = type_map.get(item.get("memAdjustmentType", "none"), "合理")
+            type_text = f"CPU:{cpu_adj} 内存:{mem_adj}"
 
             table_data.append([
                 self._table_cell(item.get("vmName", "")),
@@ -1323,123 +1347,300 @@ class PDFReportGenerator:
 
         return story
 
-    def _build_mismatch_section(self, data: Dict, styles: dict) -> List:
-        """Build configuration mismatch section."""
+    def _build_optimization_recommendation_section(self, data: Dict, styles: dict) -> List:
+        """Build comprehensive optimization recommendation section (综合优化建议).
+
+        数据来源：analysis.freeability（由 calculate_host_freeability 计算）
+        单位说明：
+          - cpuCores / freedCpuCores / neededCpuCores / retainedCpuCores：核（整数）
+          - memoryGb / freedMemoryGb / neededMemoryGb / retainedMemoryGb：GB（浮点）
+          - storageGb / freedDiskGb / neededStorageGb / retainedStorageGb：GB（浮点）
+          - cpuLoadPercent / memoryLoadPercent / storageLoadPercent：百分比 0~100（浮点）
+        """
         story = []
 
-        title = Paragraph("6. 配置错配分析", styles['SectionTitle'])
+        title = Paragraph("6. 综合优化建议", styles['SectionTitle'])
         story.append(title)
 
-        resource = data.get("analysis", {}).get("resource", {})
-        resource_opt = resource.get("resourceOptimization", [])
-        mismatch = [r for r in resource_opt if r.get("mismatchType") and r.get("mismatchType") != "balanced"]
-
-        if not mismatch:
-            story.append(Paragraph("未发现资源配置错配的虚拟机", styles['BodyText']))
+        fb = data.get("analysis", {}).get("freeability", {})
+        if not fb:
+            story.append(Paragraph("暂无综合优化建议数据", styles['BodyText']))
             return story
 
-        # Summary
-        from app.report.builder import ReportBuilder
-        builder = ReportBuilder(None)
-        summary = builder.build_resource_summary(resource)
-        mm_summary = summary["resource_optimization"]["mismatch_types"]
+        rec = fb.get("recommendation", {})
+        # current 字段保留备用（包含 totalCpuCores/totalMemoryGb/totalHosts 等平台总量，单位同 optimized）
+        optimized = fb.get("optimized", {})
+        freeable_hosts = fb.get("freeableHosts", [])
+        post = rec.get("postOptimization", {})
 
-        story.append(Paragraph("<b>6.1 错配类型分布</b>", styles['SubsectionTitle']))
+        # ── 6.1 优化措施摘要 ──────────────────────────────────────────────
+        story.append(Paragraph("<b>6.1 优化措施摘要</b>", styles['SubsectionTitle']))
 
-        summary_text = (
-            f"共发现 <b>{len(mismatch)}</b> 台虚拟机存在资源配置错配问题。"
-        )
-        story.append(Paragraph(summary_text, styles['BodyText']))
+        rs_info = rec.get("resourceOptimization", {})
+        idle_info = rec.get("idleDetection", {})
 
-        story.append(Spacer(0.5*cm, 0.5*cm))
+        # 汇总文字
+        summary_parts = []
+        if rs_info.get("enabled") and rs_info.get("vmCount", 0) > 0:
+            # freedCpuCores 单位：核；freedMemoryGb 单位：GB
+            summary_parts.append(
+                f"资源配置优化：调整 <b>{rs_info['vmCount']}</b> 台虚拟机规格，"
+                f"可释放 <b>{rs_info['freedCpuCores']}</b> 核 CPU、"
+                f"<b>{rs_info.get('freedMemoryGb', 0):.1f}</b> GB 内存"
+            )
+        if idle_info.get("enabled") and idle_info.get("vmCount", 0) > 0:
+            # freedCpuCores 单位：核；freedMemoryGb 单位：GB；freedDiskGb 单位：GB
+            powered_on = idle_info.get("poweredOnCount", 0)
+            powered_off = idle_info.get("poweredOffCount", 0)
+            type_detail = ""
+            if powered_on > 0 and powered_off > 0:
+                type_detail = f"（开机闲置 {powered_on} 台、关机 {powered_off} 台）"
+            elif powered_on > 0:
+                type_detail = f"（开机闲置 {powered_on} 台）"
+            elif powered_off > 0:
+                type_detail = f"（关机 {powered_off} 台）"
+            savings_text = ""
+            if powered_on > 0:
+                savings_text = (
+                    f"开机闲置VM关闭后可释放 <b>{idle_info['freedCpuCores']}</b> 核 CPU、"
+                    f"<b>{idle_info.get('freedMemoryGb', 0):.1f}</b> GB 内存"
+                )
+                disk_on = idle_info.get('freedDiskPoweredOn', 0)
+                if disk_on > 0:
+                    savings_text += f"、<b>{disk_on:.1f}</b> GB 磁盘"
+                savings_text += "。"
+            if powered_off > 0:
+                disk_off = idle_info.get('freedDiskPoweredOff', 0)
+                if disk_off > 0:
+                    savings_text += f"关机VM清除后可释放 <b>{disk_off:.1f}</b> GB 磁盘。"
+            summary_parts.append(
+                f"闲置VM清理：检测到 <b>{idle_info['vmCount']}</b> 台闲置虚拟机{type_detail}，{savings_text}"
+            )
 
-        # Horizontal bar chart - 使用统一色系
-        if self.charts:
+        if summary_parts:
+            for part in summary_parts:
+                story.append(Paragraph(f"> {part}", styles['BodyText']))
+        else:
+            story.append(Paragraph("当前无可优化项", styles['BodyText']))
+
+        story.append(Spacer(0.3*cm, 0.3*cm))
+
+        # 优化措施对比图表（当前 vs 优化后释放量）
+        if self.charts and (rs_info.get("vmCount", 0) > 0 or idle_info.get("vmCount", 0) > 0):
+            # freedCpuCores 单位：核；freedMemoryGb 单位：GB
+            freed_cpu = optimized.get("freedCpuCores", 0)       # 单位：核
+            freed_mem = optimized.get("freedMemoryGb", 0.0)     # 单位：GB
+            freed_disk = optimized.get("freedDiskGb", 0.0)      # 单位：GB
             bar_data = [
-                ("CPU富裕/内存紧张", mm_summary.get('cpu_rich_memory_poor', 0)),
-                ("CPU紧张/内存富裕", mm_summary.get('cpu_poor_memory_rich', 0)),
-                ("双重过剩", mm_summary.get('both_underutilized', 0)),
-                ("双重紧张", mm_summary.get('both_overutilized', 0)),
+                (f"CPU释放 ({freed_cpu}核)", freed_cpu),
+                (f"内存释放 ({freed_mem:.1f}GB)", freed_mem),
+                (f"磁盘释放 ({freed_disk:.1f}GB)", freed_disk),
             ]
-            # 使用统一图表色系 (蓝/绿/橙/红)
             bar_chart = self.charts.draw_horizontal_bar_chart(
                 data=bar_data,
-                title="错配类型分布",
-                colors_list=self.CHART_COLORS[:4],  # 前4种颜色
+                title="优化释放资源总量",
+                colors_list=[self.CHART_COLOR_2, self.CHART_COLOR_1, self.CHART_COLOR_3],
                 width=14*cm,
-                height=6*cm,
+                height=5*cm,
             )
             bar_chart.hAlign = 'CENTER'
             story.append(bar_chart)
 
         story.append(Spacer(0.5*cm, 0.5*cm))
 
-        # Explanation
-        story.append(Paragraph("<b>6.2 错配说明</b>", styles['SubsectionTitle']))
-        story.extend(self._build_term_explanations([
-            ("CPU富裕/内存紧张", "CPU使用率低但内存使用率高，建议降低CPU配置或增加内存。"),
-            ("CPU紧张/内存富裕", "CPU使用率高但内存使用率低，建议增加CPU配置或降低内存。"),
-            ("双重过剩", "CPU和内存使用率都偏低，资源被过度分配。"),
-            ("双重紧张", "CPU和内存使用率都偏高，资源不足可能影响性能。"),
-        ], styles))
+        # ── 6.2 优化后集群需求 ────────────────────────────────────────────
+        story.append(Paragraph("<b>6.2 优化后集群需求</b>", styles['SubsectionTitle']))
+
+        if post:
+            # neededCpuCores 单位：核；neededMemoryGb 单位：GB；neededStorageGb 单位：GB
+            # retainedCpuCores 单位：核；retainedMemoryGb 单位：GB；retainedStorageGb 单位：GB
+            # cpuLoadPercent / memoryLoadPercent / storageLoadPercent 单位：%（0~100）
+            needed_cpu = post.get("neededCpuCores", 0)           # 单位：核
+            needed_mem = post.get("neededMemoryGb", 0.0)         # 单位：GB
+            needed_storage = post.get("neededStorageGb", 0.0)    # 单位：GB
+            retained_cpu = post.get("retainedCpuCores", 0)       # 单位：核
+            retained_mem = post.get("retainedMemoryGb", 0.0)     # 单位：GB
+            retained_storage = post.get("retainedStorageGb", 0.0) # 单位：GB
+            cpu_load = post.get("cpuLoadPercent", 0.0)           # 单位：%
+            mem_load = post.get("memoryLoadPercent", 0.0)        # 单位：%
+            storage_load = post.get("storageLoadPercent", 0.0)   # 单位：%
+            health_label = post.get("healthLabel", "")
+            health_status = post.get("healthStatus", "healthy")
+
+            # 健康状态颜色
+            status_color_map = {
+                "healthy": self.COLOR_SUCCESS,
+                "warning": self.COLOR_WARNING,
+                "critical": self.COLOR_DANGER,
+            }
+            status_color = status_color_map.get(health_status, self.COLOR_GRAY)
+
+            # 需求 vs 保留资源对比表
+            demand_table_data = [
+                [
+                    self._table_cell("资源类型", 'TableCellHeader'),
+                    self._table_cell("保留容量", 'TableCellHeader'),
+                    self._table_cell("实际需求", 'TableCellHeader'),
+                    self._table_cell("负载率", 'TableCellHeader'),
+                ],
+                [
+                    self._table_cell("CPU"),
+                    self._table_cell(f"{retained_cpu} 核"),       # 单位：核
+                    self._table_cell(f"{needed_cpu} 核"),          # 单位：核
+                    self._table_cell(f"{cpu_load:.1f}%"),          # 单位：%
+                ],
+                [
+                    self._table_cell("内存"),
+                    self._table_cell(f"{retained_mem:.1f} GB"),    # 单位：GB
+                    self._table_cell(f"{needed_mem:.1f} GB"),      # 单位：GB
+                    self._table_cell(f"{mem_load:.1f}%"),          # 单位：%
+                ],
+            ]
+            if retained_storage > 0:
+                demand_table_data.append([
+                    self._table_cell("存储"),
+                    self._table_cell(f"{retained_storage:.1f} GB"),  # 单位：GB
+                    self._table_cell(f"{needed_storage:.1f} GB"),    # 单位：GB
+                    self._table_cell(f"{storage_load:.1f}%"),        # 单位：%
+                ])
+
+            demand_table = Table(demand_table_data, colWidths=[3.5*cm, 4.5*cm, 4.5*cm, 4.8*cm])
+            demand_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, -1), self.font_name),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_BORDER),
+                ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_PRIMARY),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), self.font_bold),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                # 负载率列根据健康状态着色
+                ('TEXTCOLOR', (3, 1), (3, -1), status_color),
+                ('FONTNAME', (3, 1), (3, -1), self.font_bold),
+            ]))
+            story.append(demand_table)
+            story.append(Spacer(0.3*cm, 0.3*cm))
+
+            # 负载率可视化图表（水平条形图）
+            if self.charts:
+                load_data = [
+                    (f"CPU负载 ({cpu_load:.1f}%)", min(cpu_load, 100)),    # 单位：%，截断到100
+                    (f"内存负载 ({mem_load:.1f}%)", min(mem_load, 100)),   # 单位：%，截断到100
+                ]
+                if retained_storage > 0:
+                    load_data.append(
+                        (f"存储负载 ({storage_load:.1f}%)", min(storage_load, 100))  # 单位：%
+                    )
+                # 根据最大负载选色：≤60绿，≤80橙，>80红
+                max_load = max(cpu_load, mem_load)
+                if max_load <= 60:
+                    load_colors = [self.CHART_COLOR_2] * len(load_data)
+                elif max_load <= 80:
+                    load_colors = [self.CHART_COLOR_3] * len(load_data)
+                else:
+                    load_colors = [self.CHART_COLOR_4] * len(load_data)
+
+                load_chart = self.charts.draw_horizontal_bar_chart(
+                    data=load_data,
+                    title=f"优化后负载率（整体状态：{health_label}）",
+                    colors_list=load_colors,
+                    width=14*cm,
+                    height=4*cm,
+                )
+                load_chart.hAlign = 'CENTER'
+                story.append(load_chart)
 
         story.append(Spacer(0.5*cm, 0.5*cm))
 
-        # Detailed list
-        story.append(Paragraph("<b>6.3 错配详情</b>", styles['SubsectionTitle']))
+        # ── 6.3 主机下线方案 ──────────────────────────────────────────────
+        story.append(Paragraph("<b>6.3 主机下线方案</b>", styles['SubsectionTitle']))
 
-        table_data = [
-            [
-                self._table_cell("VM名称", 'TableCellHeader'),
-                self._table_cell("错配类型", 'TableCellHeader'),
-                self._table_cell("CPU使用率", 'TableCellHeader'),
-                self._table_cell("内存使用率", 'TableCellHeader'),
-                self._table_cell("当前配置", 'TableCellHeader'),
-                self._table_cell("建议", 'TableCellHeader'),
-            ],
-        ]
+        freeable_count = rec.get("freeableHostCount", 0)
+        retained_count = rec.get("retainedHostCount", 0)
+        retained_hosts = rec.get("retainedHosts", [])
 
-        for item in mismatch[:15]:
-            mm_type = item.get("mismatchType", "unknown")
-            type_map = {
-                "cpu_rich_memory_poor": "CPU富/内存紧",
-                "cpu_poor_memory_rich": "CPU紧/内存富",
-                "both_underutilized": "双重过剩",
-                "both_overutilized": "双重紧张",
-            }
-            type_text = type_map.get(mm_type, mm_type)
-
-            config = f"{item.get('currentCpu', 0)}核/{item.get('currentMemoryGb', 0):.0f}GB"
-            rec = item.get("reason", "")
-
-            table_data.append([
-                self._table_cell(item.get("vmName", "")),
-                self._table_cell(type_text),
-                self._table_cell(f"{item.get('cpuP95', 0):.1f}%", 'TableCellSmall'),
-                self._table_cell(f"{item.get('memoryP95', 0):.1f}%", 'TableCellSmall'),
-                self._table_cell(config, 'TableCellSmall'),
-                self._table_cell(rec),
-            ])
-
-        table = Table(table_data, colWidths=[4*cm, 2.5*cm, 1.5*cm, 1.5*cm, 2*cm, 5.8*cm])  # 总宽度 17.3cm
-        table.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (-1, -1), self.font_name),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),  # 居左对齐
-            ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_BORDER),
-            ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_PRIMARY),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), self.font_bold),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ]))
-        story.append(table)
-
-        if len(mismatch) > 15:
+        if freeable_count == 0:
+            story.append(Paragraph("当前优化方案下，暂无可下线的物理主机。", styles['BodyText']))
+        else:
+            plan_text = (
+                f"综合以上优化措施后，建议保留 <b>{retained_count}</b> 台主机，"
+                f"可下线 <b>{freeable_count}</b> 台主机。"
+            )
+            story.append(Paragraph(plan_text, styles['BodyText']))
             story.append(Spacer(0.3*cm, 0.3*cm))
-            story.append(Paragraph(f"<i>... 还有 {len(mismatch) - 15} 台VM未显示</i>", styles['Explanation']))
 
-        # VM 资源分析图表
-        story.extend(self._build_vm_resource_charts(data, mismatch[:25], styles, "6.4 错配VM资源趋势"))
+            # 可下线主机列表
+            if freeable_hosts:
+                story.append(Paragraph("可下线主机：", styles['BodyText']))
+                freeable_table_data = [
+                    [
+                        self._table_cell("主机名称", 'TableCellHeader'),
+                        self._table_cell("IP地址", 'TableCellHeader'),
+                        self._table_cell("CPU核数", 'TableCellHeader'),
+                        self._table_cell("内存(GB)", 'TableCellHeader'),
+                        self._table_cell("当前VM数", 'TableCellHeader'),
+                        self._table_cell("下线原因", 'TableCellHeader'),
+                    ],
+                ]
+                for h in freeable_hosts:
+                    freeable_table_data.append([
+                        self._table_cell(h.get("hostName", "") or ""),
+                        self._table_cell(h.get("hostIp", "") or ""),
+                        self._table_cell(str(h.get("cpuCores", 0))),          # 单位：核
+                        self._table_cell(f"{h.get('memoryGb', 0):.1f}"),      # 单位：GB
+                        self._table_cell(str(h.get("currentVmCount", 0))),
+                        self._table_cell(h.get("reason", "")),
+                    ])
+                freeable_table = Table(
+                    freeable_table_data,
+                    colWidths=[3.5*cm, 2.8*cm, 1.8*cm, 2*cm, 2*cm, 5.2*cm]  # 总宽度 17.3cm
+                )
+                freeable_table.setStyle(TableStyle([
+                    ('FONTNAME', (0, 0), (-1, -1), self.font_name),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_BORDER),
+                    ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_DANGER),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), self.font_bold),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ]))
+                story.append(freeable_table)
+                story.append(Spacer(0.3*cm, 0.3*cm))
+
+            # 保留主机列表
+            if retained_hosts:
+                story.append(Paragraph("保留主机：", styles['BodyText']))
+                retained_table_data = [
+                    [
+                        self._table_cell("主机名称", 'TableCellHeader'),
+                        self._table_cell("IP地址", 'TableCellHeader'),
+                        self._table_cell("CPU核数", 'TableCellHeader'),
+                        self._table_cell("内存(GB)", 'TableCellHeader'),
+                    ],
+                ]
+                for h in retained_hosts:
+                    retained_table_data.append([
+                        self._table_cell(h.get("hostName", "") or ""),
+                        self._table_cell(h.get("hostIp", "") or ""),
+                        self._table_cell(str(h.get("cpuCores", 0))),      # 单位：核
+                        self._table_cell(f"{h.get('memoryGb', 0):.1f}"),  # 单位：GB
+                    ])
+                retained_table = Table(
+                    retained_table_data,
+                    colWidths=[5*cm, 4*cm, 4*cm, 4.3*cm]  # 总宽度 17.3cm
+                )
+                retained_table.setStyle(TableStyle([
+                    ('FONTNAME', (0, 0), (-1, -1), self.font_name),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('GRID', (0, 0), (-1, -1), 0.5, self.COLOR_BORDER),
+                    ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_SUCCESS),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), self.font_bold),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ]))
+                story.append(retained_table)
 
         return story
 
@@ -1676,11 +1877,11 @@ class PDFReportGenerator:
             if not any([cpu_data, memory_data, disk_read_data, disk_write_data, net_rx_data, net_tx_data]):
                 continue
 
-            # Normalize CPU and memory to percentages if needed
-            cpu_normalized = [(t, min(100, v)) for t, v in cpu_data] if cpu_data else []
-            memory_normalized = [(t, min(100, v)) for t, v in memory_data] if memory_data else []
+            # CPU and memory are already in percentages (converted in builder.py)
+            cpu_normalized = cpu_data
+            memory_normalized = memory_data
 
-            # Convert bytes to MB for disk and network (handle empty data)
+            # Convert bytes/s to MB/s for disk and network
             disk_read_mb = [(t, v / (1024*1024)) for t, v in disk_read_data] if disk_read_data else []
             disk_write_mb = [(t, v / (1024*1024)) for t, v in disk_write_data] if disk_write_data else []
             net_rx_mb = [(t, v / (1024*1024)) for t, v in net_rx_data] if net_rx_data else []

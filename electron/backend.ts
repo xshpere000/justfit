@@ -37,6 +37,7 @@ export class BackendManager {
     private readonly MAX_UNHEALTHY = 3;
     private hasBeenHealthy: boolean = false;
     private lastError?: string;
+    private emergencyKill: (() => void) | null = null;
 
     private getPackagedBackendExe(): string {
         return path.join(process.resourcesPath, "backend", "justfit_backend.exe");
@@ -151,6 +152,24 @@ export class BackendManager {
             windowsHide: true,
         });
 
+        // Ensure backend is killed if Electron process exits unexpectedly
+        this.emergencyKill = () => {
+            if (this.process && !this.process.killed && this.process.pid) {
+                try {
+                    if (process.platform === "win32") {
+                        spawn("taskkill", ["/F", "/T", "/PID", String(this.process.pid)], {
+                            detached: true,
+                            stdio: "ignore",
+                            windowsHide: true,
+                        }).unref();
+                    } else {
+                        this.process.kill("SIGKILL");
+                    }
+                } catch { /* ignore */ }
+            }
+        };
+        process.once("exit", this.emergencyKill);
+
         this.startTime = Date.now();
 
         // Log output
@@ -184,6 +203,36 @@ export class BackendManager {
     }
 
     /**
+     * Kill process by PID (Windows-safe: uses taskkill to kill entire process tree)
+     */
+    private killProcess(proc: ChildProcess): void {
+        if (process.platform === "win32" && proc.pid) {
+            try {
+                // taskkill /F /T kills the process and all its children
+                spawn("taskkill", ["/F", "/T", "/PID", String(proc.pid)], {
+                    windowsHide: true,
+                    detached: true,
+                    stdio: "ignore",
+                }).unref();
+            } catch {
+                proc.kill();
+            }
+        } else {
+            proc.kill("SIGKILL");
+        }
+    }
+
+    /**
+     * Remove the emergency kill listener and clear reference
+     */
+    private clearEmergencyKill(): void {
+        if (this.emergencyKill) {
+            process.removeListener("exit", this.emergencyKill);
+            this.emergencyKill = null;
+        }
+    }
+
+    /**
      * Stop the Python backend and wait for it to exit
      */
     stopAndWait(graceful = true): Promise<void> {
@@ -194,27 +243,29 @@ export class BackendManager {
             }
 
             this.stopHealthCheck();
+            this.clearEmergencyKill();
 
-            // Force kill after timeout regardless
+            const proc = this.process;
+            this.process = null;
+
+            // Force kill after timeout, then wait 300ms for taskkill to take effect
             const forceKillTimer = setTimeout(() => {
-                if (this.process) {
-                    console.log("[Backend] Force kill after timeout");
-                    this.process.kill("SIGKILL");
-                }
-                resolve();
+                console.log("[Backend] Force kill after timeout");
+                this.killProcess(proc);
+                setTimeout(resolve, 300);
             }, 5000);
 
-            this.process.once("exit", () => {
+            proc.once("exit", () => {
                 clearTimeout(forceKillTimer);
                 resolve();
             });
 
-            if (graceful) {
+            if (graceful && process.platform !== "win32") {
                 console.log("[Backend] Stopping gracefully...");
-                this.process.kill("SIGTERM");
+                proc.kill("SIGTERM");
             } else {
                 console.log("[Backend] Stopping forcefully...");
-                this.process.kill("SIGKILL");
+                this.killProcess(proc);
             }
         });
     }
@@ -228,22 +279,38 @@ export class BackendManager {
         }
 
         this.stopHealthCheck();
+        this.clearEmergencyKill();
 
-        if (graceful) {
+        const proc = this.process;
+        this.process = null;
+
+        if (graceful && process.platform !== "win32") {
             console.log("[Backend] Stopping gracefully...");
-            this.process.kill("SIGTERM");
+            proc.kill("SIGTERM");
+            // Force kill after timeout
+            setTimeout(() => {
+                if (!proc.killed) {
+                    console.log("[Backend] Force kill after timeout");
+                    this.killProcess(proc);
+                }
+            }, 5000);
         } else {
             console.log("[Backend] Stopping forcefully...");
-            this.process.kill("SIGKILL");
+            this.killProcess(proc);
         }
+    }
 
-        // Force kill after timeout
-        setTimeout(() => {
-            if (this.process) {
-                console.log("[Backend] Force kill after timeout");
-                this.process.kill("SIGKILL");
-            }
-        }, 5000);
+    /**
+     * Immediately force-kill the backend process (nuclear option)
+     */
+    forceKillNow(): void {
+        const proc = this.process;
+        this.process = null;
+        this.stopHealthCheck();
+        this.clearEmergencyKill();
+        if (proc) {
+            this.killProcess(proc);
+        }
     }
 
     /**
@@ -253,6 +320,35 @@ export class BackendManager {
         console.log("[Backend] Restarting...");
         this.stop();
         setTimeout(() => this.start(), 1000);
+    }
+
+    /**
+     * Wait until backend is healthy, with a timeout
+     */
+    waitUntilHealthy(timeoutMs = 60000): Promise<boolean> {
+        return new Promise((resolve) => {
+            const startTime = Date.now();
+            const poll = async () => {
+                try {
+                    const controller = new AbortController();
+                    const timeoutHandle = setTimeout(() => controller.abort(), 2000);
+                    const response = await fetch(HEALTH_CHECK_URL, { signal: controller.signal });
+                    clearTimeout(timeoutHandle);
+                    if (response.ok) {
+                        this.hasBeenHealthy = true;
+                        resolve(true);
+                        return;
+                    }
+                } catch { /* not ready yet */ }
+
+                if (Date.now() - startTime >= timeoutMs) {
+                    resolve(false);
+                    return;
+                }
+                setTimeout(poll, 500);
+            };
+            poll();
+        });
     }
 
     /**

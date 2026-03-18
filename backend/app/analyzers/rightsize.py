@@ -13,7 +13,7 @@ logger = structlog.get_logger()
 CPU_STANDARDS = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64]
 
 # Standard memory configurations (in GB)
-MEMORY_STANDARDS = [0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
+MEMORY_STANDARDS = [0.5, 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256]
 
 
 class RightSizeAnalyzer:
@@ -185,22 +185,20 @@ class RightSizeAnalyzer:
         else:
             recommended_memory_gb = 0
 
-        # 按比例判断调整类型
-        adjustment_type = self._determine_adjustment_type(
-            current_cpu, recommended_cpu, current_memory_gb, recommended_memory_gb
-        )
-
         # 错配类型判断（基于 P95 使用率）
         mismatch_type = self._determine_mismatch_type(cpu_p95, memory_p95)
 
-        # wasteRatio：缩减为正（浪费比例），扩容为负（欠配比例）
+        # 分别计算 CPU 和内存的浪费比例（缩减为正，扩容为负）
         if current_cpu > 0 and current_memory_gb > 0:
-            cpu_ratio = (current_cpu - recommended_cpu) / current_cpu
-            mem_ratio = (current_memory_gb - recommended_memory_gb) / current_memory_gb
-            # 取 CPU 和内存节省的加权平均（CPU 权重 0.4，内存权重 0.6）
-            waste_ratio = round((cpu_ratio * 0.4 + mem_ratio * 0.6) * 100, 1)
+            cpu_waste_ratio = round((current_cpu - recommended_cpu) / current_cpu * 100, 1)
+            mem_waste_ratio = round((current_memory_gb - recommended_memory_gb) / current_memory_gb * 100, 1)
         else:
-            waste_ratio = 0.0
+            cpu_waste_ratio = 0.0
+            mem_waste_ratio = 0.0
+
+        # 分别判断 CPU 和内存的调整方向
+        cpu_adjustment_type = self._determine_single_adjustment_type(current_cpu, recommended_cpu)
+        mem_adjustment_type = self._determine_single_adjustment_type(current_memory_gb, recommended_memory_gb)
 
         # Calculate risk level (使用 CPU 使用率的变异系数)
         cpu_stddev = self._stddev(cpu_values_pct) if cpu_values_pct else 0
@@ -232,11 +230,12 @@ class RightSizeAnalyzer:
             current_memory_gb, recommended_memory_gb,
             cpu_p95, cpu_p90, cpu_max, cpu_avg,
             memory_p95, memory_max, memory_avg,
-            adjustment_type, mismatch_type, risk,
+            cpu_adjustment_type, mem_adjustment_type, mismatch_type, risk,
         )
 
         return {
             "vmName": vm_name,
+            "vmId": vm_id,
             "cluster": cluster,
             "hostIp": host_ip,
             "currentCpu": current_cpu,
@@ -251,46 +250,27 @@ class RightSizeAnalyzer:
             "memoryMax": round(memory_max, 2),
             "memoryAvg": round(memory_avg, 2),
             "mismatchType": mismatch_type,
-            "adjustmentType": adjustment_type,
-            "wasteRatio": waste_ratio,
+            "cpuAdjustmentType": cpu_adjustment_type,
+            "memAdjustmentType": mem_adjustment_type,
+            "cpuWasteRatio": cpu_waste_ratio,
+            "memWasteRatio": mem_waste_ratio,
             "riskLevel": risk,
             "confidence": round(confidence, 2),
             "reason": reason,
         }
 
-    def _determine_adjustment_type(
-        self,
-        current_cpu: int,
-        recommended_cpu: int,
-        current_memory_gb: float,
-        recommended_memory_gb: float,
-    ) -> str:
-        """按比例判断调整类型。
-
-        缩减显著：推荐配置 ≤ 当前配置 * 0.5（节省 50%+）
-        缩减：推荐配置 ≤ 当前配置 * 0.75（节省 25%+）
-        扩容显著：推荐配置 ≥ 当前配置 * 1.5（增加 50%+）
-        扩容：推荐配置 ≥ 当前配置 * 1.25（增加 25%+）
-        合理：其余情况
-        """
-        if current_cpu <= 0 or current_memory_gb <= 0:
+    def _determine_single_adjustment_type(self, current: float, recommended: float) -> str:
+        """按比例判断单个维度（CPU 或内存）的调整方向。"""
+        if current <= 0:
             return "none"
-
-        cpu_ratio = recommended_cpu / current_cpu
-        mem_ratio = recommended_memory_gb / current_memory_gb
-
-        # 取 CPU 和内存比例的最小值（最大缩减幅度）
-        min_ratio = min(cpu_ratio, mem_ratio)
-        # 取 CPU 和内存比例的最大值（最大扩容幅度）
-        max_ratio = max(cpu_ratio, mem_ratio)
-
-        if min_ratio <= 0.5:
+        ratio = recommended / current
+        if ratio <= 0.5:
             return "down_significant"
-        elif min_ratio <= 0.75:
+        elif ratio <= 0.75:
             return "down"
-        elif max_ratio >= 1.5:
+        elif ratio >= 1.5:
             return "up_significant"
-        elif max_ratio >= 1.25:
+        elif ratio >= 1.25:
             return "up"
         else:
             return "none"
@@ -329,7 +309,8 @@ class RightSizeAnalyzer:
         memory_p95: float,
         memory_max: float,
         memory_avg: float,
-        adjustment_type: str,
+        cpu_adjustment_type: str,
+        mem_adjustment_type: str,
         mismatch_type: str,
         risk: str,
     ) -> str:
@@ -359,15 +340,17 @@ class RightSizeAnalyzer:
         parts.append(mismatch_desc.get(mismatch_type, ""))
 
         # 调整方向结论
-        adj_desc = {
-            "down_significant": f"建议大幅缩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
-            "down": f"建议缩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
-            "up_significant": f"建议大幅扩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
-            "up": f"建议扩容至 {recommended_cpu} vCPU / {recommended_memory_gb:.1f} GB",
-            "none": "当前配置合理，无需调整",
+        adj_label = {
+            "down_significant": "大幅缩容",
+            "down": "缩容",
+            "up_significant": "大幅扩容",
+            "up": "扩容",
+            "none": "合理",
         }
-        conclusion = adj_desc.get(adjustment_type, "")
-        if risk == "high" and adjustment_type not in ("none",):
+        cpu_label = adj_label.get(cpu_adjustment_type, "合理")
+        mem_label = adj_label.get(mem_adjustment_type, "合理")
+        conclusion = f"CPU建议{cpu_label}至 {recommended_cpu} vCPU，内存建议{mem_label}至 {recommended_memory_gb:.1f} GB"
+        if risk == "high" and (cpu_adjustment_type != "none" or mem_adjustment_type != "none"):
             conclusion += "（注意：负载波动较大，建议谨慎操作）"
         parts.append(conclusion)
 

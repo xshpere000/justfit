@@ -265,6 +265,10 @@
                     <div class="sm-value">{{ analysisSummaryData?.current?.totalVms ?? '-' }}</div>
                     <div class="sm-label">虚拟机数</div>
                   </div>
+                  <div class="summary-metric-item">
+                    <div class="sm-value">{{ analysisSummaryData?.current?.totalStorageGb != null ? analysisSummaryData.current.totalStorageGb.toFixed(0) : '-' }}</div>
+                    <div class="sm-label">存储 (GB)</div>
+                  </div>
                 </div>
               </div>
 
@@ -272,24 +276,61 @@
               <div class="summary-panel summary-controls">
                 <div class="summary-panel-title">选择优化项</div>
                 <div class="summary-checkboxes">
-                  <el-checkbox
-                    v-model="summaryOptimizations.resource"
-                    :disabled="!hasAnalysisResults.resource"
-                    @change="fetchAnalysisSummary"
-                    class="summary-checkbox"
-                  >
-                    <span class="checkbox-label">资源优化</span>
-                    <el-tag v-if="!hasAnalysisResults.resource" size="small" type="info" style="margin-left:6px">未运行</el-tag>
-                  </el-checkbox>
-                  <el-checkbox
-                    v-model="summaryOptimizations.idle"
-                    :disabled="!hasAnalysisResults.idle"
-                    @change="fetchAnalysisSummary"
-                    class="summary-checkbox"
-                  >
-                    <span class="checkbox-label">闲置检测</span>
-                    <el-tag v-if="!hasAnalysisResults.idle" size="small" type="info" style="margin-left:6px">未运行</el-tag>
-                  </el-checkbox>
+                  <div class="checkbox-with-info">
+                    <el-checkbox
+                      v-model="summaryOptimizations.resource"
+                      :disabled="!hasAnalysisResults.resource"
+                      @change="fetchAnalysisSummary"
+                      class="summary-checkbox"
+                    >
+                      <span class="checkbox-label">资源优化</span>
+                      <el-tag v-if="!hasAnalysisResults.resource" size="small" type="info" style="margin-left:6px">未运行</el-tag>
+                    </el-checkbox>
+                    <el-popover placement="bottom" :width="320" trigger="hover">
+                      <template #reference>
+                        <el-icon class="opt-info-icon"><InfoFilled /></el-icon>
+                      </template>
+                      <div class="opt-info-content">
+                        <div class="opt-info-title">资源优化 (Right Size)</div>
+                        <p>基于历史性能数据，识别 CPU / 内存配置过高的虚拟机，推荐更合理的规格。</p>
+                        <div class="opt-info-ops">
+                          <strong>所需操作：</strong>
+                          <ul>
+                            <li>调整虚拟机 CPU 核数和内存配置</li>
+                            <li>无需关机或迁移 VM（热调整或计划窗口内重启）</li>
+                            <li>不涉及磁盘变更</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </el-popover>
+                  </div>
+                  <div class="checkbox-with-info">
+                    <el-checkbox
+                      v-model="summaryOptimizations.idle"
+                      :disabled="!hasAnalysisResults.idle"
+                      @change="fetchAnalysisSummary"
+                      class="summary-checkbox"
+                    >
+                      <span class="checkbox-label">闲置检测</span>
+                      <el-tag v-if="!hasAnalysisResults.idle" size="small" type="info" style="margin-left:6px">未运行</el-tag>
+                    </el-checkbox>
+                    <el-popover placement="bottom" :width="320" trigger="hover">
+                      <template #reference>
+                        <el-icon class="opt-info-icon"><InfoFilled /></el-icon>
+                      </template>
+                      <div class="opt-info-content">
+                        <div class="opt-info-title">闲置检测</div>
+                        <p>识别长期关机（僵尸 VM）和开机但长期低负载的闲置虚拟机。</p>
+                        <div class="opt-info-ops">
+                          <strong>释放规则：</strong>
+                          <ul>
+                            <li><b>开机闲置 VM</b>：关闭后释放 CPU、内存和磁盘</li>
+                            <li><b>关机 VM</b>：已不占 CPU / 内存，删除后仅释放磁盘空间</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </el-popover>
+                  </div>
                 </div>
                 <el-button
                   type="primary"
@@ -315,6 +356,10 @@
                     <div class="sm-label">释放内存 (GB)</div>
                   </div>
                   <div class="summary-metric-item highlight">
+                    <div class="sm-value text-success">{{ analysisSummaryData.optimized?.freedDiskGb != null ? analysisSummaryData.optimized.freedDiskGb.toFixed(0) : '-' }}</div>
+                    <div class="sm-label">释放磁盘 (GB)</div>
+                  </div>
+                  <div class="summary-metric-item highlight">
                     <div class="sm-value text-primary">{{ analysisSummaryData.freeableHosts?.length ?? 0 }}</div>
                     <div class="sm-label">可释放主机</div>
                   </div>
@@ -327,7 +372,105 @@
               </div>
             </div>
 
-            <!-- 下方：可释放主机列表 -->
+            <!-- 下方：优化建议 + 可释放主机 -->
+            <div class="summary-recommendation" v-if="analysisSummaryData?.recommendation">
+              <!-- 优化建议卡片 -->
+              <el-card class="recommendation-card" shadow="never">
+                <div class="rec-title">
+                  <el-icon><DataAnalysis /></el-icon>
+                  优化建议
+                </div>
+
+                <!-- 优化措施说明 -->
+                <div class="rec-steps">
+                  <div class="rec-step" v-if="analysisSummaryData.recommendation.resourceOptimization?.enabled">
+                    <el-tag type="primary" size="small">资源优化</el-tag>
+                    <span>
+                      检测到 <strong>{{ analysisSummaryData.recommendation.resourceOptimization.vmCount }}</strong> 台虚拟机资源配置过高（已排除闲置VM），
+                      调整后可释放 <strong>{{ analysisSummaryData.recommendation.resourceOptimization.freedCpuCores }}</strong> 核 CPU、
+                      <strong>{{ analysisSummaryData.recommendation.resourceOptimization.freedMemoryGb?.toFixed(1) }}</strong> GB 内存
+                    </span>
+                  </div>
+                  <div class="rec-step" v-if="analysisSummaryData.recommendation.idleDetection?.enabled">
+                    <el-tag type="warning" size="small">闲置检测</el-tag>
+                    <span>
+                      检测到 <strong>{{ analysisSummaryData.recommendation.idleDetection.vmCount }}</strong> 台闲置虚拟机<template v-if="analysisSummaryData.recommendation.idleDetection.poweredOnCount > 0 && analysisSummaryData.recommendation.idleDetection.poweredOffCount > 0">（开机闲置 {{ analysisSummaryData.recommendation.idleDetection.poweredOnCount }} 台、关机 {{ analysisSummaryData.recommendation.idleDetection.poweredOffCount }} 台）</template><template v-else-if="analysisSummaryData.recommendation.idleDetection.poweredOnCount > 0">（开机闲置 {{ analysisSummaryData.recommendation.idleDetection.poweredOnCount }} 台）</template><template v-else-if="analysisSummaryData.recommendation.idleDetection.poweredOffCount > 0">（关机 {{ analysisSummaryData.recommendation.idleDetection.poweredOffCount }} 台）</template>。
+                      <template v-if="analysisSummaryData.recommendation.idleDetection.poweredOnCount > 0">
+                        开机闲置VM关闭后可释放 <strong>{{ analysisSummaryData.recommendation.idleDetection.freedCpuCores }}</strong> 核 CPU、
+                        <strong>{{ analysisSummaryData.recommendation.idleDetection.freedMemoryGb?.toFixed(1) }}</strong> GB 内存<template v-if="analysisSummaryData.recommendation.idleDetection.freedDiskPoweredOn > 0">、<strong>{{ analysisSummaryData.recommendation.idleDetection.freedDiskPoweredOn?.toFixed(1) }}</strong> GB 磁盘</template>。
+                      </template>
+                      <template v-if="analysisSummaryData.recommendation.idleDetection.poweredOffCount > 0 && analysisSummaryData.recommendation.idleDetection.freedDiskPoweredOff > 0">
+                        关机VM清除后可释放 <strong>{{ analysisSummaryData.recommendation.idleDetection.freedDiskPoweredOff?.toFixed(1) }}</strong> GB 磁盘。
+                      </template>
+                    </span>
+                  </div>
+                </div>
+
+                <!-- 优化后集群状态 -->
+                <div class="rec-cluster-status" v-if="analysisSummaryData.recommendation.postOptimization">
+                  <div class="rec-divider"></div>
+                  <div class="rec-conclusion">
+                    经过上述优化，维持现有业务运行，集群资源总体需要
+                    <strong>{{ analysisSummaryData.recommendation.postOptimization.neededCpuCores }}</strong> 核 CPU、
+                    <strong>{{ analysisSummaryData.recommendation.postOptimization.neededMemoryGb?.toFixed(0) }}</strong> GB 内存、
+                    <strong>{{ analysisSummaryData.recommendation.postOptimization.neededStorageGb?.toFixed(0) }}</strong> GB 磁盘。
+                  </div>
+
+                  <!-- 主机建议 -->
+                  <div class="rec-host-plan" v-if="analysisSummaryData.recommendation.freeableHostCount > 0">
+                    <div class="rec-host-summary">
+                      建议保留
+                      <strong class="text-primary">{{ analysisSummaryData.recommendation.retainedHostCount }}</strong> 台主机<template v-if="analysisSummaryData.recommendation.retainedHosts?.length > 0">（<span v-for="(h, i) in analysisSummaryData.recommendation.retainedHosts" :key="i"><template v-if="i > 0">、</template>{{ h.hostName || h.hostIp }}</span>）</template>，
+                      下线
+                      <strong class="text-danger">{{ analysisSummaryData.recommendation.freeableHostCount }}</strong> 台主机<template v-if="analysisSummaryData.freeableHosts?.length > 0">（<span v-for="(h, i) in analysisSummaryData.freeableHosts" :key="i"><template v-if="i > 0">、</template>{{ h.hostName || h.hostIp }}</span>）</template>。
+                    </div>
+                  </div>
+                  <div class="rec-host-plan" v-else>
+                    <div class="rec-host-summary">当前优化暂不足以释放整台物理主机，但仍可节省虚拟机级别的资源。</div>
+                  </div>
+
+                  <!-- 优化后负载 -->
+                  <div class="rec-load-status">
+                    <span>完成优化后，集群预估负载：</span>
+                    <el-tag
+                      :type="analysisSummaryData.recommendation.postOptimization.healthStatus === 'healthy' ? 'success' : analysisSummaryData.recommendation.postOptimization.healthStatus === 'warning' ? 'warning' : 'danger'"
+                      size="small"
+                      style="margin-left: 6px;"
+                    >
+                      {{ analysisSummaryData.recommendation.postOptimization.healthLabel }}
+                    </el-tag>
+                    <div class="rec-load-bars">
+                      <div class="rec-load-item">
+                        <span class="rec-load-label">CPU</span>
+                        <el-progress
+                          :percentage="analysisSummaryData.recommendation.postOptimization.cpuLoadPercent"
+                          :stroke-width="14"
+                          :color="getLoadColor(analysisSummaryData.recommendation.postOptimization.cpuLoadPercent)"
+                        />
+                      </div>
+                      <div class="rec-load-item">
+                        <span class="rec-load-label">内存</span>
+                        <el-progress
+                          :percentage="analysisSummaryData.recommendation.postOptimization.memoryLoadPercent"
+                          :stroke-width="14"
+                          :color="getLoadColor(analysisSummaryData.recommendation.postOptimization.memoryLoadPercent)"
+                        />
+                      </div>
+                      <div class="rec-load-item" v-if="analysisSummaryData.recommendation.postOptimization.retainedStorageGb > 0">
+                        <span class="rec-load-label">存储</span>
+                        <el-progress
+                          :percentage="analysisSummaryData.recommendation.postOptimization.storageLoadPercent"
+                          :stroke-width="14"
+                          :color="getLoadColor(analysisSummaryData.recommendation.postOptimization.storageLoadPercent)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-card>
+            </div>
+
+            <!-- 可释放主机列表 -->
             <div class="summary-hosts-section" v-if="analysisSummaryData?.freeableHosts?.length > 0">
               <div class="summary-hosts-title">
                 可释放的物理主机
@@ -339,6 +482,9 @@
                 <el-table-column prop="cpuCores" label="CPU 核数" width="100" align="center" />
                 <el-table-column prop="memoryGb" label="内存 (GB)" width="110" align="center">
                   <template #default="{ row }">{{ row.memoryGb?.toFixed(0) }}</template>
+                </el-table-column>
+                <el-table-column prop="storageGb" label="存储 (GB)" width="110" align="center">
+                  <template #default="{ row }">{{ row.storageGb?.toFixed(0) }}</template>
                 </el-table-column>
                 <el-table-column prop="currentVmCount" label="当前VM数" width="100" align="center" />
                 <el-table-column label="原因" min-width="200" show-overflow-tooltip>
@@ -362,6 +508,9 @@
                 共 <strong>{{ filteredResourceOptData.length }}</strong> 台 VM 需要调整
                 &nbsp;·&nbsp; 可释放 CPU: <strong>{{ resourceOptSavings.cpu }} 核</strong>
                 &nbsp;·&nbsp; 可释放内存: <strong>{{ resourceOptSavings.memory }} GB</strong>
+                <el-tooltip content="此处统计所有可优化 VM 的释放量；优化建议中会排除与闲置检测重叠的 VM（闲置优先按整机释放），因此数值可能不同" placement="top">
+                  <el-icon style="margin-left:4px;vertical-align:middle;cursor:help;color:#909399"><InfoFilled /></el-icon>
+                </el-tooltip>
               </span>
             </div>
             <div class="analysis-toolbar">
@@ -418,17 +567,31 @@
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="wasteRatio" label="浪费比例" width="90" align="center">
+                <el-table-column label="CPU浪费比例" width="105" align="center">
                   <template #default="{ row }">
-                    <span :class="{ 'text-success': row.wasteRatio > 0, 'text-warning': row.wasteRatio < 0 }">
-                      {{ row.wasteRatio > 0 ? '+' : '' }}{{ row.wasteRatio }}%
+                    <span :class="{ 'text-success': row.cpuWasteRatio > 0, 'text-warning': row.cpuWasteRatio < 0 }">
+                      {{ row.cpuWasteRatio > 0 ? '+' : '' }}{{ row.cpuWasteRatio }}%
                     </span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="adjustmentType" label="调整方向" width="100" align="center">
+                <el-table-column label="内存浪费比例" width="105" align="center">
                   <template #default="{ row }">
-                    <el-tag :type="getAdjustmentTypeTagType(row.adjustmentType)" size="small">
-                      {{ getAdjustmentTypeText(row.adjustmentType) }}
+                    <span :class="{ 'text-success': row.memWasteRatio > 0, 'text-warning': row.memWasteRatio < 0 }">
+                      {{ row.memWasteRatio > 0 ? '+' : '' }}{{ row.memWasteRatio }}%
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="CPU调整方向" width="110" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="getAdjustmentTypeTagType(row.cpuAdjustmentType)" size="small">
+                      {{ getAdjustmentTypeText(row.cpuAdjustmentType) }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="内存调整方向" width="110" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="getAdjustmentTypeTagType(row.memAdjustmentType)" size="small">
+                      {{ getAdjustmentTypeText(row.memAdjustmentType) }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -1070,7 +1233,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onBeforeMount, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1100,7 +1263,8 @@ import {
   Refresh,
   Warning,
   TrendCharts,
-  Check
+  Check,
+  InfoFilled
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -1152,6 +1316,8 @@ const windowWidth = ref(window.innerWidth)
 const pollTimer = ref<number | null>(null)
 const pollTimeout = ref<number | null>(null)
 let vmSearchTimer: number | null = null
+let detailLoadVersion = 0
+let pollSessionId = 0
 
 // 报告相关状态
 const exporting = reactive({
@@ -1214,6 +1380,11 @@ const analysisData = reactive<{
 })
 
 const task = computed(() => taskStore.getTask(Number(taskId.value)))
+
+function isCurrentTaskContext(expectedTaskId: number, version?: number) {
+  // Ignore async results from previous task pages or stale reload cycles.
+  return Number(taskId.value) === expectedTaskId && (version === undefined || version === detailLoadVersion)
+}
 
 // 调试：监听 task 变化
 watch(task, (newTask) => {
@@ -1347,9 +1518,12 @@ const pagedTidalData = computed(() => {
 
 // 初始化任务数据
 async function initTaskData(preserveTabState = false) {
-  // 重置状态
+  const currentTaskId = Number(taskId.value)
+  const loadVersion = ++detailLoadVersion
+
+  // Reset local state before loading the next task snapshot.
   stopPolling()
-  // 保留 Tab 状态，避免在刷新任务时跳转到其他 Tab
+  // Keep the current tab when re-activating the same detail page.
   if (!preserveTabState) {
     activeTab.value = 'overview'
   }
@@ -1407,7 +1581,11 @@ async function initTaskData(preserveTabState = false) {
   // 始终从后端同步最新数据，确保显示的是最新状态
   // 因为用户可能在任务列表停留了一段时间，此时任务状态可能已经变化
   console.log('[TaskDetail] 从后端同步最新任务数据')
-  await syncTaskFromBackend()
+  await syncTaskFromBackend(currentTaskId)
+
+  if (!isCurrentTaskContext(currentTaskId, loadVersion)) {
+    return
+  }
 
   // 重新检查 task 是否存在（可能在 async 操作后失效）
   if (!task.value) {
@@ -1425,8 +1603,11 @@ async function initTaskData(preserveTabState = false) {
   }
 
   if (task.value.id) {
-    await loadTaskLogs()
+    await loadTaskLogs(currentTaskId)
     await loadAnalysisResultFromBackend(task.value.id)
+    if (!isCurrentTaskContext(currentTaskId, loadVersion)) {
+      return
+    }
     pollTaskStatus(task.value.id)
     // 如果任务已完成，也加载报告历史
     if (task.value.status === 'completed') {
@@ -1435,21 +1616,10 @@ async function initTaskData(preserveTabState = false) {
   }
 }
 
-// 在组件挂载之前就停止全局轮询，避免与 TaskDetail 的轮询冲突
-onBeforeMount(() => {
-  console.log('[TaskDetail] onBeforeMount: 停止全局轮询')
-  taskStore.stopPolling()
-})
-
 onMounted(async () => {
   window.addEventListener('resize', handleWindowResize)
 
   await initTaskData()
-})
-
-// 监听 taskId 变化，重新加载数据
-watch(taskId, () => {
-  initTaskData()
 })
 
 watch(zombieSearch, () => {
@@ -1517,6 +1687,8 @@ watch(activeTab, async (newTab) => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleWindowResize)
+  detailLoadVersion++
+  pollSessionId++
   stopPolling()
 })
 
@@ -1530,27 +1702,31 @@ async function loadVMList() {
 }
 
 async function loadTaskVMs() {
-  if (!task.value?.id) {
+  const currentTaskId = task.value?.id
+  if (!currentTaskId) {
     console.log('[TaskDetail] loadTaskVMs: 没有id')
     return
   }
 
-  console.log('[TaskDetail] loadTaskVMs: 开始加载, id=', task.value.id)
+  console.log('[TaskDetail] loadTaskVMs: 开始加载, id=', currentTaskId)
   vmListLoading.value = true
   try {
     const offset = (vmCurrentPage.value - 1) * vmPageSize.value
     console.log('[TaskDetail] 调用 listTaskVMs, params:', {
-      id: task.value.id,
+      id: currentTaskId,
       limit: vmPageSize.value,
       offset,
       keyword: vmSearch.value
     })
     const result = await TaskAPI.listTaskVMs(
-      task.value.id,
+      currentTaskId,
       vmPageSize.value,
       offset,
       vmSearch.value
     )
+    if (!isCurrentTaskContext(currentTaskId)) {
+      return
+    }
     console.log('[TaskDetail] listTaskVMs 返回结果:', result)
     vmList.value = result.vms || []
     vmTotal.value = result.total || 0
@@ -1610,7 +1786,7 @@ function handleVMSearch() {
 
 function stopPolling() {
   if (pollTimer.value !== null) {
-    clearInterval(pollTimer.value)
+    clearTimeout(pollTimer.value)
     pollTimer.value = null
   }
   if (pollTimeout.value !== null) {
@@ -1622,17 +1798,39 @@ function stopPolling() {
 function pollTaskStatus(id: number) {
   console.log('[TaskDetail] pollTaskStatus 开始轮询任务状态, taskId:', id)
   stopPolling()
+  const sessionId = ++pollSessionId
 
-  let logRefreshCounter = 0  // 日志刷新计数器：任务运行中每 5 次轮询（10秒）刷新一次日志
-  let pollCount = 0  // 轮询计数器，用于诊断
+  // Refresh logs less frequently than task status to reduce load.
+  let logRefreshCounter = 0
+  let pollCount = 0
+  let inFlight = false
 
-  pollTimer.value = window.setInterval(async () => {
+  const scheduleNextPoll = (delay = 5000) => {
+    if (sessionId !== pollSessionId || !isCurrentTaskContext(id)) {
+      return
+    }
+
+    pollTimer.value = window.setTimeout(() => {
+      void pollOnce()
+    }, delay)
+  }
+
+  const pollOnce = async () => {
+    if (sessionId !== pollSessionId || !isCurrentTaskContext(id) || inFlight) {
+      return
+    }
+
     const pollStart = Date.now()
     pollCount++
+    inFlight = true
     console.log(`[TaskDetail] 轮询 #${pollCount} 开始`, { taskId: id, time: new Date().toLocaleTimeString() })
 
     try {
       const taskInfo = await TaskAPI.getTask(id)
+      if (sessionId !== pollSessionId || !isCurrentTaskContext(id)) {
+        return
+      }
+
       const pollElapsed = Date.now() - pollStart
       console.log(`[TaskDetail] 轮询 #${pollCount} 完成`, {
         taskId: id,
@@ -1655,8 +1853,12 @@ function pollTaskStatus(id: number) {
         logRefreshCounter++
         if (logRefreshCounter >= 5) {
           console.log('[TaskDetail] pollTaskStatus 自动刷新日志, taskId:', id)
-          await loadTaskLogs()  // 静默刷新，不显示提示
+          await loadTaskLogs(id)  // 静默刷新，不显示提示
           logRefreshCounter = 0
+        }
+
+        if (sessionId === pollSessionId && isCurrentTaskContext(id)) {
+          scheduleNextPoll()
         }
       } else if (taskInfo.status === 'completed') {
         console.log('[TaskDetail] pollTaskStatus 任务完成, 停止轮询, taskId:', id)
@@ -1665,23 +1867,32 @@ function pollTaskStatus(id: number) {
         if (storeTask?.connectionId) {
           await loadVMList()
         }
-        await loadTaskLogs()
+        await loadTaskLogs(id)
         await loadAnalysisResultFromBackend(id)
       } else if (taskInfo.status === 'failed') {
         console.log('[TaskDetail] pollTaskStatus 任务失败, 停止轮询, taskId:', id, 'error:', taskInfo.error)
         stopPolling()
-        await loadTaskLogs()
+        await loadTaskLogs(id)
         ElMessage.error('任务执行失败: ' + (taskInfo.error || '未知错误'))
+      } else if (sessionId === pollSessionId && isCurrentTaskContext(id)) {
+        scheduleNextPoll()
       }
     } catch (error) {
       console.error('[TaskDetail] pollTaskStatus 轮询任务状态失败:', error)
+      if (sessionId === pollSessionId && isCurrentTaskContext(id)) {
+        scheduleNextPoll()
+      }
+    } finally {
+      inFlight = false
     }
-  }, 5000)
+  }
+
+  scheduleNextPoll()
 
   pollTimeout.value = window.setTimeout(() => {
     console.log('[TaskDetail] pollTaskStatus 轮询超时, 停止轮询, taskId:', id)
     stopPolling()
-  }, 5 * 60 * 1000)
+  }, 30 * 60 * 1000)  // 30 分钟超时，适应大规模环境
 }
 
 async function handleCancel() {
@@ -1726,13 +1937,17 @@ async function handleRetry() {
 }
 
 // 加载日志（静默，不显示成功提示）
-async function loadTaskLogs() {
-  if (!task.value?.id) return
+async function loadTaskLogs(targetTaskId?: number) {
+  const resolvedTaskId = targetTaskId ?? task.value?.id
+  if (!resolvedTaskId) return
 
   logsLoading.value = true
   try {
     // 获取所有日志数据
-    const logs = await TaskAPI.getTaskLogs(task.value.id)
+    const logs = await TaskAPI.getTaskLogs(resolvedTaskId)
+    if (targetTaskId && !isCurrentTaskContext(targetTaskId)) {
+      return
+    }
     allLogs.value = logs
 
     // 应用搜索过滤
@@ -2320,6 +2535,12 @@ function getConfidenceColor(confidence: number): string {
   return '#f56c6c'
 }
 
+function getLoadColor(pct: number): string {
+  if (pct <= 60) return '#67c23a'
+  if (pct <= 80) return '#e6a23c'
+  return '#f56c6c'
+}
+
 // 分析结果 - 获取汇总数据
 async function fetchAnalysisSummary() {
   if (!task.value?.id) return
@@ -2535,16 +2756,19 @@ function getSeverityTagType(severity: string): string {
 }
 
 // 从后端同步任务信息（使用详情接口获取完整数据）
-async function syncTaskFromBackend() {
-  if (!taskId.value) {
+async function syncTaskFromBackend(targetTaskId = Number(taskId.value)) {
+  if (!targetTaskId) {
     console.warn('[TaskDetail] 无效的 taskId，跳过同步')
     return
   }
 
   try {
-    console.log('[TaskDetail] 从后端获取任务详情, taskId:', taskId.value)
+    console.log('[TaskDetail] 从后端获取任务详情, taskId:', targetTaskId)
     // 直接调用详情接口，获取完整数据
-    const taskDetail = await TaskAPI.getTaskDetail(Number(taskId.value))
+    const taskDetail = await TaskAPI.getTaskDetail(targetTaskId)
+    if (!isCurrentTaskContext(targetTaskId)) {
+      return
+    }
     console.log('[TaskDetail] 获取到任务详情:', {
       id: taskDetail.id,
       status: taskDetail.status,
@@ -2554,10 +2778,10 @@ async function syncTaskFromBackend() {
     })
 
     // 更新 store 中的任务数据
-    const storeTask = taskStore.getTask(Number(taskId.value))
+    const storeTask = taskStore.getTask(targetTaskId)
     if (storeTask) {
       // 使用 updateTask 确保响应式更新（对象替换）
-      taskStore.updateTask(Number(taskId.value), taskDetail)
+      taskStore.updateTask(targetTaskId, taskDetail)
       console.log('[TaskDetail] 已更新 store 中的任务数据')
     } else {
       // store 中没有该任务，添加新任务
@@ -3678,6 +3902,12 @@ function formatConfigTime(timestamp: string | undefined): string {
       gap: 16px;
       flex: 1;
 
+      .checkbox-with-info {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
       .summary-checkbox {
         height: auto;
         align-items: flex-start;
@@ -3733,6 +3963,123 @@ function formatConfigTime(timestamp: string | undefined): string {
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  // 优化项 info 图标
+  .opt-info-icon {
+    cursor: pointer;
+    color: var(--el-color-info);
+    font-size: 14px;
+    margin-left: 2px;
+    vertical-align: middle;
+    &:hover { color: var(--el-color-primary); }
+  }
+
+  .opt-info-content {
+    .opt-info-title {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 6px;
+      color: var(--el-text-color-primary);
+    }
+    p { margin: 0 0 8px; font-size: 13px; color: var(--el-text-color-regular); line-height: 1.6; }
+    .opt-info-ops {
+      font-size: 13px;
+      strong { display: block; margin-bottom: 4px; color: var(--el-text-color-primary); }
+      ul { margin: 0; padding-left: 18px; }
+      li { line-height: 1.8; color: var(--el-text-color-regular); }
+    }
+  }
+
+  // 优化建议卡片
+  .summary-recommendation {
+    margin-bottom: 12px;
+  }
+
+  .recommendation-card {
+    border: 1px solid var(--el-border-color-lighter);
+    .rec-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .rec-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+
+      .rec-step {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 13px;
+        line-height: 1.7;
+        color: var(--el-text-color-regular);
+        .el-tag { flex-shrink: 0; margin-top: 2px; }
+        strong { color: var(--el-text-color-primary); }
+      }
+    }
+
+    .rec-divider {
+      height: 1px;
+      background: var(--el-border-color-lighter);
+      margin: 14px 0;
+    }
+
+    .rec-conclusion {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--el-text-color-regular);
+      strong { color: var(--el-text-color-primary); font-size: 14px; }
+    }
+
+    .rec-host-plan {
+      margin-top: 10px;
+      .rec-host-summary {
+        font-size: 13px;
+        line-height: 1.8;
+        color: var(--el-text-color-regular);
+        strong { font-size: 14px; }
+        .text-primary { color: var(--el-color-primary); }
+        .text-danger { color: var(--el-color-danger); }
+      }
+    }
+
+    .rec-load-status {
+      margin-top: 14px;
+      font-size: 13px;
+      color: var(--el-text-color-regular);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+
+      .rec-load-bars {
+        width: 100%;
+        margin-top: 10px;
+        display: flex;
+        gap: 20px;
+
+        .rec-load-item {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          .rec-load-label {
+            font-size: 12px;
+            color: var(--el-text-color-secondary);
+            width: 32px;
+            flex-shrink: 0;
+            text-align: right;
+          }
+          .el-progress { flex: 1; }
+        }
+      }
+    }
   }
 }
 
