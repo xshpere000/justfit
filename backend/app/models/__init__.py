@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Integer, Boolean, DateTime, Text, BigInteger, Float, ForeignKey, Index, func
+from sqlalchemy import String, Integer, Boolean, DateTime, Text, BigInteger, Float, ForeignKey, Index
 from typing import Optional, List
 
 from app.core.database import Base
@@ -11,8 +11,8 @@ from app.core.database import Base
 class TimestampMixin:
     """Add timestamp fields to models."""
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class Connection(Base, TimestampMixin):

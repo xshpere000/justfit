@@ -95,7 +95,7 @@ class HealthAnalyzer:
             return self._empty_result()
 
         # Build cluster data structure with associated VMs
-        cluster_data = self._build_cluster_data(clusters, vms)
+        cluster_data = self._build_cluster_data(clusters, hosts, vms)
 
         # Run three analyses
         overcommit_results, overcommit_score = await self._analyze_overcommit(
@@ -170,12 +170,15 @@ class HealthAnalyzer:
         return result
 
     def _build_cluster_data(
-        self, clusters: List[Cluster], vms: List[VM]
+        self, clusters: List[Cluster], hosts: List[Host], vms: List[VM]
     ) -> Dict[str, Dict[str, Any]]:
         """Build cluster data structure with associated VMs.
 
+        VM 没有 cluster_name 字段，通过 VM.host_name/host_ip → Host.cluster_name 关联。
+
         Args:
             clusters: List of Cluster objects
+            hosts: List of Host objects (用于 VM→Cluster 关联)
             vms: List of VM objects
 
         Returns:
@@ -190,17 +193,37 @@ class HealthAnalyzer:
                 "vms": [],
             }
 
+        # 建立 host_name/host_ip → cluster_name 的映射
+        host_cluster_by_name: Dict[str, str] = {}
+        host_cluster_by_ip: Dict[str, str] = {}
+        for host in hosts:
+            if host.name:
+                host_cluster_by_name[host.name] = host.cluster_name or ""
+            if host.ip_address:
+                host_cluster_by_ip[host.ip_address] = host.cluster_name or ""
+
+        # 建立 (datacenter, cluster_name) → cluster_key 的索引
+        dc_cluster_index: Dict[tuple, str] = {}
+        for cluster_key, info in cluster_map.items():
+            c = info["cluster"]
+            dc_cluster_index[(c.datacenter, c.name)] = cluster_key
+
         for vm in vms:
-            # Find cluster by matching datacenter and cluster info
-            vm_cluster_key = f"{vm.datacenter}:{vm.datacenter}"  # VM's cluster
-            if vm_cluster_key in cluster_map:
-                cluster_map[vm_cluster_key]["vms"].append(vm)
+            # 通过 host_name 或 host_ip 查 cluster_name
+            cluster_name = host_cluster_by_name.get(vm.host_name, "")
+            if not cluster_name and vm.host_ip:
+                cluster_name = host_cluster_by_ip.get(vm.host_ip, "")
+
+            # 用 datacenter + cluster_name 定位集群
+            key = dc_cluster_index.get((vm.datacenter, cluster_name), "")
+            if key and key in cluster_map:
+                cluster_map[key]["vms"].append(vm)
             else:
-                # Try direct match
-                for cluster_key, cluster_info in cluster_map.items():
-                    if cluster_info["cluster"].name in vm.host_name or vm.datacenter in cluster_key:
-                        cluster_info["vms"].append(vm)
-                        break
+                # fallback：datacenter 下只有一个集群时直接归入
+                dc_clusters = [k for k, info in cluster_map.items()
+                               if info["cluster"].datacenter == vm.datacenter]
+                if len(dc_clusters) == 1:
+                    cluster_map[dc_clusters[0]]["vms"].append(vm)
 
         return cluster_map
 
@@ -365,11 +388,14 @@ class HealthAnalyzer:
         for cluster_key, data in cluster_data.items():
             cluster = data["cluster"]
 
-            # Get hosts for this cluster
+            # Get hosts for this cluster (按 cluster_name 精确匹配)
             cluster_hosts = [
                 h for h in hosts
-                if h.datacenter == cluster.datacenter
+                if h.cluster_name == cluster.name and h.datacenter == cluster.datacenter
             ]
+            # fallback：若无精确匹配，退化为同 datacenter（单集群场景）
+            if not cluster_hosts:
+                cluster_hosts = [h for h in hosts if h.datacenter == cluster.datacenter]
 
             if not cluster_hosts:
                 continue

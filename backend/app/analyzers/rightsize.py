@@ -62,6 +62,12 @@ class RightSizeAnalyzer:
                 continue
 
             vm_info = vm_data.get(vm_id, {})
+
+            # 关机 VM 不做 rightsize（无法执行，且历史指标是关机前数据）
+            power_state = (vm_info.get("power_state") or "").lower().replace(" ", "").replace("_", "")
+            if power_state in ("poweredoff", "off", "shutdown", "suspended"):
+                continue
+
             result = await self._analyze_vm(vm_id, metrics, vm_info)
 
             if result["confidence"] >= self.min_confidence:

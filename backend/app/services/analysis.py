@@ -500,7 +500,7 @@ class AnalysisService:
             # 检查 job 状态
             if job.status == "running":
                 # 检查是否超时（超过 2 分钟）或有 completed_at 但状态仍是 running
-                timeout_threshold = datetime.utcnow() - timedelta(minutes=2)
+                timeout_threshold = datetime.now() - timedelta(minutes=2)
                 if job.completed_at or (job.started_at and job.started_at < timeout_threshold):
                     # Job 已完成或超时，标记为失败并创建新 job
                     job.status = "failed"
@@ -520,7 +520,7 @@ class AnalysisService:
                 task_id=task_id,
                 job_type=job_type,
                 status="running",
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(),
             )
             self.db.add(job)
             await self.db.commit()
@@ -537,7 +537,7 @@ class AnalysisService:
             task_id=task_id,
             job_type=job_type,
             status="running",
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(),
         )
         self.db.add(job)
         await self.db.commit()
@@ -655,7 +655,7 @@ class AnalysisService:
             job = job_result.scalar_one_or_none()
             if job:
                 job.status = "completed"
-                job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.now()
                 job.result_summary = json.dumps({"count": 0})
             await self.db.commit()
             return
@@ -742,7 +742,7 @@ class AnalysisService:
         job = job_result.scalar_one_or_none()
         if job:
             job.status = "completed"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now()
             job.result_summary = json.dumps({"count": total_saved})
 
         await self.db.commit()
@@ -837,7 +837,7 @@ class AnalysisService:
         job = job_result.scalar_one_or_none()
         if job:
             job.status = "completed"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now()
             job.result_summary = json.dumps({
                 "overallScore": overall_score,
                 "grade": grade,
@@ -1037,6 +1037,10 @@ class AnalysisService:
                         vm_id = d.get("vmId")
                         if vm_id is not None:
                             idle_vm_ids.add(vm_id)
+                        else:
+                            # 没有 vmId 时用 vmName 做兜底（防止重复计算）
+                            if f.vm_name:
+                                idle_vm_ids.add(f"name:{f.vm_name}")
                     except Exception:
                         pass
 
@@ -1067,7 +1071,9 @@ class AnalysisService:
                 if finding.details:
                     try:
                         d = json.loads(finding.details)
-                        if d.get("vmId") in idle_vm_ids:
+                        vm_id = d.get("vmId")
+                        # 去重：vmId 匹配或 vmName 兜底匹配
+                        if vm_id in idle_vm_ids or (vm_id is None and f"name:{finding.vm_name}" in idle_vm_ids):
                             continue  # idle VM 已计入下线，跳过避免重复
                         current_cpu = d.get("currentCpu", 0)
                         recommended_cpu = d.get("recommendedCpu", 0)
@@ -1111,20 +1117,35 @@ class AnalysisService:
             key=lambda h: (h.cpu_cores, h.memory_bytes)
         )
 
-        # 建立主机→VM 映射（按主机 IP 和 name 关联）
+        # 建立主机→VM 映射（双向索引：name 和 ip 均建索引，避免 key 不匹配）
         host_vm_count: Dict[str, int] = {}
         host_vm_cpu: Dict[str, int] = {}
         host_vm_mem: Dict[str, float] = {}
         host_vm_disk: Dict[str, float] = {}
 
-        for vm in vms:
-            key = vm.host_name or vm.host_ip or ""
-            if not key:
+        # 建立主机 canonical key（name → canonical，ip → canonical）
+        # canonical key 优先用 name，没有 name 则用 ip
+        host_canonical: Dict[str, str] = {}  # name/ip → canonical_key
+        for host in hosts:
+            canonical = host.name or host.ip_address or ""
+            if not canonical:
                 continue
-            host_vm_count[key] = host_vm_count.get(key, 0) + 1
-            host_vm_cpu[key] = host_vm_cpu.get(key, 0) + vm.cpu_count
-            host_vm_mem[key] = host_vm_mem.get(key, 0.0) + vm.memory_bytes / (1024 ** 3)
-            host_vm_disk[key] = host_vm_disk.get(key, 0.0) + vm.disk_usage_bytes / (1024 ** 3)
+            if host.name:
+                host_canonical[host.name] = canonical
+            if host.ip_address:
+                host_canonical[host.ip_address] = canonical
+
+        for vm in vms:
+            # 优先用 host_name，找不到再用 host_ip
+            raw_key = vm.host_name or vm.host_ip or ""
+            if not raw_key:
+                continue
+            # 尝试映射到主机的 canonical key
+            canonical = host_canonical.get(raw_key, raw_key)
+            host_vm_count[canonical] = host_vm_count.get(canonical, 0) + 1
+            host_vm_cpu[canonical] = host_vm_cpu.get(canonical, 0) + vm.cpu_count
+            host_vm_mem[canonical] = host_vm_mem.get(canonical, 0.0) + vm.memory_bytes / (1024 ** 3)
+            host_vm_disk[canonical] = host_vm_disk.get(canonical, 0.0) + vm.disk_usage_bytes / (1024 ** 3)
 
         remaining_cpu = total_freed_cpu
         remaining_mem = total_freed_memory
@@ -1136,6 +1157,8 @@ class AnalysisService:
 
         for host in sorted_hosts:
             host_key = host.name or host.ip_address or ""
+            if not host_key:
+                continue
             vm_count = host_vm_count.get(host_key, 0)
             if vm_count == 0:
                 continue  # 无 VM 的主机跳过
@@ -1182,8 +1205,9 @@ class AnalysisService:
         vm_running_cpu = sum(v.cpu_count for v in vms if v.power_state and "on" in v.power_state.lower())
         vm_running_mem_gb = round(sum(v.memory_bytes for v in vms if v.power_state and "on" in v.power_state.lower()) / (1024 ** 3), 2)
 
-        freed_cpu_pct = round(total_freed_cpu / vm_total_cpu * 100, 1) if vm_total_cpu > 0 else 0.0
-        freed_mem_pct = round(total_freed_memory / vm_total_mem_gb * 100, 1) if vm_total_mem_gb > 0 else 0.0
+        # 分母使用主机物理总量：释放的是物理资源，用 VM 配置量做分母会因超配而偏低
+        freed_cpu_pct = round(total_freed_cpu / total_cpu_cores * 100, 1) if total_cpu_cores > 0 else 0.0
+        freed_mem_pct = round(total_freed_memory / total_memory_gb * 100, 1) if total_memory_gb > 0 else 0.0
 
         # 构建优化建议
         recommendation = self._build_optimization_recommendation(
@@ -1307,7 +1331,7 @@ class AnalysisService:
         retained_mem = round(total_memory_gb - freed_host_mem, 2)
         retained_storage = round(total_storage_gb - freed_host_storage, 2)
 
-        # 优化后集群实际需求
+        # 优化后集群配置需求（基于 VM 配置量，不是实际使用率）
         # 基准 = 开机 VM 配置总量（关机 VM 不消耗运行资源）
         # 释放 = rightsize 缩容量 + 开机闲置 VM 释放量
         total_freed_cpu = freed_cpu_from_resource + freed_cpu_from_idle
@@ -1316,16 +1340,19 @@ class AnalysisService:
         needed_mem = round(vm_running_mem_gb - total_freed_mem, 2)
         needed_storage = round(used_storage_gb - freed_disk_from_idle, 2)
         if needed_cpu < 0:
+            logger.warning("needed_cpu_negative", needed_cpu=needed_cpu, vm_running_cpu=vm_running_cpu, total_freed_cpu=total_freed_cpu)
             needed_cpu = 0
         if needed_mem < 0:
             needed_mem = 0
         if needed_storage < 0:
             needed_storage = 0
 
-        # 优化后负载率
-        cpu_load_pct = round(needed_cpu / retained_cpu * 100, 1) if retained_cpu > 0 else 0
-        mem_load_pct = round(needed_mem / retained_mem * 100, 1) if retained_mem > 0 else 0
-        storage_load_pct = round(needed_storage / retained_storage * 100, 1) if retained_storage > 0 else 0
+        # 负载率 = 优化后配置量 / 保留主机物理容量
+        # 注：这是配置超配率（VM 配置 / 物理资源），超配是正常的，100% 表示无超配
+        # 为保证前端进度条不超限，钳为 [0, 100]，实际超配情况由 healthStatus 反映
+        cpu_load_pct = min(100, round(needed_cpu / retained_cpu * 100, 1)) if retained_cpu > 0 else 0
+        mem_load_pct = min(100, round(needed_mem / retained_mem * 100, 1)) if retained_mem > 0 else 0
+        storage_load_pct = min(100, round(needed_storage / retained_storage * 100, 1)) if retained_storage > 0 else 0
 
         # 健康状态判定
         max_load = max(cpu_load_pct, mem_load_pct)

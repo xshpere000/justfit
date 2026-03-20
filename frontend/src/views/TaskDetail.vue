@@ -3,7 +3,7 @@
     <!-- 任务头部 -->
     <div class="task-header">
       <div class="header-left">
-        <el-button :icon="ArrowLeft" circle plain @click="goHome" />
+        <el-button :icon="ArrowLeft" plain @click="goHome">返回</el-button>
       </div>
       <div class="header-center">
         <div class="task-title">
@@ -1234,6 +1234,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import dayjs from '@/utils/dayjs'
 import { useRouter, useRoute } from 'vue-router'
 import { useTaskStore, type Task } from '@/stores/task'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -2847,39 +2848,13 @@ function getPlatformText(platform: string | undefined) {
 // 格式化日志时间戳
 function formatLogTimestamp(timestamp: string): string {
   if (!timestamp) return '-'
-  try {
-    const date = new Date(timestamp)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    })
-  } catch {
-    return timestamp
-  }
+  return dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss')
 }
 
 // 格式化配置时间
 function formatConfigTime(timestamp: string | undefined): string {
   if (!timestamp) return '-'
-  try {
-    const date = new Date(timestamp)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    })
-  } catch {
-    return timestamp
-  }
+  return dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss')
 }
 </script>
 

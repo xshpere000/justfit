@@ -208,7 +208,8 @@ class UISConnector(Connector):
             if isinstance(datetime_str, str) and 'T' in datetime_str:
                 from datetime import datetime as dt
                 if datetime_str.endswith('Z'):
-                    return dt.fromisoformat(datetime_str.replace('Z', '+00:00'))
+                    # UTC 时间转本地时间（去掉时区信息）
+                    return dt.fromisoformat(datetime_str.replace('Z', '+00:00')).astimezone().replace(tzinfo=None)
                 else:
                     return dt.fromisoformat(datetime_str)
 
@@ -224,20 +225,20 @@ class UISConnector(Connector):
                 timestamp = datetime_str
                 if timestamp < 10000000000:
                     # 秒
-                    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                    return datetime.fromtimestamp(timestamp)
                 else:
                     # 毫秒
-                    return datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+                    return datetime.fromtimestamp(timestamp / 1000.0)
 
             # Case 4: Unix timestamp string (auto-detect)
             elif isinstance(datetime_str, str):
                 timestamp = int(datetime_str)
                 if timestamp < 10000000000:
                     # 秒
-                    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                    return datetime.fromtimestamp(timestamp)
                 else:
                     # 毫秒
-                    return datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+                    return datetime.fromtimestamp(timestamp / 1000.0)
         except Exception as e:
             logger.warning("uis_datetime_parse_failed", value=str(datetime_str), error=str(e))
 
@@ -596,7 +597,7 @@ class UISConnector(Connector):
             logger.debug("uis_vm_status_fetch_failed", error=str(e))
 
         # Step 3: 并发获取所有VM的summary信息（包含时间字段）
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         vm_time_info = {}
 
         vm_list = data.get("data", [])
@@ -649,9 +650,6 @@ class UISConnector(Connector):
                             if last_off_time_timestamp and last_off_time_timestamp > 0:
                                 last_off_time = self._parse_datetime(last_off_time_timestamp)
                                 if last_off_time:
-                                    if last_off_time.tzinfo is None:
-                                        last_off_time = last_off_time.replace(tzinfo=timezone.utc)
-
                                     downtime = now - last_off_time
                                     downtime_duration = int(downtime.total_seconds())
                                     vm_time_info[vm_id]['downtime_duration'] = downtime_duration

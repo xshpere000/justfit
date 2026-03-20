@@ -1136,7 +1136,7 @@ class ExcelReportGenerator:
             return "-"
 
         try:
-            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(dt_str)
             return dt.strftime("%Y-%m-%d %H:%M")
         except Exception:
             return str(dt_str)
@@ -1148,7 +1148,7 @@ class ExcelReportGenerator:
 
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return datetime.fromisoformat(value)
             except Exception:
                 return value
 

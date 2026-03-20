@@ -1,6 +1,7 @@
 """Task Service - Assessment task management."""
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
@@ -372,34 +373,46 @@ class TaskService:
             logger.warning("collect_vm_metrics_no_vms", task_id=task_id, connection_id=connection_id)
             return {"total": 0, "collected": 0, "failed": 0}
 
+        now = datetime.now()
+        end_time = now
+        start_time = now - timedelta(days=metric_days)
+
+        # 阶段1：并发采集指标到内存
+        # 并发数 = max(1, cpu_count - 1)，上限 10，避免压垮 vCenter 同时保留 CPU 余量给 event loop
+        concurrency = max(1, min((os.cpu_count() or 2) - 1, 10))
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def fetch_one(vm):
+            async with semaphore:
+                try:
+                    metrics = await connector.get_vm_metrics(
+                        datacenter=vm.datacenter or "",
+                        vm_name=vm.name,
+                        vm_uuid=vm.uuid or "",
+                        start_time=start_time,
+                        end_time=end_time,
+                        cpu_count=vm.cpu_count or 1,
+                        total_memory_bytes=vm.memory_bytes or 0,
+                    )
+                    return (vm, metrics, None)
+                except Exception as e:
+                    logger.error("collect_vm_metrics_failed", vm_id=vm.id, vm_name=vm.name, error=str(e))
+                    return (vm, None, e)
+
+        fetch_results = await asyncio.gather(*[fetch_one(vm) for vm in vms])
+
+        # 阶段2：串行写库（避免并发写同一 session）
         collected = 0
         failed = 0
-        now = datetime.now()
-
-        # For each VM, collect metrics
-        for vm in vms:
+        for vm, metrics, err in fetch_results:
+            if err is not None:
+                failed += 1
+                continue
             try:
-                # Get metrics from vCenter (realtime data)
-                from datetime import timedelta
-                end_time = now
-                start_time = now - timedelta(days=metric_days)  # Get metrics for specified days
-
-                metrics = await connector.get_vm_metrics(
-                    datacenter=vm.datacenter or "",
-                    vm_name=vm.name,
-                    vm_uuid=vm.uuid or "",
-                    start_time=start_time,
-                    end_time=end_time,
-                    cpu_count=vm.cpu_count or 1,
-                    total_memory_bytes=vm.memory_bytes or 0,
-                )
-
-                # Save metrics
                 await self._save_vm_metrics(task_id, vm.id, metrics, now)
                 collected += 1
-
             except Exception as e:
-                logger.error("collect_vm_metrics_failed", vm_id=vm.id, vm_name=vm.name, error=str(e))
+                logger.error("save_vm_metrics_failed", vm_id=vm.id, vm_name=vm.name, error=str(e))
                 failed += 1
 
         logger.info(
@@ -510,7 +523,7 @@ class TaskService:
                 "id": log.id,
                 "level": log.level,
                 "message": log.message,
-                "createdAt": (log.created_at.isoformat() + "Z") if log.created_at else None,
+                "createdAt": log.created_at.isoformat() if log.created_at else None,
             }
             for log in logs
         ]

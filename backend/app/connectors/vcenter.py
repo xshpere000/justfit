@@ -60,6 +60,7 @@ class VCenterConnector(Connector):
         self.timeout = timeout
         self._service_instance: Optional[vim.ServiceInstance] = None
         self._content: Optional[vim.ServiceInstanceContent] = None
+        self._counter_map_cache: Optional[dict] = None  # 缓存 perfCounter 映射，避免每台VM重复调用
 
     async def _connect(self) -> vim.ServiceInstanceContent:
         """Establish connection to vCenter.
@@ -70,7 +71,7 @@ class VCenterConnector(Connector):
         if self._content is not None:
             return self._content
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _do_connect() -> vim.ServiceInstance:
             # 设置 socket 超时（SmartConnect 内部使用 SSL socket）
@@ -128,55 +129,56 @@ class VCenterConnector(Connector):
         logger.debug("vcenter_get_clusters_starting")
         await self._connect()
         content = self._content
+        loop = asyncio.get_running_loop()
 
-        cluster_view = content.viewManager.CreateContainerView(
-            content.rootFolder, [vim.ClusterComputeResource], True
-        )
+        def _fetch() -> List[ClusterInfo]:
+            cluster_view = content.viewManager.CreateContainerView(
+                content.rootFolder, [vim.ClusterComputeResource], True
+            )
+            clusters = []
+            for cluster in cluster_view.view:
+                total_cpu = sum(host.summary.hardware.cpuMhz * host.summary.hardware.numCpuThreads
+                              for host in cluster.host)
+                total_memory = sum(host.summary.hardware.memorySize
+                                for host in cluster.host)
 
-        clusters = []
-        for cluster in cluster_view.view:
-            # Calculate totals
-            total_cpu = sum(host.summary.hardware.cpuMhz * host.summary.hardware.numCpuThreads
-                          for host in cluster.host)
-            total_memory = sum(host.summary.hardware.memorySize
-                            for host in cluster.host)
+                total_storage = 0
+                used_storage = 0
+                seen_datastores = set()
+                if cluster.datastore:
+                    for ds in cluster.datastore:
+                        try:
+                            ds_id = ds.info.url if ds.info and ds.info.url else ds.name
+                            if ds_id in seen_datastores:
+                                continue
+                            seen_datastores.add(ds_id)
+                            capacity = ds.summary.capacity or 0
+                            free_space = ds.summary.freeSpace or 0
+                            total_storage += capacity
+                            used_storage += capacity - free_space
+                        except Exception:
+                            pass
 
-            # Calculate storage totals (deduplicate shared datastores by URL/name)
-            total_storage = 0
-            used_storage = 0
-            seen_datastores = set()
-            if cluster.datastore:
-                for ds in cluster.datastore:
-                    try:
-                        ds_id = ds.info.url if ds.info and ds.info.url else ds.name
-                        if ds_id in seen_datastores:
-                            continue
-                        seen_datastores.add(ds_id)
-                        capacity = ds.summary.capacity or 0
-                        free_space = ds.summary.freeSpace or 0
-                        total_storage += capacity
-                        used_storage += capacity - free_space
-                    except Exception:
-                        pass
+                cluster_key = f"{cluster.name}"
+                if cluster.parent and hasattr(cluster.parent, 'name'):
+                    cluster_key = f"{cluster.parent.name}:{cluster.name}"
 
-            # Generate cluster key
-            cluster_key = f"{cluster.name}"
-            if cluster.parent and hasattr(cluster.parent, 'name'):
-                cluster_key = f"{cluster.parent.name}:{cluster.name}"
+                clusters.append(ClusterInfo(
+                    name=cluster.name,
+                    datacenter=self._get_datacenter_name(cluster),
+                    total_cpu=int(total_cpu),
+                    total_memory=int(total_memory),
+                    total_storage=int(total_storage),
+                    used_storage=int(used_storage),
+                    num_hosts=len(cluster.host) if cluster.host else 0,
+                    num_vms=sum(len(h.vm) for h in cluster.host if h.vm) if cluster.host else 0,
+                    cluster_key=cluster_key,
+                ))
 
-            clusters.append(ClusterInfo(
-                name=cluster.name,
-                datacenter=self._get_datacenter_name(cluster),
-                total_cpu=int(total_cpu),
-                total_memory=int(total_memory),
-                total_storage=int(total_storage),
-                used_storage=int(used_storage),
-                num_hosts=len(cluster.host) if cluster.host else 0,
-                num_vms=sum(len(h.vm) for h in cluster.host if h.vm) if cluster.host else 0,
-                cluster_key=cluster_key,
-            ))
+            cluster_view.Destroy()
+            return clusters
 
-        cluster_view.Destroy()
+        clusters = await loop.run_in_executor(None, _fetch)
         logger.info("vcenter_get_clusters_success", count=len(clusters))
         return clusters
 
@@ -189,35 +191,36 @@ class VCenterConnector(Connector):
         logger.debug("vcenter_get_hosts_starting")
         await self._connect()
         content = self._content
+        loop = asyncio.get_running_loop()
 
-        host_view = content.viewManager.CreateContainerView(
-            content.rootFolder, [vim.HostSystem], True
-        )
+        def _fetch() -> List[HostInfo]:
+            host_view = content.viewManager.CreateContainerView(
+                content.rootFolder, [vim.HostSystem], True
+            )
+            hosts = []
+            for host in host_view.view:
+                ip_address = self._get_host_ip(host)
+                cluster_name = ""
+                if host.parent and isinstance(host.parent, vim.ClusterComputeResource):
+                    cluster_name = host.parent.name
 
-        hosts = []
-        for host in host_view.view:
-            # Get IP from vmk0 (management network)
-            ip_address = self._get_host_ip(host)
+                hosts.append(HostInfo(
+                    name=host.name,
+                    datacenter=self._get_datacenter_name(host),
+                    cluster_name=cluster_name,
+                    ip_address=ip_address,
+                    cpu_cores=host.summary.hardware.numCpuCores,
+                    cpu_mhz=host.summary.hardware.cpuMhz,
+                    memory_bytes=host.summary.hardware.memorySize,
+                    num_vms=len(host.vm) if host.vm else 0,
+                    power_state=host.summary.runtime.connectionState,
+                    overall_status=host.summary.overallStatus,
+                ))
 
-            # Get cluster name from parent (only for ClusterComputeResource, not standalone ComputeResource)
-            cluster_name = ""
-            if host.parent and isinstance(host.parent, vim.ClusterComputeResource):
-                cluster_name = host.parent.name
+            host_view.Destroy()
+            return hosts
 
-            hosts.append(HostInfo(
-                name=host.name,
-                datacenter=self._get_datacenter_name(host),
-                cluster_name=cluster_name,
-                ip_address=ip_address,
-                cpu_cores=host.summary.hardware.numCpuCores,
-                cpu_mhz=host.summary.hardware.cpuMhz,
-                memory_bytes=host.summary.hardware.memorySize,
-                num_vms=len(host.vm) if host.vm else 0,
-                power_state=host.summary.runtime.connectionState,
-                overall_status=host.summary.overallStatus,
-            ))
-
-        host_view.Destroy()
+        hosts = await loop.run_in_executor(None, _fetch)
         logger.info("vcenter_get_hosts_success", count=len(hosts))
         return hosts
 
@@ -275,7 +278,7 @@ class VCenterConnector(Connector):
             async def load_host_ip(host_name: str, host_obj) -> None:
                 async with semaphore:
                     try:
-                        ip = await asyncio.get_event_loop().run_in_executor(
+                        ip = await asyncio.get_running_loop().run_in_executor(
                             None, lambda: self._get_host_ip(host_obj)
                         )
                         host_ip_cache[host_name] = ip
@@ -293,7 +296,7 @@ class VCenterConnector(Connector):
         async def extract_vm_info(vm: vim.VirtualMachine) -> Optional[VMInfo]:
             """提取单个 VM 的信息（在线程池中执行同步操作）"""
             # 使用 run_in_executor 在线程池中执行属性访问
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
 
             def _extract() -> Optional[VMInfo]:
                 try:
@@ -496,7 +499,7 @@ class VCenterConnector(Connector):
         Returns:
             VMMetrics or None if PerfManager fails
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         perf_manager = content.perfManager
 
         if not perf_manager:
@@ -697,7 +700,7 @@ class VCenterConnector(Connector):
         Returns:
             EntityMetric or None
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         query_spec_params = {
             "entity": vm,
@@ -870,51 +873,32 @@ class VCenterConnector(Connector):
         vm_name: str,
         cpu_count: int,
     ) -> VMMetrics:
-        """Get basic metrics from quickStats (CPU and memory only).
+        """Get basic metrics from quickStats (CPU and memory only)."""
+        loop = asyncio.get_running_loop()
 
-        Args:
-            vm: Virtual machine object
-            vm_name: VM name
-            cpu_count: Number of CPUs
+        def _fetch():
+            if not (vm.summary and vm.summary.quickStats):
+                return None, 0, 0
+            qs = vm.summary.quickStats
+            host_cpu_mhz = 0
+            if vm.runtime and vm.runtime.host and vm.runtime.host.summary:
+                host_cpu_mhz = vm.runtime.host.summary.hardware.cpuMhz
+            cpu_usage_mhz = qs.overallCpuUsage if qs.overallCpuUsage else 0
+            memory_usage_bytes = (qs.guestMemoryUsage or 0) * 1024 * 1024
+            return True, cpu_usage_mhz, memory_usage_bytes
 
-        Returns:
-            VMMetrics with CPU and memory data, zeros for I/O
-        """
-        if not (vm.summary and vm.summary.quickStats):
+        ok, cpu_usage_mhz, memory_usage_bytes = await loop.run_in_executor(None, _fetch)
+
+        if not ok:
             logger.warning("vcenter_no_quick_stats", vm_name=vm_name)
-            return VMMetrics(
-                cpu_mhz=0,
-                memory_bytes=0,
-                disk_read_bytes_per_sec=0,
-                disk_write_bytes_per_sec=0,
-                net_rx_bytes_per_sec=0,
-                net_tx_bytes_per_sec=0,
-                cpu_samples=0,
-                memory_samples=0,
-                disk_samples=0,
-                network_samples=0,
-            )
-
-        qs = vm.summary.quickStats
-
-        # Get host CPU for MHz calculation
-        host_cpu_mhz = 0
-        if vm.runtime and vm.runtime.host and vm.runtime.host.summary:
-            host_cpu_mhz = vm.runtime.host.summary.hardware.cpuMhz
-
-        # Get VM memory for percentage calculation
-        vm_memory_mb = vm.summary.config.memorySizeMB if vm.summary and vm.summary.config else 0
-
-        # Calculate values from quickStats
-        cpu_usage_mhz = qs.overallCpuUsage if qs.overallCpuUsage else 0
-        memory_usage_bytes = (qs.guestMemoryUsage or 0) * 1024 * 1024  # MB to bytes
+            cpu_usage_mhz = 0
+            memory_usage_bytes = 0
 
         logger.info(
             "vcenter_quick_stats_success",
             vm_name=vm_name,
             cpu_mhz=cpu_usage_mhz,
             memory_mb=memory_usage_bytes // (1024 * 1024),
-            host_cpu_mhz=host_cpu_mhz,
         )
 
         return VMMetrics(
@@ -944,7 +928,16 @@ class VCenterConnector(Connector):
         Returns:
             Dictionary mapping counter names to IDs
         """
-        counter_info = perf_manager.perfCounter
+        # 缓存：perfCounter 在同一连接内不会变化，无需每台VM重复获取
+        if self._counter_map_cache is not None:
+            return self._counter_map_cache
+
+        loop = asyncio.get_running_loop()
+
+        def _fetch_counters():
+            return perf_manager.perfCounter
+
+        counter_info = await loop.run_in_executor(None, _fetch_counters)
         if not counter_info:
             logger.warning("vcenter_no_counter_info", vm_name=vm_name)
             return {}
@@ -957,7 +950,6 @@ class VCenterConnector(Connector):
             name_key = counter.nameInfo.key if counter.nameInfo else ""
             rollup_type = counter.rollupType if hasattr(counter, 'rollupType') else None
 
-            # Collect sample for debugging
             if len(counter_sample) < 10:
                 unit_info = counter.unitInfo if hasattr(counter, 'unitInfo') else {}
                 counter_sample.append({
@@ -968,26 +960,17 @@ class VCenterConnector(Connector):
                     "key": counter.key
                 })
 
-            # Match counters (use average rollup type)
             if rollup_type != vim.PerformanceManager.CounterInfo.RollupType.average:
                 continue
 
-            # 使用 cpu.usagemhz 而不是 cpu.usage，因为后者在某些嵌套 VM 上返回 MHz 而不是 percent
             if group_key == 'cpu' and name_key == 'usagemhz':
                 counter_ids['cpu'] = counter.key
-            # 使用 mem.consumed 而不是 mem.usage
-            # mem.usage 在某些嵌套 VM 上返回的值不可靠
-            # mem.consumed 返回 KB，更可靠
             elif group_key == 'mem' and name_key == 'consumed':
                 counter_ids['memory'] = counter.key
-            # 磁盘 I/O 必须使用 virtualDisk 组（VM 级别），不是 disk 组（主机级别）
-            # virtualDisk.read/write 只在 20秒间隔时可用
             elif group_key == 'virtualDisk' and name_key == 'read':
                 counter_ids['disk_read'] = counter.key
             elif group_key == 'virtualDisk' and name_key == 'write':
                 counter_ids['disk_write'] = counter.key
-            # 网络 I/O 使用 bytesRx/bytesTx（更直观的名称）
-            # net.bytesRx/bytesTx 只在 20秒间隔时可用
             elif group_key == 'net' and name_key == 'bytesRx':
                 counter_ids['net_rx'] = counter.key
             elif group_key == 'net' and name_key == 'bytesTx':
@@ -1004,6 +987,7 @@ class VCenterConnector(Connector):
             counters=list(counter_ids.keys()),
         )
 
+        self._counter_map_cache = counter_ids
         return counter_ids
 
     def _get_datacenter_name(self, entity) -> str:
@@ -1071,7 +1055,7 @@ class VCenterConnector(Connector):
         await self._connect()
         content = self._content
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         search_index = content.searchIndex
 
         def _find():

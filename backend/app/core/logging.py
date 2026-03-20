@@ -96,7 +96,7 @@ def setup_logging(level: int = logging.INFO) -> None:
             structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
             structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
+            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             add_logger,
